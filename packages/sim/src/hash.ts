@@ -71,6 +71,8 @@ export function hashState(s: SimState): string {
   f.words(w.dissent);
   for (let i = 0; i < w.scarTicks.length; i++) f.u32(w.scarTicks[i]!);
   f.words(w.district);
+  f.bytes(w.pop);
+  f.bytes(w.lot);
   f.bytes(w.landmark);
   for (let i = 0; i < w.holdTicks.length; i++) f.u32(w.holdTicks[i]!);
   f.bytes(w.flags);
@@ -110,6 +112,7 @@ export function hashState(s: SimState): string {
   f.byte(s.status);
   f.u32(s.winner);
   f.u32(s.populated);
+  f.u32(s.totalPop);
   f.u32(s.dominationPermille);
   f.u32(s.timerTicks);
   f.u32(s.pylons.length);

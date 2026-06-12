@@ -31,6 +31,7 @@ import {
   type DistrictId,
 } from "./types.js";
 import { resolveConversion } from "./conversion.js";
+import { carveDirtLane } from "./mapgen.js";
 import { newPlayer } from "./player.js";
 import {
   BUILDING_DEFS,
@@ -135,6 +136,8 @@ export function createWorld(width: number, height: number): World {
     scarTicks: new Uint16Array(n),
     district: new Uint32Array(n),
     districtCoeffs: [{ conv: ONE, retain: ONE, income: ONE }],
+    pop: new Uint8Array(n),
+    lot: new Uint8Array(n),
     landmark: new Uint8Array(n),
     holdTicks: new Uint16Array(n),
     flags: new Uint8Array(n),
@@ -158,8 +161,10 @@ export function createSim(opts: {
 }): SimState {
   const rng: RngState = seedRng(opts.seed);
   let populated = 0;
+  let totalPop = 0;
   for (let t = 0; t < opts.world.terrain.length; t++) {
     if (opts.world.terrain[t] === Terrain.Citizen) populated++;
+    totalPop += opts.world.pop[t]!;
   }
   return {
     tick: 0,
@@ -170,6 +175,7 @@ export function createSim(opts: {
     nextFrontId: 1,
     progress: new Map(),
     populated,
+    totalPop,
     dominationPermille: opts.dominationPermille ?? 720,
     timerTicks: opts.timerTicks ?? 12 * 60 * TPS,
     status: MatchStatus.Live,
@@ -247,6 +253,7 @@ function claimBlob(s: SimState, pid: PlayerId, center: TileId, r: number): numbe
   const cx = center % w.width;
   const cy = (center / w.width) | 0;
   let claimed = 0;
+  let joined = 0;
   for (let dy = -r; dy <= r; dy++) {
     for (let dx = -r; dx <= r; dx++) {
       const x = cx + dx;
@@ -259,9 +266,32 @@ function claimBlob(s: SimState, pid: PlayerId, center: TileId, r: number): numbe
       w.owner[t] = pid;
       w.state[t] = TileState.Believer;
       claimed++;
+      joined += w.pop[t]!;
     }
   }
+  if (joined > 0) {
+    const p = s.players.find((pl) => pl.id === pid);
+    if (p) p.followers = add(p.followers, fromInt(joined));
+  }
   return claimed;
+}
+
+/** Any of the player's believer lots within radius `r` of `tile`? */
+function nearOwnTerritory(s: SimState, pid: PlayerId, tile: TileId, r: number): boolean {
+  const w = s.world;
+  const cx = tile % w.width;
+  const cy = (tile / w.width) | 0;
+  for (let dy = -r; dy <= r; dy++) {
+    const y = cy + dy;
+    if (y < 0 || y >= w.height) continue;
+    for (let dx = -r; dx <= r; dx++) {
+      const x = cx + dx;
+      if (x < 0 || x >= w.width) continue;
+      if (dx * dx + dy * dy > r * r) continue;
+      if (w.owner[y * w.width + x] === pid) return true;
+    }
+  }
+  return false;
 }
 
 /** Add dissent to every owned-or-not citizen tile of a district. */
@@ -504,6 +534,7 @@ function applyAbility(s: SimState, p: PlayerState, b: Balance, intent: Intent): 
       p.usd = sub(p.usd, fromInt(KIT.saucerLanding.cost));
       w.owner[t] = p.id;
       w.state[t] = TileState.Believer;
+      p.followers = add(p.followers, fromInt(w.pop[t]!)); // the household looks up
       p.ownedTiles++;
       s.buildings.push({
         id: s.nextEntityId++,
@@ -513,6 +544,7 @@ function applyAbility(s: SimState, p: PlayerState, b: Balance, intent: Intent): 
         buildTicksLeft: 0,
         disabledTicks: 0,
       });
+      carveDirtLane(w, t); // pilgrims need a way in
       startCooldown(p, "saucer_landing", KIT.saucerLanding.cooldown);
       return;
     }
@@ -548,6 +580,7 @@ export function applyIntent(s: SimState, intent: Intent, b: Balance): void {
 
     case IntentType.SPAWN: {
       // FOUNDING phase (§18): claim the starting blob around the picked tile.
+      // The blob's residents are your first congregation.
       if (p.spawned) break;
       const claimed = claimBlob(s, p.id, intent.tile, 3);
       if (claimed > 0) {
@@ -578,6 +611,8 @@ export function applyIntent(s: SimState, intent: Intent, b: Balance): void {
 
     case IntentType.BUILD: {
       // Full §6 table. Satellites are placed by the Saucer ability, not BUILD.
+      // Compounds rise on owned lots OR in the open country near your flock —
+      // wilderness builds auto-carve a dirt access road (OpenFront-style).
       const type = intent.building as Building["type"];
       const def = BUILDING_DEFS[type];
       if (!def || type === "satellite") break;
@@ -585,7 +620,12 @@ export function applyIntent(s: SimState, intent: Intent, b: Balance): void {
       if (countBuildings(s, p.id, type) >= def.max) break;
       const w = s.world;
       const t = intent.tile;
-      if (t < 0 || t >= w.owner.length || w.owner[t] !== p.id) break;
+      if (t < 0 || t >= w.owner.length) break;
+      const onOwnedLot = w.owner[t] === p.id && w.terrain[t] === Terrain.Citizen;
+      const inWilderness =
+        (w.terrain[t] === Terrain.Grass || w.terrain[t] === Terrain.Field) &&
+        nearOwnTerritory(s, p.id, t, 10);
+      if (!onOwnedLot && !inWilderness) break;
       if (s.buildings.some((bd) => bd.tile === t)) break; // 1 per tile (§6)
       const cost = buildingCost(s, p.id, type);
       if (p.usd < cost) break;
@@ -598,6 +638,10 @@ export function applyIntent(s: SimState, intent: Intent, b: Balance): void {
         buildTicksLeft: def.buildTicks,
         disabledTicks: 0,
       });
+      if (inWilderness) {
+        w.terrain[t] = Terrain.Grass; // stake the lot (fields get cleared)
+        carveDirtLane(w, t); // the access road auto-generates
+      }
       if (type === "compound") p.compounds++;
       break;
     }
@@ -990,12 +1034,31 @@ function checkVictory(s: SimState, b: Balance): void {
 
   const contenders = s.players.filter((p) => p.alive && p.spawned);
 
-  // (1) Domination threshold.
-  for (const p of contenders) {
-    if (s.populated > 0 && p.ownedTiles * 1000 >= s.populated * s.dominationPermille) {
-      s.status = MatchStatus.Ended;
-      s.winner = p.id;
-      return;
+  // (1) Domination threshold — measured in SOULS, not acreage. The game is
+  // about converting the town; tile share is only the fallback for popless
+  // test worlds.
+  if (s.totalPop > 0) {
+    const w = s.world;
+    const popByOwner = new Map<PlayerId, number>();
+    for (let t = 0; t < w.owner.length; t++) {
+      const o = w.owner[t]!;
+      if (o === NEUTRAL || w.state[t] !== TileState.Believer) continue;
+      popByOwner.set(o, (popByOwner.get(o) ?? 0) + w.pop[t]!);
+    }
+    for (const p of contenders) {
+      if ((popByOwner.get(p.id) ?? 0) * 1000 >= s.totalPop * s.dominationPermille) {
+        s.status = MatchStatus.Ended;
+        s.winner = p.id;
+        return;
+      }
+    }
+  } else {
+    for (const p of contenders) {
+      if (s.populated > 0 && p.ownedTiles * 1000 >= s.populated * s.dominationPermille) {
+        s.status = MatchStatus.Ended;
+        s.winner = p.id;
+        return;
+      }
     }
   }
 

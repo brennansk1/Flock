@@ -10,8 +10,17 @@
  * Querystring: ?name=Mae&archetype=radiant&server=ws://localhost:8787
  */
 
-import { Application, Text } from "pixi.js";
-import { toFloat, toInt, IntentType, Stance, MatchStatus } from "@flock/sim";
+import { Application, Graphics, Text } from "pixi.js";
+import {
+  toFloat,
+  toInt,
+  IntentType,
+  Stance,
+  MatchStatus,
+  NEUTRAL,
+  TileState,
+  colorForPlayer,
+} from "@flock/sim";
 import { connect, type GameSession } from "./net.js";
 import { MapRenderer } from "./render.js";
 
@@ -42,15 +51,68 @@ async function boot(): Promise<void> {
   connect(`${server}/?name=${encodeURIComponent(name)}&archetype=${archetype}`, (g) => {
     const map = new MapRenderer(app, g.sim.world.width, g.sim.world.height);
     map.setViewer(g.playerId);
+
+    // Town-conversion bar (top of screen): every cult's share of the
+    // population vs the unconverted remainder — the real scoreboard.
+    const bar = new Graphics();
+    const barLabel = new Text({
+      text: "",
+      style: { fill: "#1a1410", fontSize: 12, fontFamily: "monospace", fontWeight: "bold" },
+    });
+    barLabel.position.set(8, 4);
+    app.stage.addChild(bar);
+    app.stage.addChild(barLabel);
+    hud.position.set(8, 30);
     app.stage.addChild(hud); // HUD above map
 
     wireInput(app, map, g);
 
+    let lastBarTick = -1;
     app.ticker.add(() => {
       map.draw(g.sim);
       hud.text = hudText(g);
+      if (g.sim.tick - lastBarTick >= 5) {
+        lastBarTick = g.sim.tick;
+        drawConversionBar(app, bar, barLabel, g);
+      }
     });
   });
+}
+
+/**
+ * The proportion bar: cult-colored segments by population share, gray for the
+ * unconverted town. Sorted big→small so the leader reads at a glance.
+ */
+function drawConversionBar(app: Application, bar: Graphics, label: Text, g: GameSession): void {
+  const w = g.sim.world;
+  const popByOwner = new Map<number, number>();
+  let converted = 0;
+  for (let t = 0; t < w.owner.length; t++) {
+    const o = w.owner[t]!;
+    if (o === NEUTRAL || w.state[t] !== TileState.Believer) continue;
+    const pop = w.pop[t]!;
+    popByOwner.set(o, (popByOwner.get(o) ?? 0) + pop);
+    converted += pop;
+  }
+  const total = Math.max(1, g.sim.totalPop);
+  const width = app.renderer.width;
+  const H = 22;
+
+  bar.clear();
+  bar.rect(0, 0, width, H).fill(0x3a3530); // the unconverted town
+  let x = 0;
+  const shares = [...popByOwner.entries()].sort((a, z) => z[1] - a[1]);
+  for (const [owner, pop] of shares) {
+    const seg = (pop / total) * width;
+    const colorHex = parseInt(colorForPlayer(owner).slice(1), 16);
+    bar.rect(x, 0, seg, H).fill(colorHex);
+    x += seg;
+  }
+  bar.rect(0, H, width, 2).fill(0x1a1410);
+
+  const pct = ((converted / total) * 100).toFixed(1);
+  const mine = ((popByOwner.get(g.playerId) ?? 0) / total) * 100;
+  label.text = `MUNDANE FALLS — ${pct}% converted   (you: ${mine.toFixed(1)}% of ${total} souls)`;
 }
 
 /** Per-archetype D/F actives (left rail, §27). */

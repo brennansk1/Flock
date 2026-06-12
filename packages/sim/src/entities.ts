@@ -30,6 +30,7 @@ import {
   hotlineCovers,
   disableBuildingsNear,
   isOperational,
+  staffingRatio,
 } from "./buildings.js";
 import { heatGainMult, raidEffectMultAgainst, tryAbsorbMassApostasy, scarTicksFor } from "./doctrine.js";
 
@@ -102,6 +103,7 @@ export function stepCouriers(s: SimState, b: Balance): void {
     const byPlayer = new Map<PlayerId, TileId[]>();
     for (const bd of s.buildings) {
       if (bd.type !== "collection_plate" || !isOperational(bd)) continue;
+      if (staffingRatio(s, bd) < ONE >> 1) continue; // nobody to pass the plate (§6 staffing)
       const arr = byPlayer.get(bd.player) ?? [];
       arr.push(bd.tile);
       byPlayer.set(bd.player, arr);

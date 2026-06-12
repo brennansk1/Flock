@@ -33,7 +33,7 @@ import type {
   RecapEvents,
 } from "./types.js";
 
-export const SNAPSHOT_VERSION = 4;
+export const SNAPSHOT_VERSION = 6;
 
 export interface Snapshot {
   v: number;
@@ -50,6 +50,8 @@ export interface Snapshot {
     scarTicks: number[];
     district: number[];
     districtCoeffs: { conv: Fixed; retain: Fixed; income: Fixed }[];
+    pop: number[];
+    lot: number[];
     landmark: number[];
     holdTicks: number[];
     flags: number[];
@@ -60,6 +62,7 @@ export interface Snapshot {
   /** progress map flattened to [key, value] pairs, sorted by key. */
   progress: [number, Fixed][];
   populated: number;
+  totalPop: number;
   dominationPermille: number;
   timerTicks: number;
   status: MatchStatus;
@@ -107,6 +110,8 @@ export function toSnapshot(s: SimState): Snapshot {
       scarTicks: [...w.scarTicks],
       district: [...w.district],
       districtCoeffs: w.districtCoeffs.map((d) => ({ ...d })),
+      pop: [...w.pop],
+      lot: [...w.lot],
       landmark: [...w.landmark],
       holdTicks: [...w.holdTicks],
       flags: [...w.flags],
@@ -116,6 +121,7 @@ export function toSnapshot(s: SimState): Snapshot {
     nextFrontId: s.nextFrontId,
     progress: [...s.progress.entries()].sort((a, z) => a[0] - z[0]),
     populated: s.populated,
+    totalPop: s.totalPop,
     dominationPermille: s.dominationPermille,
     timerTicks: s.timerTicks,
     status: s.status,
@@ -168,6 +174,8 @@ export function fromSnapshot(snap: Snapshot): SimState {
     scarTicks: Uint16Array.from(sw.scarTicks),
     district: Uint32Array.from(sw.district),
     districtCoeffs: sw.districtCoeffs.map((d) => ({ ...d })),
+    pop: Uint8Array.from(sw.pop),
+    lot: Uint8Array.from(sw.lot),
     landmark: Uint8Array.from(sw.landmark),
     holdTicks: Uint16Array.from(sw.holdTicks),
     flags: Uint8Array.from(sw.flags),
@@ -185,6 +193,7 @@ export function fromSnapshot(snap: Snapshot): SimState {
     nextFrontId: snap.nextFrontId,
     progress: new Map(snap.progress),
     populated: snap.populated,
+    totalPop: snap.totalPop,
     dominationPermille: snap.dominationPermille,
     timerTicks: snap.timerTicks,
     status: snap.status,

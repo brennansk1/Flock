@@ -28,12 +28,20 @@ export const TileState = {
 } as const;
 export type TileState = (typeof TileState)[keyof typeof TileState];
 
-/** Terrain classes (§1). Citizen tiles use `Citizen`. */
+/**
+ * Terrain classes (§1). `Citizen` lots hold residents; `Grass` is the open
+ * country around town — unconvertible (nobody lives there) but buildable:
+ * cult compounds rise in the wilderness, and `Dirt` access roads
+ * auto-generate to connect them to the highway. `Field` is farmland dressing.
+ */
 export const Terrain = {
   Citizen: 0,
   Woods: 1,
   Lake: 2,
   Road: 3,
+  Grass: 4,
+  Field: 5,
+  Dirt: 6,
 } as const;
 export type Terrain = (typeof Terrain)[keyof typeof Terrain];
 
@@ -69,6 +77,28 @@ export const Landmark = {
 } as const;
 export type Landmark = (typeof Landmark)[keyof typeof Landmark];
 
+/**
+ * Town building occupying a lot (visual + social texture; residents work and
+ * shop here, and dots route to them). Multi-tile structures repeat their id
+ * on each covered tile; the renderer merges shared edges.
+ */
+export const Lot = {
+  None: 0,
+  Shop: 1,
+  Supermarket: 2,
+  Diner: 3,
+  School: 4,
+  Library: 5,
+  Chapel: 6,
+  GasStation: 7,
+  Sheriff: 8,
+  Office: 9,
+  Barn: 10,
+  Silo: 11,
+  Park: 12,
+} as const;
+export type Lot = (typeof Lot)[keyof typeof Lot];
+
 /** Per-tile flag bits (World.flags). */
 export const TileFlag = {
   /** Prosperity Circle Downline: creep-flipped, pays 2× tithe forever (§11.3) */
@@ -94,6 +124,14 @@ export interface World {
   district: Uint32Array;
   /** Coefficient row per district id (§2). Index 0 is the 1.0/1.0/1.0 default. */
   districtCoeffs: DistrictCoeffs[];
+  /**
+   * Residents per tile (0–15). The town is people, not acreage: victory,
+   * the conversion bar, and follower flow all run on population. Houses
+   * (pop ≥ 3) render as buildings; low-pop tiles are yards and gardens.
+   */
+  pop: Uint8Array;
+  /** Town building per lot (Lot enum); houses render where 0 and pop ≥ 3. */
+  lot: Uint8Array;
   /** Landmark kind per tile (§12); 0 = none. */
   landmark: Uint8Array;
   /** Ticks a Believer tile has been continuously held (Radiant Glow, §11.2). Capped. */
@@ -346,6 +384,8 @@ export interface SimState {
   progress: ProgressMap;
   /** count of citizen tiles — the victory-balance unit (§1) */
   populated: number;
+  /** total residents in town — the conversion-bar and domination denominator */
+  totalPop: number;
   /** domination threshold in per-mille of populated tiles (§1: 72% / 80%) */
   dominationPermille: number;
   /** match timer in ticks; 0 = untimed */

@@ -56,10 +56,10 @@ test("mapgen is deterministic and spec-shaped", () => {
   const c = generateWorld(9999, 96, 96);
   assert.notDeepEqual([...a.district], [...c.district], "different seed => different map");
 
-  // quotas sanity: populated majority, some impassable, downtown exists at center
+  // small-town sanity: a real town core + farms, surrounded by open country
   const populated = countPopulated(a);
-  assert.ok(populated > 96 * 96 * 0.7, "most of the map should be citizen tiles");
-  assert.ok(populated < 96 * 96, "some terrain should be impassable/roads");
+  assert.ok(populated > 500, `town + farms should have real housing (got ${populated})`);
+  assert.ok(populated < 96 * 96 * 0.5, "most of the map is open country now");
   const centerTile = 48 * 96 + 47;
   // center is a road crossing; check a downtown tile near it exists
   let hasDowntown = false;
@@ -91,6 +91,7 @@ function soloSim(): SimState {
     timerTicks: 0, // untimed for kit tests
   });
   step(s, { n: 0, intents: [{ t: IntentType.SPAWN, player: 1, tile: 12 * 24 + 12 }], seedSlice: 0 }, balance);
+  s.players[0]!.followers = fromInt(1000); // classic dynamics for kit tests
   return s;
 }
 

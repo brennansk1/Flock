@@ -77,6 +77,8 @@ function duel(): SimState {
   }
   s.players[0]!.spawned = true;
   s.players[1]!.spawned = true;
+  s.players[0]!.followers = fromInt(1000);
+  s.players[1]!.followers = fromInt(1000);
   return s;
 }
 
@@ -356,7 +358,7 @@ test("Visitors: Crop Circle accelerates neutral conversion for everyone", () => 
     if (withCircle)
       intents.push({ t: IntentType.ABILITY, player: 1, ability: "crop_circle", target: 10 * W + 5 });
     const base = me.ownedTiles;
-    run(s, 400, intents);
+    run(s, 240, intents); // window where the +30 S boost differentiates
     return me.ownedTiles - base;
   };
   const plain = captured(false);

@@ -9,7 +9,14 @@
 
 import { add, mul, fromInt, fromFloat, ONE, type Fixed } from "./fixed.js";
 import type { Balance } from "./balance.js";
-import { Terrain, type Building, type PlayerId, type SimState, type TileId } from "./types.js";
+import {
+  Terrain,
+  TileState,
+  type Building,
+  type PlayerId,
+  type SimState,
+  type TileId,
+} from "./types.js";
 
 const TPS = 10;
 
@@ -20,29 +27,66 @@ export interface BuildingDef {
   buildTicks: number;
   radius: number;
   max: number;
+  /**
+   * Congregation required to run the place at full output: converted residents
+   * within STAFF_RADIUS. Effectiveness = min(1, nearby/staff). Placement is
+   * strategy: a Broadcast Tower in an empty field is a very expensive lawn
+   * ornament.
+   */
+  staff: number;
   /** archetype gate, if any */
   archetype?: "radiant";
 }
 
+/** How far the congregation will walk to run a building. */
+export const STAFF_RADIUS = 6;
+
 /** Authoritative table (§6). Satellite is the Visitors' Saucer chapel (§11.4). */
 export const BUILDING_DEFS: Record<Building["type"], BuildingDef> = {
-  compound: { cost: 15_000, costGrowth: 1.35, buildTicks: 20 * TPS, radius: 8, max: 8 },
-  collection_plate: { cost: 10_000, costGrowth: 1, buildTicks: 15 * TPS, radius: 0, max: 6 },
-  watchtower: { cost: 12_000, costGrowth: 1.25, buildTicks: 18 * TPS, radius: 6, max: 10 },
-  broadcast_tower: { cost: 250_000, costGrowth: 1, buildTicks: 45 * TPS, radius: 0, max: 2 },
-  hotline_center: { cost: 60_000, costGrowth: 1, buildTicks: 25 * TPS, radius: 12, max: 4 },
-  print_shop: { cost: 40_000, costGrowth: 1, buildTicks: 25 * TPS, radius: 10, max: 3 },
-  garage: { cost: 8_000, costGrowth: 1, buildTicks: 12 * TPS, radius: 0, max: 3 },
+  compound: { cost: 15_000, costGrowth: 1.35, buildTicks: 20 * TPS, radius: 8, max: 8, staff: 40 },
+  collection_plate: { cost: 10_000, costGrowth: 1, buildTicks: 15 * TPS, radius: 0, max: 6, staff: 25 },
+  watchtower: { cost: 12_000, costGrowth: 1.25, buildTicks: 18 * TPS, radius: 6, max: 10, staff: 20 },
+  broadcast_tower: { cost: 250_000, costGrowth: 1, buildTicks: 45 * TPS, radius: 0, max: 2, staff: 90 },
+  hotline_center: { cost: 60_000, costGrowth: 1, buildTicks: 25 * TPS, radius: 12, max: 4, staff: 50 },
+  print_shop: { cost: 40_000, costGrowth: 1, buildTicks: 25 * TPS, radius: 10, max: 3, staff: 40 },
+  garage: { cost: 8_000, costGrowth: 1, buildTicks: 12 * TPS, radius: 0, max: 3, staff: 15 },
   supplement_lab: {
     cost: 25_000,
     costGrowth: 1,
     buildTicks: 20 * TPS,
     radius: 5,
     max: 4,
+    staff: 30,
     archetype: "radiant",
   },
-  satellite: { cost: 25_000, costGrowth: 1, buildTicks: 0, radius: 0, max: 99 },
+  satellite: { cost: 25_000, costGrowth: 1, buildTicks: 0, radius: 0, max: 99, staff: 0 },
 };
+
+/**
+ * Staffing ratio as Q16.16 in [0, ONE]: converted residents within
+ * STAFF_RADIUS over the required congregation. Pure integer math (lockstep
+ * scope). Popless test worlds report fully staffed.
+ */
+export function staffingRatio(s: SimState, bd: Building): Fixed {
+  const def = BUILDING_DEFS[bd.type];
+  if (def.staff === 0 || s.totalPop === 0) return ONE;
+  const w = s.world;
+  const bx = bd.tile % w.width;
+  const by = (bd.tile / w.width) | 0;
+  let nearby = 0;
+  for (let dy = -STAFF_RADIUS; dy <= STAFF_RADIUS; dy++) {
+    const y = by + dy;
+    if (y < 0 || y >= w.height) continue;
+    for (let dx = -STAFF_RADIUS; dx <= STAFF_RADIUS; dx++) {
+      const x = bx + dx;
+      if (x < 0 || x >= w.width) continue;
+      if (dx * dx + dy * dy > STAFF_RADIUS * STAFF_RADIUS) continue;
+      const t = y * w.width + x;
+      if (w.owner[t] === bd.player && w.state[t] === TileState.Believer) nearby += w.pop[t]!;
+    }
+  }
+  return nearby >= def.staff ? ONE : Math.floor((nearby * ONE) / def.staff);
+}
 
 export function countBuildings(s: SimState, player: PlayerId, type: Building["type"]): number {
   let n = 0;
@@ -76,13 +120,20 @@ function dist2(w: { width: number }, a: TileId, t: TileId): number {
   return dx * dx + dy * dy;
 }
 
-/** Watchtower fort_mult = 5 inside radius 6 of the defender's operational tower (§6). */
+/**
+ * Watchtower fort_mult inside radius 6 of the defender's operational tower
+ * (§6), scaled by staffing: an unmanned tower barely slows anyone.
+ * fort = 1 + 4 × staffing.
+ */
 export function fortMultAt(s: SimState, defender: PlayerId, tile: TileId): Fixed {
+  let best: Fixed = ONE;
   for (const b of s.buildings) {
     if (b.type !== "watchtower" || b.player !== defender || !isOperational(b)) continue;
-    if (dist2(s.world, b.tile, tile) <= 36) return fromInt(5);
+    if (dist2(s.world, b.tile, tile) > 36) continue;
+    const fort = ONE + 4 * staffingRatio(s, b); // 1 → 5 fully staffed
+    if (fort > best) best = fort;
   }
-  return ONE;
+  return best;
 }
 
 /** Compound conversion anchor: +10% defense in radius 8 (§6). */
@@ -120,21 +171,31 @@ export function hasPrintShop(s: SimState, player: PlayerId): boolean {
   return false;
 }
 
-/** Operational Broadcast Tower without a strike already charging (§6: one at a time). */
+/**
+ * Operational, ≥50%-staffed Broadcast Tower without a strike already charging
+ * (§6: one at a time). Nobody to run the booth, nobody to run the smear.
+ */
 export function freeBroadcastTower(s: SimState, player: PlayerId): Building | undefined {
   const charging = s.strikes.filter((c) => c.player === player).length;
   const towers = s.buildings.filter(
-    (b) => b.type === "broadcast_tower" && b.player === player && isOperational(b),
+    (b) =>
+      b.type === "broadcast_tower" &&
+      b.player === player &&
+      isOperational(b) &&
+      staffingRatio(s, b) >= ONE >> 1,
   );
   return charging < towers.length ? towers[0] : undefined;
 }
 
-/** Garage capacity: 3 Vans per operational Garage (§6). */
+/** Garage capacity: 3 Vans per operational Garage (§6), needing drivers. */
 export function vanCapacity(s: SimState, player: PlayerId): number {
-  let garages = 0;
-  for (const b of s.buildings)
-    if (b.type === "garage" && b.player === player && isOperational(b)) garages++;
-  return garages * 3;
+  let cap = 0;
+  for (const b of s.buildings) {
+    if (b.type === "garage" && b.player === player && isOperational(b)) {
+      cap += (3 * staffingRatio(s, b)) >> 16;
+    }
+  }
+  return cap;
 }
 
 /** Destroy (not capture) any building standing on a tile that flipped (§6). */
@@ -199,8 +260,9 @@ export function stepBuildings(s: SimState, b: Balance): void {
           if (w.terrain[t] === Terrain.Citizen && w.owner[t] !== bd.player) tiles++;
         }
       }
-      // 0.004 $/tile/sec
-      const tea = mul(mul(fromFloat(0.004), fromInt(tiles)), b.dt);
+      // 0.004 $/tile/sec, scaled by how many believers actually brew the tea
+      let tea = mul(mul(fromFloat(0.004), fromInt(tiles)), b.dt);
+      tea = mul(tea, staffingRatio(s, bd));
       p.usd = add(p.usd, tea);
       p.usdEarned = add(p.usdEarned, tea);
     }

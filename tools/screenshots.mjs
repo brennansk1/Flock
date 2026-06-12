@@ -18,21 +18,12 @@ import {
   nextU32,
   newPlayer,
   generateRecap,
+  renderTown,
   IntentType,
   NEUTRAL,
   Terrain,
-  TileState,
   MatchStatus,
   toInt,
-  hexToRgb,
-  shade,
-  territoryPixel,
-  colorForPlayer,
-  NEUTRAL_BY_DISTRICT,
-  TERRAIN_COLORS,
-  COLOR_APOSTATE,
-  COLOR_APOSTATE_ALT,
-  ENTITY_COLORS,
 } from "../packages/sim/dist/index.js";
 
 const OUT = process.argv[2] ?? "shots";
@@ -82,114 +73,13 @@ function writePNG(path, width, height, rgba) {
 }
 
 // ---------------------------------------------------------------- renderer
-// Mirrors the client's render.ts pixel logic via the shared palette module.
+// The shared town renderer (same pixels as the PixiJS client).
 
-const PX = 4; // pixels per tile
-const UP = 2; // final upscale
+const UP = 1; // townRender draws at 8px/tile already (96 tiles → 768px)
 
 function renderFrame(sim) {
-  const w = sim.world;
-  const W = w.width * PX;
-  const H = w.height * PX;
-  const buf = Buffer.alloc(W * H * 4);
-  const arch = new Map(sim.players.map((p) => [p.id, p.archetype]));
-
-  const put = (gx, gy, rgb) => {
-    const o = (gy * W + gx) * 4;
-    buf[o] = rgb[0];
-    buf[o + 1] = rgb[1];
-    buf[o + 2] = rgb[2];
-    buf[o + 3] = 255;
-  };
-
-  for (let ty = 0; ty < w.height; ty++) {
-    for (let tx = 0; tx < w.width; tx++) {
-      const t = ty * w.width + tx;
-      for (let py = 0; py < PX; py++) {
-        for (let px = 0; px < PX; px++) {
-          const gx = tx * PX + px;
-          const gy = ty * PX + py;
-          put(gx, gy, pixel(sim, arch, t, gx, gy));
-        }
-      }
-    }
-  }
-
-  // entities
-  const sprite = (t, body, trim) => {
-    const x = (t % w.width) * PX;
-    const y = ((t / w.width) | 0) * PX;
-    for (let py = 0; py < PX; py++)
-      for (let px = 0; px < PX; px++) {
-        const edge = px === 0 || py === 0 || px === PX - 1 || py === PX - 1;
-        put(x + px, y + py, edge ? trim : body);
-      }
-  };
-  const dot2 = (t, rgb) => {
-    const x = (t % w.width) * PX + 1;
-    const y = ((t / w.width) | 0) * PX + 1;
-    put(x, y, rgb);
-    put(x + 1, y, rgb);
-    put(x, y + 1, rgb);
-    put(x + 1, y + 1, rgb);
-  };
-  for (let t = 0; t < w.landmark.length; t++) {
-    if (w.landmark[t] !== 0)
-      sprite(t, hexToRgb(ENTITY_COLORS.landmark), hexToRgb(ENTITY_COLORS.landmarkTrim));
-  }
-  for (const bd of sim.buildings) {
-    const body =
-      bd.type === "satellite"
-        ? hexToRgb(ENTITY_COLORS.satellite)
-        : bd.disabledTicks > 0
-          ? hexToRgb(ENTITY_COLORS.buildingDown)
-          : bd.buildTicksLeft > 0
-            ? hexToRgb(ENTITY_COLORS.buildingSite)
-            : hexToRgb(ENTITY_COLORS.buildingBody);
-    sprite(bd.tile, body, hexToRgb(ENTITY_COLORS.buildingTrim));
-  }
-  for (const c of sim.couriers) dot2(c.path[c.idx], hexToRgb(ENTITY_COLORS.courier));
-  for (const v of sim.vans) dot2(v.tile, hexToRgb(ENTITY_COLORS.van));
-  for (const py of sim.pylons) dot2(py.tile, hexToRgb(ENTITY_COLORS.pylon));
-  for (const pk of sim.pickets) dot2(pk.tile, hexToRgb(ENTITY_COLORS.picket));
-
-  // upscale
-  const buf2 = Buffer.alloc(W * UP * H * UP * 4);
-  for (let y = 0; y < H * UP; y++) {
-    for (let x = 0; x < W * UP; x++) {
-      const so = (((y / UP) | 0) * W + ((x / UP) | 0)) * 4;
-      const dorig = (y * W * UP + x) * 4;
-      buf2[dorig] = buf[so];
-      buf2[dorig + 1] = buf[so + 1];
-      buf2[dorig + 2] = buf[so + 2];
-      buf2[dorig + 3] = 255;
-    }
-  }
-  return { buf: buf2, width: W * UP, height: H * UP };
-}
-
-function pixel(sim, arch, t, gx, gy) {
-  const w = sim.world;
-  switch (w.terrain[t]) {
-    case Terrain.Woods:
-      return hexToRgb((gx + gy) % 5 === 0 ? TERRAIN_COLORS.woodsAlt : TERRAIN_COLORS.woods);
-    case Terrain.Lake:
-      return hexToRgb(gy % 6 === 0 ? TERRAIN_COLORS.lakeAlt : TERRAIN_COLORS.lake);
-    case Terrain.Road: {
-      const mid = gy % PX === PX / 2 || gx % PX === PX / 2;
-      return hexToRgb(mid ? TERRAIN_COLORS.roadLine : TERRAIN_COLORS.road);
-    }
-  }
-  if (w.state[t] === TileState.Apostate) {
-    return hexToRgb((gx + gy) % 3 === 0 ? COLOR_APOSTATE_ALT : COLOR_APOSTATE);
-  }
-  const owner = w.owner[t];
-  if (owner === NEUTRAL) {
-    const base = hexToRgb(NEUTRAL_BY_DISTRICT[w.district[t] % NEUTRAL_BY_DISTRICT.length]);
-    return (gx * 7 + gy * 13) % 11 === 0 ? shade(base, 0.95) : base;
-  }
-  const base = hexToRgb(colorForPlayer(owner));
-  return owner >= 900 ? shade(base, 0.95) : territoryPixel(base, arch.get(owner) ?? "dawn", gx, gy);
+  const { data, width, height } = renderTown(sim, { frameTick: sim.tick });
+  return { buf: Buffer.from(data.buffer, data.byteOffset, data.byteLength), width, height };
 }
 
 // ---------------------------------------------------------------- bot match

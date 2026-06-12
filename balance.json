@@ -2,8 +2,8 @@
   "sim": { "tick_ms": 100, "turn_per_tick": 1, "hash_every_turns": 50 },
   "economy": {
     "tithe_per_follower": 0.018,
-    "start_usd": 8000,
-    "start_followers": 1000,
+    "start_usd": 2000,
+    "start_followers": 100,
     "follower_growth": 0.022,
     "cap_base": 5000,
     "cap_per_compound": 25000,
@@ -12,9 +12,9 @@
     "courier_interval_s": 20
   },
   "conversion": {
-    "base_pressure": 8.0,
+    "base_pressure": 14.0,
     "flip_threshold": 100,
-    "ambient_creep": 0.35,
+    "ambient_creep": 1.1,
     "max_eff_per_border_tile": 60,
     "attrition_attacker": 0.6,
     "attrition_defender": 0.35,

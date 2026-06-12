@@ -96,13 +96,54 @@ function convertible(w: World, t: TileId): boolean {
   );
 }
 
-/** Does player `p` own any 4-neighbor of `t`? (Fronts press from adjacency.) */
+/** Max consecutive road tiles conversion can jump — ideas travel the highway (§1). */
+const ROAD_JUMP = 3;
+
+/**
+ * Walk from `t` in a cardinal direction, skipping up to ROAD_JUMP road tiles,
+ * and return the first citizen tile on the far side (or −1). This is what lets
+ * a congregation reach across the street.
+ */
+function acrossRoad(w: World, t: TileId, dx: number, dy: number): TileId {
+  let x = t % w.width;
+  let y = (t / w.width) | 0;
+  for (let step = 0; step <= ROAD_JUMP; step++) {
+    x += dx;
+    y += dy;
+    if (x < 0 || y < 0 || x >= w.width || y >= w.height) return -1;
+    const n = y * w.width + x;
+    if (w.terrain[n] === Terrain.Citizen) return step > 0 ? n : -1; // must cross ≥1 road
+    if (w.terrain[n] !== Terrain.Road && w.terrain[n] !== Terrain.Dirt) return -1; // nature blocks the word
+  }
+  return -1;
+}
+
+const DIRS: ReadonlyArray<readonly [number, number]> = [
+  [0, -1],
+  [-1, 0],
+  [1, 0],
+  [0, 1],
+];
+
+/**
+ * Does player `p` own any 4-neighbor of `t`, or the lot directly across the
+ * street? (Fronts press from adjacency; streets don't stop the sermon.)
+ */
 function adjacentToOwned(w: World, t: TileId, p: PlayerId): boolean {
   let found = false;
   forEachNeighbor(w, t, (n) => {
     if (w.owner[n] === p && w.state[n] === TileState.Believer) found = true;
   });
-  return found;
+  if (found) return true;
+  for (const [dx, dy] of DIRS) {
+    const x = (t % w.width) + dx;
+    const y = ((t / w.width) | 0) + dy;
+    if (x < 0 || y < 0 || x >= w.width || y >= w.height) continue;
+    if (w.terrain[y * w.width + x] !== Terrain.Road) continue;
+    const far = acrossRoad(w, t, dx, dy);
+    if (far >= 0 && w.owner[far] === p && w.state[far] === TileState.Believer) return true;
+  }
+  return false;
 }
 
 interface ContestedWork {
@@ -325,13 +366,25 @@ export function resolveConversion(s: SimState, b: Balance): void {
     if (!p || !p.alive) continue;
     const r0 = mul(coeffsOf(b, p).r0, r0Mult(p));
     const cm = creepMult(p); // T2 Whisper Network +60% (§10)
-    forEachNeighbor(w, t, (n) => {
+    const creepTo = (n: TileId, roadBonus: boolean): void => {
       if (w.owner[n] !== NEUTRAL || !convertible(w, n)) return;
       const dc = w.districtCoeffs[w.district[n]!] ?? { conv: ONE, retain: ONE, income: ONE };
-      const pr = mul(mul(mul(b.conversion.ambientCreep, r0), dc.conv), cm);
+      let pr = mul(mul(mul(b.conversion.ambientCreep, r0), dc.conv), cm);
+      if (roadBonus) pr = mul(pr, fp(1.1)); // creep +10% along roads (§1)
       const key = n * PROGRESS_STRIDE + owner;
       s.progress.set(key, add(s.progress.get(key) ?? 0, mul(pr, dt)));
-    });
+    };
+    forEachNeighbor(w, t, (n) => creepTo(n, false));
+    // and across the street: ideas travel the highway (§1)
+    for (const [dx, dy] of DIRS) {
+      const x = (t % w.width) + dx;
+      const y = ((t / w.width) | 0) + dy;
+      if (x < 0 || y < 0 || x >= w.width || y >= w.height) continue;
+      const adj = w.terrain[y * w.width + x];
+      if (adj !== Terrain.Road && adj !== Terrain.Dirt) continue;
+      const far = acrossRoad(w, t, dx, dy);
+      if (far >= 0) creepTo(far, true);
+    }
   }
 
   // ---- Pass 3a: Recruitment Vans (§7) — 40-follower pressure at range 2. ----
@@ -375,10 +428,16 @@ export function resolveConversion(s: SimState, b: Balance): void {
     const p = playerById.get(winner);
     if (!p) continue;
 
+    // The residents convert: they leave the loser's flock and join the winner's.
+    const residents = fromInt(w.pop[t]!);
     if (prevOwner !== NEUTRAL) {
       const loser = playerById.get(prevOwner);
-      if (loser) loser.ownedTiles = Math.max(0, loser.ownedTiles - 1);
+      if (loser) {
+        loser.ownedTiles = Math.max(0, loser.ownedTiles - 1);
+        loser.followers = loser.followers > residents ? sub(loser.followers, residents) : 0;
+      }
     }
+    p.followers = add(p.followers, residents);
     w.owner[t] = winner;
     w.state[t] = TileState.Believer;
     w.holdTicks[t] = 0; // Glow resets on flip (§11.2)
@@ -460,7 +519,12 @@ export function apostatize(w: World, t: TileId, b: Balance, players: PlayerState
   const prev = w.owner[t]!;
   if (prev !== NEUTRAL) {
     const loser = players.find((pl) => pl.id === prev);
-    if (loser) loser.ownedTiles = Math.max(0, loser.ownedTiles - 1);
+    if (loser) {
+      loser.ownedTiles = Math.max(0, loser.ownedTiles - 1);
+      // the residents walk out
+      const residents = fromInt(w.pop[t]!);
+      loser.followers = loser.followers > residents ? sub(loser.followers, residents) : 0;
+    }
   }
   w.owner[t] = NEUTRAL;
   w.state[t] = TileState.Apostate;

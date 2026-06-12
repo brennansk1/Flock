@@ -72,6 +72,23 @@ export class MapRenderer {
         ctx.fillRect(x, y, 1, 1);
       }
     }
+
+    // entity overlay: chunky single-pixel markers (§30 placeholder sprites)
+    const dot = (t: number, color: string): void => {
+      ctx.fillStyle = color;
+      ctx.fillRect(t % w.width, (t / w.width) | 0, 1, 1);
+    };
+    for (const bd of sim.buildings) {
+      dot(bd.tile, bd.disabledTicks > 0 ? "#553333" : bd.buildTicksLeft > 0 ? "#777777" : "#1a1a1a");
+    }
+    for (let t = 0; t < w.landmark.length; t++) {
+      if (w.landmark[t] !== 0) dot(t, "#ffe119");
+    }
+    for (const c of sim.couriers) dot(c.path[c.idx]!, "#ffd700");
+    for (const v of sim.vans) dot(v.tile, "#f8f8ff");
+    for (const py of sim.pylons) dot(py.tile, "#ff5555");
+    for (const pk of sim.pickets) dot(pk.tile, "#ff00ff");
+
     this.texture.source.update();
   }
 

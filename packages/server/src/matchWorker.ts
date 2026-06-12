@@ -250,6 +250,21 @@ export class MatchWorker {
         });
       }
       this.pending.push({ t: IntentType.OPEN_FRONT, player: bot.playerId, tiles });
+
+      // Sect-tier economy script with noise (§21): Compound → Plate → Watchtower.
+      if (p.usd > 40_000 * 65536 && nextRange(this.botRng, 6) === 0) {
+        const builds = ["compound", "collection_plate", "watchtower"] as const;
+        this.pending.push({
+          t: IntentType.BUILD,
+          player: bot.playerId,
+          building: builds[nextRange(this.botRng, builds.length)]!,
+          tile: origin,
+        });
+      }
+      // naive gimmick usage: rituals keep Faith healthy
+      if (nextRange(this.botRng, 40) === 0) {
+        this.pending.push({ t: IntentType.RITUAL, player: bot.playerId, ritual: "sermon" });
+      }
     }
   }
 

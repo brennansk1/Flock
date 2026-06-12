@@ -11,7 +11,7 @@
  */
 
 import { Application, Text } from "pixi.js";
-import { toFloat, toInt, IntentType, Stance } from "@flock/sim";
+import { toFloat, toInt, IntentType, Stance, MatchStatus } from "@flock/sim";
 import { connect, type GameSession } from "./net.js";
 import { MapRenderer } from "./render.js";
 
@@ -78,12 +78,36 @@ function wireInput(app: Application, map: MapRenderer, g: GameSession): void {
 function hudText(g: GameSession): string {
   const me = g.sim.players.find((p) => p.id === g.playerId);
   if (!me) return "spectating";
-  return [
+
+  if (g.sim.status === MatchStatus.Ended) {
+    const winner = g.players.find((p) => p.id === g.sim.winner);
+    const verdict = g.sim.winner === g.playerId ? "★ VICTORY ★" : "match over";
+    return `${verdict}\nwinner: ${winner?.name ?? "nobody"}\n(refresh to requeue)`;
+  }
+
+  // leaderboard line: current leader's domination progress (§27 top bar)
+  const leader = [...g.sim.players].sort((a, z) => z.ownedTiles - a.ownedTiles)[0];
+  const leaderPct =
+    leader && g.sim.populated > 0
+      ? ((leader.ownedTiles * 100) / g.sim.populated).toFixed(1)
+      : "0";
+  const leaderName = g.players.find((p) => p.id === leader?.id)?.name ?? "—";
+
+  const lines = [
     `${g.players.find((p) => p.id === g.playerId)?.name ?? "?"} [${me.archetype}] — ${me.stance.toUpperCase()}`,
     `followers ${toInt(me.followers)}   $${toInt(me.usd)}`,
     `faith ${toFloat(me.faith).toFixed(0)}   heat ${toFloat(me.heat).toFixed(0)}   tiles ${me.ownedTiles}`,
+    `leader: ${leaderName} ${leaderPct}% (win ${g.sim.dominationPermille / 10}%)`,
     `tick ${g.sim.tick}   [click=front  1/2/3=stance]`,
-  ].join("\n");
+  ];
+
+  // Prophecy Countdown is broadcast to ALL players (§11.1) — it's the show.
+  for (const pr of g.sim.prophecies) {
+    const who = g.players.find((p) => p.id === pr.player)?.name ?? "?";
+    lines.push(`⏳ PROPHECY: ${who} — ${(pr.ticksLeft / 10).toFixed(0)}s`);
+  }
+  if (!me.alive) lines.unshift("☠ ELIMINATED — spectating");
+  return lines.join("\n");
 }
 
 void boot();

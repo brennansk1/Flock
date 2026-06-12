@@ -11,7 +11,7 @@ import {
   loadBalance,
   step,
   hashState,
-  fromInt,
+  newPlayer,
   fromSnapshot,
   type Balance,
   type Intent,
@@ -81,18 +81,10 @@ export function connect(url: string, onReady: (g: GameSession) => void): void {
       case "player_joined": {
         if (!session) break;
         session.players.push(msg.player);
-        session.sim.players.push({
-          id: msg.player.id,
-          archetype: msg.player.archetype,
-          alive: true,
-          stance: "spread",
-          followers: session.balance.economy.startFollowers,
-          usd: session.balance.economy.startUsd,
-          faith: fromInt(50),
-          heat: 0,
-          compounds: 1,
-          ownedTiles: 0,
-        });
+        // Same factory as the server — initial player state defined once.
+        session.sim.players.push(
+          newPlayer(msg.player.id, msg.player.archetype, session.balance),
+        );
         break;
       }
       case "turn": {

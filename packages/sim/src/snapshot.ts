@@ -9,9 +9,19 @@
 
 import type { Fixed } from "./fixed.js";
 import type { RngState } from "./rng.js";
-import type { SimState, World, PlayerState, Front } from "./types.js";
+import type {
+  SimState,
+  World,
+  PlayerState,
+  Front,
+  Pylon,
+  DistrictBuff,
+  Aura,
+  Prophecy,
+  MatchStatus,
+} from "./types.js";
 
-export const SNAPSHOT_VERSION = 1;
+export const SNAPSHOT_VERSION = 2;
 
 export interface Snapshot {
   v: number;
@@ -34,6 +44,15 @@ export interface Snapshot {
   nextFrontId: number;
   /** progress map flattened to [key, value] pairs, sorted by key. */
   progress: [number, Fixed][];
+  populated: number;
+  dominationPermille: number;
+  timerTicks: number;
+  status: MatchStatus;
+  winner: number;
+  pylons: Pylon[];
+  districtBuffs: DistrictBuff[];
+  auras: Aura[];
+  prophecies: Prophecy[];
 }
 
 export function toSnapshot(s: SimState): Snapshot {
@@ -54,10 +73,19 @@ export function toSnapshot(s: SimState): Snapshot {
       district: [...w.district],
       districtCoeffs: w.districtCoeffs.map((d) => ({ ...d })),
     },
-    players: s.players.map((p) => ({ ...p })),
+    players: s.players.map((p) => ({ ...p, cooldowns: { ...p.cooldowns } })),
     fronts: s.fronts.map((f) => ({ ...f, tiles: [...f.tiles] })),
     nextFrontId: s.nextFrontId,
     progress: [...s.progress.entries()].sort((a, z) => a[0] - z[0]),
+    populated: s.populated,
+    dominationPermille: s.dominationPermille,
+    timerTicks: s.timerTicks,
+    status: s.status,
+    winner: s.winner,
+    pylons: s.pylons.map((e) => ({ ...e })),
+    districtBuffs: s.districtBuffs.map((e) => ({ ...e })),
+    auras: s.auras.map((e) => ({ ...e })),
+    prophecies: s.prophecies.map((e) => ({ ...e })),
   };
 }
 
@@ -82,9 +110,18 @@ export function fromSnapshot(snap: Snapshot): SimState {
     tick: snap.tick,
     rng: { ...snap.rng },
     world,
-    players: snap.players.map((p) => ({ ...p })),
+    players: snap.players.map((p) => ({ ...p, cooldowns: { ...p.cooldowns } })),
     fronts: snap.fronts.map((f) => ({ ...f, tiles: [...f.tiles] })),
     nextFrontId: snap.nextFrontId,
     progress: new Map(snap.progress),
+    populated: snap.populated,
+    dominationPermille: snap.dominationPermille,
+    timerTicks: snap.timerTicks,
+    status: snap.status,
+    winner: snap.winner,
+    pylons: snap.pylons.map((e) => ({ ...e })),
+    districtBuffs: snap.districtBuffs.map((e) => ({ ...e })),
+    auras: snap.auras.map((e) => ({ ...e })),
+    prophecies: snap.prophecies.map((e) => ({ ...e })),
   };
 }

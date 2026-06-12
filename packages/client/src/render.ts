@@ -16,7 +16,15 @@ const PLAYER_COLORS = [
   "#808080", "#ffe119", "#a9a9a9", "#ffffff", "#fa8072", "#7fffd4",
 ] as const;
 
-const COLOR_NEUTRAL = "#d8c8a8"; // warm pastel town base
+/** Neutral town base, tinted per district so the texture reads (§2/§30). */
+const NEUTRAL_BY_DISTRICT = [
+  "#d8c8a8", // unzoned
+  "#d8cfae", // Suburbs
+  "#cfd8a8", // College
+  "#d8bfa0", // Downtown/Strip
+  "#c9b8a8", // Old Town
+  "#d8c8b8", // Trailer/Outskirts
+] as const;
 const COLOR_APOSTATE = "#5a4a4a"; // scar tissue
 const COLOR_WOODS = "#3a5a30";
 const COLOR_LAKE = "#33506e";
@@ -79,7 +87,8 @@ export class MapRenderer {
     }
     if (w.state[t] === TileState.Apostate) return COLOR_APOSTATE;
     const owner = w.owner[t]!;
-    if (owner === NEUTRAL) return COLOR_NEUTRAL;
+    if (owner === NEUTRAL)
+      return NEUTRAL_BY_DISTRICT[w.district[t]! % NEUTRAL_BY_DISTRICT.length]!;
     return PLAYER_COLORS[(owner - 1) % PLAYER_COLORS.length]!;
   }
 }

@@ -87,6 +87,23 @@ test("different intents => different StateHash", () => {
   assert.notEqual(base, divergent, "a different intent stream should diverge");
 });
 
+test("snapshot round-trip preserves the StateHash and future evolution", async () => {
+  const { toSnapshot, fromSnapshot } = await import("../dist/index.js");
+  const s = freshSim();
+  for (const turn of scriptedTurns(60)) step(s, turn, balance);
+
+  const restored = fromSnapshot(JSON.parse(JSON.stringify(toSnapshot(s))));
+  assert.equal(hashState(restored), hashState(s), "snapshot must round-trip exactly");
+
+  // and the two must keep evolving identically
+  const more = scriptedTurns(120).slice(60);
+  for (const turn of more) {
+    step(s, turn, balance);
+    step(restored, { ...turn, intents: [...turn.intents] }, balance);
+  }
+  assert.equal(hashState(restored), hashState(s), "restored sim must track the original");
+});
+
 test("economy advances deterministically (followers grow, bank fills)", () => {
   const s = freshSim();
   const before = { f: s.players[0]!.followers, usd: s.players[0]!.usd };

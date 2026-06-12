@@ -104,6 +104,44 @@ interface ContestedWork {
 }
 
 /**
+ * Per-attacker global pressure multiplier: Final Dawn's Fear Feeds Us passive
+ * (+2% per active Front anywhere, cap +25%, §11.1) × Sermon's +5% (§9).
+ */
+function attackerGlobalMult(s: SimState, p: PlayerState): Fixed {
+  let m = ONE;
+  if (p.archetype === "dawn") {
+    const fearPct = Math.min(25, s.fronts.length * 2);
+    m = mul(m, add(ONE, div(fromInt(fearPct), HUNDRED)));
+  }
+  if (p.sermonBuffTicks > 0) m = mul(m, fp(1.05));
+  return m;
+}
+
+/** Stockpile Sermon ×3 if the attacker has a live buff on this tile's district (§11.1). */
+function districtBuffMult(s: SimState, p: PlayerState, t: TileId): Fixed {
+  for (const buff of s.districtBuffs) {
+    if (buff.player === p.id && buff.district === s.world.district[t]) return fromInt(3);
+  }
+  return ONE;
+}
+
+/** Midnight Festival: 2× conversion vs neutral tiles inside the caster's aura (§9). */
+function auraNeutralMult(s: SimState, p: PlayerState, t: TileId): Fixed {
+  const w = s.world;
+  const x = t % w.width;
+  const y = (t / w.width) | 0;
+  for (const aura of s.auras) {
+    if (aura.player !== p.id) continue;
+    const ax = aura.tile % w.width;
+    const ay = (aura.tile / w.width) | 0;
+    const dx = x - ax;
+    const dy = y - ay;
+    if (dx * dx + dy * dy <= aura.radius * aura.radius) return fromInt(2);
+  }
+  return ONE;
+}
+
+/**
  * Resolve one tick of conversion: front pressure, ambient creep, flips,
  * attrition, scars. Mutates `s` in place.
  */
@@ -118,6 +156,7 @@ export function resolveConversion(s: SimState, b: Balance): void {
 
   for (const p of s.players) {
     if (!p.alive) continue;
+    if (p.atonementTicks > 0) continue; // Day of Atonement freezes own fronts (§9)
     const seen = new Set<TileId>();
     for (const f of s.fronts) {
       if (f.player !== p.id) continue;
@@ -156,6 +195,7 @@ export function resolveConversion(s: SimState, b: Balance): void {
     const p = wk.player;
     const co = coeffsOf(b, p);
     const atkFaith = faithCombatMod(p.faith);
+    const globalMult = attackerGlobalMult(s, p);
     for (const t of wk.tiles) {
       const dc = w.districtCoeffs[w.district[t]!] ?? { conv: ONE, retain: ONE, income: ONE };
       const owner = w.owner[t]!;
@@ -164,9 +204,14 @@ export function resolveConversion(s: SimState, b: Balance): void {
       let pr = mul(b.conversion.basePressure, co.r0);
       pr = mul(pr, wk.stanceMult);
       pr = mul(pr, dc.conv);
-      if (owner === NEUTRAL) pr = mul(pr, sMod(w.susceptibility[t]!));
+      if (owner === NEUTRAL) {
+        pr = mul(pr, sMod(w.susceptibility[t]!));
+        pr = mul(pr, auraNeutralMult(s, p, t));
+      }
       pr = mul(pr, atkFaith);
       pr = mul(pr, b.charismaItems);
+      pr = mul(pr, globalMult);
+      pr = mul(pr, districtBuffMult(s, p, t));
       // attacker headcount scaling: effective attackers / cap → 0..1 of full rate
       pr = mul(pr, div(wk.attackersPerTile, b.conversion.maxEffPerBorderTile));
 
@@ -204,6 +249,33 @@ export function resolveConversion(s: SimState, b: Balance): void {
       const key = n * PROGRESS_STRIDE + owner;
       s.progress.set(key, add(s.progress.get(key) ?? 0, mul(pr, dt)));
     });
+  }
+
+  // ---- Pass 3b: Street Prophet pylons (§11.1) — 40-follower pressure, range 2. ----
+  for (const pylon of s.pylons) {
+    const p = s.players.find((pl) => pl.id === pylon.player);
+    if (!p || !p.alive) continue;
+    const co = coeffsOf(b, p);
+    const atkFaith = faithCombatMod(p.faith);
+    const px = pylon.tile % w.width;
+    const py = (pylon.tile / w.width) | 0;
+    const strength = div(fromInt(40), b.conversion.maxEffPerBorderTile); // 40-follower equivalent
+    for (let dy = -2; dy <= 2; dy++) {
+      for (let dx = -2; dx <= 2; dx++) {
+        const x = px + dx;
+        const y = py + dy;
+        if (x < 0 || y < 0 || x >= w.width || y >= w.height) continue;
+        const t = y * w.width + x;
+        if (!convertible(w, t) || w.owner[t] === p.id) continue;
+        const dc = w.districtCoeffs[w.district[t]!] ?? { conv: ONE, retain: ONE, income: ONE };
+        let pr = mul(mul(b.conversion.basePressure, co.r0), strength);
+        pr = mul(pr, dc.conv);
+        if (w.owner[t] === NEUTRAL) pr = mul(pr, sMod(w.susceptibility[t]!));
+        pr = mul(pr, atkFaith);
+        const key = t * PROGRESS_STRIDE + p.id;
+        s.progress.set(key, add(s.progress.get(key) ?? 0, mul(pr, dt)));
+      }
+    }
   }
 
   // ---- Pass 4: flips. Sorted keys → deterministic winner on ties. ----

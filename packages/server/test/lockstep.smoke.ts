@@ -18,7 +18,7 @@ import {
   step,
   hashState,
   fromSnapshot,
-  fromInt,
+  newPlayer,
   IntentType,
   type RawBalance,
   type SimState,
@@ -57,18 +57,7 @@ function headlessClient(port: number, name: string, archetype: string): Promise<
           resolveClient(c);
           break;
         case "player_joined":
-          c.sim?.players.push({
-            id: msg.player.id,
-            archetype: msg.player.archetype,
-            alive: true,
-            stance: "spread",
-            followers: balance.economy.startFollowers,
-            usd: balance.economy.startUsd,
-            faith: fromInt(50),
-            heat: 0,
-            compounds: 1,
-            ownedTiles: 0,
-          });
+          c.sim?.players.push(newPlayer(msg.player.id, msg.player.archetype, balance));
           break;
         case "turn":
           if (c.sim) step(c.sim, msg.turn, balance);
@@ -89,7 +78,9 @@ function headlessClient(port: number, name: string, archetype: string): Promise<
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 test("two clients stay hash-identical with the server over live lockstep", async () => {
-  const worker = new MatchWorker(raw, 0xfab1e);
+  // 4 Drifter bots: their brains run server-side but act through the same
+  // intent stream, so clients must replicate them bit-for-bit too (§21).
+  const worker = new MatchWorker(raw, 0xfab1e, 96, 4);
   const wss = new WebSocketServer({ port: 0 });
   wss.on("connection", (ws, req) => {
     const url = new URL(req.url ?? "/", "http://x");

@@ -58,9 +58,16 @@ export type Intent =
   | { t: typeof IntentType.CLOSE_FRONT; player: PlayerId; front: number }
   | { t: typeof IntentType.BUILD; player: PlayerId; building: BuildingType; tile: TileId }
   | { t: typeof IntentType.CANCEL_BUILD; player: PlayerId; tile: TileId }
-  | { t: typeof IntentType.RITUAL; player: PlayerId; ritual: RitualId; district?: DistrictId }
+  | {
+      t: typeof IntentType.RITUAL;
+      player: PlayerId;
+      ritual: RitualId;
+      /** anchor tile for placed effects (Festival aura, Offering host district) */
+      tile?: TileId;
+      district?: DistrictId;
+    }
   | { t: typeof IntentType.ABILITY; player: PlayerId; ability: string; target?: TileId }
-  | { t: typeof IntentType.SIGNATURE; player: PlayerId; payload: Record<string, number> }
+  | { t: typeof IntentType.SIGNATURE; player: PlayerId; payload?: Record<string, number> }
   | { t: typeof IntentType.STRIKE; player: PlayerId; strike: StrikeType; target: TileId }
   | {
       t: typeof IntentType.AGENT_DISPATCH;

@@ -25,7 +25,9 @@ function main(): void {
   ) as RawBalance;
 
   const seed = (Date.now() ^ (process.pid << 16)) >>> 0; // lobby-level, not sim-level
-  const match = new MatchWorker(raw, seed);
+  const worldSize = Number(process.env.WORLD ?? 96);
+  const bots = Number(process.env.BOTS ?? 6); // Drifter backfill (§21)
+  const match = new MatchWorker(raw, seed, worldSize, bots);
 
   const wss = new WebSocketServer({ port: PORT });
   wss.on("connection", (ws, req) => {

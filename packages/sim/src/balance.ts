@@ -69,6 +69,9 @@ export interface Balance {
     followerGrowth: Fixed;
     capBase: Fixed;
     capPerCompound: Fixed;
+    courierPerTile: Fixed;
+    courierCap: Fixed;
+    courierIntervalS: number;
   };
   conversion: {
     basePressure: Fixed;
@@ -108,6 +111,9 @@ export function loadBalance(raw: RawBalance): Balance {
       followerGrowth: fromFloat(raw.economy.follower_growth),
       capBase: fromFloat(raw.economy.cap_base),
       capPerCompound: fromFloat(raw.economy.cap_per_compound),
+      courierPerTile: fromFloat(raw.economy.courier_per_tile),
+      courierCap: fromFloat(raw.economy.courier_cap),
+      courierIntervalS: raw.economy.courier_interval_s,
     },
     conversion: {
       basePressure: fromFloat(raw.conversion.base_pressure),

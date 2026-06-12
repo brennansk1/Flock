@@ -58,6 +58,23 @@ export interface DistrictCoeffs {
   income: Fixed;
 }
 
+/** Landmark kinds (§12). Stored per tile; 0 = none. */
+export const Landmark = {
+  None: 0,
+  RadioTower: 1,
+  Megachurch: 2,
+  TownHall: 3,
+  Fairground: 4,
+  WaterTower: 5,
+} as const;
+export type Landmark = (typeof Landmark)[keyof typeof Landmark];
+
+/** Per-tile flag bits (World.flags). */
+export const TileFlag = {
+  /** Prosperity Circle Downline: creep-flipped, pays 2× tithe forever (§11.3) */
+  Downline: 1,
+} as const;
+
 export interface World {
   width: number;
   height: number;
@@ -77,6 +94,12 @@ export interface World {
   district: Uint32Array;
   /** Coefficient row per district id (§2). Index 0 is the 1.0/1.0/1.0 default. */
   districtCoeffs: DistrictCoeffs[];
+  /** Landmark kind per tile (§12); 0 = none. */
+  landmark: Uint8Array;
+  /** Ticks a Believer tile has been continuously held (Radiant Glow, §11.2). Capped. */
+  holdTicks: Uint16Array;
+  /** TileFlag bits per tile. */
+  flags: Uint8Array;
 }
 
 /**
@@ -111,6 +134,140 @@ export interface PlayerState {
   atonementTicks: number;
   /** Final Dawn: Prophecy Countdown is once per match (§11.1) */
   prophecyUsed: boolean;
+  /** Doctrine (§10): picked node ids (e.g. "B1", "T4"). Irreversible. */
+  doctrine: string[];
+  /** High-water follower count — doctrine points come from milestones (§10). */
+  maxFollowers: Fixed;
+  /** E4 UNSHAKEABLE: one mass-apostasy negation per match (§10). */
+  e4Spent: boolean;
+  /** JUDAS: remaining ticks of the −50% retention shock after betraying (§16). */
+  judasTicks: number;
+  /** permanent match-long traitor mark (§16) */
+  traitor: boolean;
+  /** Exposé fallout: retention halved while > 0 (§8). */
+  retentionDebuffTicks: number;
+  /** Schism Risk gauge: consecutive ticks both schism conditions held (§16). */
+  schismRiskTicks: number;
+}
+
+/** Building instance (§6). Destroyed (not captured) when its tile flips. */
+export interface Building {
+  id: number;
+  player: PlayerId;
+  type:
+    | "compound"
+    | "collection_plate"
+    | "watchtower"
+    | "broadcast_tower"
+    | "hotline_center"
+    | "print_shop"
+    | "garage"
+    | "supplement_lab"
+    | "satellite";
+  tile: TileId;
+  /** construction remaining; 0 = operational */
+  buildTicksLeft: number;
+  /** sabotage/pamphlet/static downtime; >0 = offline */
+  disabledTicks: number;
+}
+
+/** Tithe Courier (§7): walks between two Collection Plates carrying route $. */
+export interface Courier {
+  id: number;
+  player: PlayerId;
+  path: TileId[];
+  /** index of current tile in path */
+  idx: number;
+  /** accumulated movement, Fixed tiles */
+  moveProgress: Fixed;
+  usd: Fixed;
+}
+
+/** Recruitment Van (§7): mobile converter, courier robber, agent killer. */
+export interface Van {
+  id: number;
+  player: PlayerId;
+  tile: TileId;
+  path: TileId[];
+  idx: number;
+  moveProgress: Fixed;
+}
+
+export type AgentPhase = "travel" | "channel" | "gather";
+
+/** Agent (§7/§13/§15.2): invisible operative for raids and scandal evidence. */
+export interface AgentUnit {
+  id: number;
+  player: PlayerId;
+  tile: TileId;
+  targetDistrict: DistrictId;
+  /** victim whose district this is (resolved at dispatch) */
+  victim: PlayerId;
+  mission: "deprogram" | "scandal";
+  phase: AgentPhase;
+  /** travel ticks remaining to arrival */
+  travelTicks: number;
+  /** deprogram channel ticks remaining */
+  channelTicks: number;
+  /** ticks spent inside enemy Watchtower vision (≥30 = killed, §13) */
+  exposedTicks: number;
+}
+
+/** Charging propaganda strike (§8). One per Broadcast Tower at a time. */
+export interface StrikeCharge {
+  id: number;
+  player: PlayerId;
+  type: "pamphlet_bomb" | "prime_time_expose" | "manifesto_drop";
+  target: TileId;
+  /** victim cult for exposé/manifesto targeting */
+  victim: PlayerId;
+  chargeTicksLeft: number;
+  /** 10s incoming-warning window after charge completes (§8) */
+  warningTicksLeft: number;
+}
+
+/** Alliance (§16): 10:00 duration. Stored with a < b. */
+export interface Alliance {
+  a: PlayerId;
+  b: PlayerId;
+  expiresTick: number;
+}
+
+/** Pending alliance offer. */
+export interface AllianceOffer {
+  from: PlayerId;
+  to: PlayerId;
+  expiresTick: number;
+}
+
+/** Betrayal grudge: permanent −15% conversion traitor→victim (§16). */
+export interface Grudge {
+  traitor: PlayerId;
+  victim: PlayerId;
+}
+
+/** Scandal evidence file (§15.2), attacker × victim. */
+export interface Scandal {
+  attacker: PlayerId;
+  victim: PlayerId;
+  /** 0..100 as Fixed */
+  evidence: Fixed;
+  notified: boolean;
+  published: boolean;
+}
+
+/** Crop Circle (§11.4): +30 S on a district for 60s, for EVERYONE. */
+export interface CropCircle {
+  district: DistrictId;
+  ticksLeft: number;
+}
+
+/** CPA picket line (§17): −30% pressure aura against its target player. */
+export interface Picket {
+  /** the player whose conversion it suppresses */
+  target: PlayerId;
+  tile: TileId;
+  ticksLeft: number;
 }
 
 /** Street Prophet pylon (§11.1): 40-follower-equivalent pressure, radius 2. */
@@ -127,12 +284,16 @@ export interface DistrictBuff {
   ticksLeft: number;
 }
 
-/** Midnight Festival aura (§9): 2× neutral conversion in a radius. */
+/**
+ * Placed conversion aura: Midnight Festival (2× neutral, §9) or Free Retreat
+ * Weekend (2.5× neutral / 1.5× enemy, zero Heat, §11.2).
+ */
 export interface Aura {
   player: PlayerId;
   tile: TileId;
   radius: number;
   ticksLeft: number;
+  kind: "festival" | "retreat";
 }
 
 /** A live Prophecy Countdown (§11.1): public timer + territory snapshot. */
@@ -182,4 +343,29 @@ export interface SimState {
   districtBuffs: DistrictBuff[];
   auras: Aura[];
   prophecies: Prophecy[];
+
+  // ---- M1 systems ----
+  /** Revelation mode: economic + (future) doctrinal victory paths active (§18). */
+  revelationMode: boolean;
+  buildings: Building[];
+  couriers: Courier[];
+  vans: Van[];
+  agents: AgentUnit[];
+  strikes: StrikeCharge[];
+  nextEntityId: number;
+  alliances: Alliance[];
+  allianceOffers: AllianceOffer[];
+  grudges: Grudge[];
+  scandals: Scandal[];
+  cropCircles: CropCircle[];
+  pickets: Picket[];
+  /** district id → tick when Court Defection unlocks again (§15.3) */
+  courtCooldowns: Record<number, number>;
+  /** district id → tick when full-strength raids resume (§13 lockout) */
+  raidLockouts: Record<number, number>;
+  /** next sim-spawned player id (Splinter Sects, §16); high range avoids server ids */
+  nextSplinterId: number;
+  /** CPA depot timers (§17) */
+  cpaNextPicketTick: number;
+  cpaNextBusTick: number;
 }

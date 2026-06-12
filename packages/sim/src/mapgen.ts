@@ -17,7 +17,7 @@
 
 import { fromInt, fromFloat } from "./fixed.js";
 import { seedRng, nextRange, type RngState } from "./rng.js";
-import { Terrain, type World, type DistrictCoeffs } from "./types.js";
+import { Terrain, Landmark, type World, type DistrictCoeffs } from "./types.js";
 import { createWorld } from "./sim.js";
 
 /** District ids (index into districtCoeffs). 0 = unzoned (terrain). */
@@ -62,8 +62,53 @@ export function generateWorld(seed: number, width: number, height: number): Worl
 
   placeDistricts(w, rng);
   placeTerrain(w, rng);
+  placeLandmarks(w, rng);
   rollSusceptibility(w, rng);
   return w;
+}
+
+/**
+ * Landmarks (§2 rule 2, simplified to quadrants): Radio Tower & Megachurch in
+ * opposite thirds, Town Hall adjacent to Downtown (near center), Fairground
+ * and Water Tower in the remaining quadrants. Each lands on the nearest
+ * citizen tile to its anchor.
+ */
+function placeLandmarks(w: World, rng: RngState): void {
+  const q = (fx: number, fy: number): number => {
+    const x = Math.floor(w.width * fx);
+    const y = Math.floor(w.height * fy);
+    return y * w.width + x;
+  };
+  const anchors: [number, number][] = [
+    [Landmark.RadioTower, q(0.18, 0.18)],
+    [Landmark.Megachurch, q(0.82, 0.82)],
+    [Landmark.TownHall, q(0.5, 0.45)], // adjacent to Downtown by construction
+    [Landmark.Fairground, q(0.82, 0.18)],
+    [Landmark.WaterTower, q(0.18, 0.82)],
+  ];
+  for (const [kind, anchor] of anchors) {
+    const t = nearestCitizen(w, anchor);
+    if (t >= 0) w.landmark[t] = kind;
+  }
+  void rng; // placement is anchor-based; jitter can come later without breaking replays
+}
+
+function nearestCitizen(w: World, from: number): number {
+  const x0 = from % w.width;
+  const y0 = (from / w.width) | 0;
+  for (let r = 0; r < Math.max(w.width, w.height); r++) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        const x = x0 + dx;
+        const y = y0 + dy;
+        if (x < 0 || y < 0 || x >= w.width || y >= w.height) continue;
+        const t = y * w.width + x;
+        if (w.terrain[t] === Terrain.Citizen) return t;
+      }
+    }
+  }
+  return -1;
 }
 
 function placeDistricts(w: World, rng: RngState): void {

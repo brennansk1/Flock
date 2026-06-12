@@ -16,3 +16,8 @@ export * from "./sim.js";
 export * from "./conversion.js";
 export * from "./snapshot.js";
 export * from "./mapgen.js";
+export * from "./player.js";
+export * from "./buildings.js";
+export * from "./doctrine.js";
+export * from "./diplomacy.js";
+export * from "./entities.js";

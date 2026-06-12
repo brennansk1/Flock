@@ -19,9 +19,20 @@ import type {
   Aura,
   Prophecy,
   MatchStatus,
+  Building,
+  Courier,
+  Van,
+  AgentUnit,
+  StrikeCharge,
+  Alliance,
+  AllianceOffer,
+  Grudge,
+  Scandal,
+  CropCircle,
+  Picket,
 } from "./types.js";
 
-export const SNAPSHOT_VERSION = 2;
+export const SNAPSHOT_VERSION = 3;
 
 export interface Snapshot {
   v: number;
@@ -38,6 +49,9 @@ export interface Snapshot {
     scarTicks: number[];
     district: number[];
     districtCoeffs: { conv: Fixed; retain: Fixed; income: Fixed }[];
+    landmark: number[];
+    holdTicks: number[];
+    flags: number[];
   };
   players: PlayerState[];
   fronts: Front[];
@@ -53,6 +67,24 @@ export interface Snapshot {
   districtBuffs: DistrictBuff[];
   auras: Aura[];
   prophecies: Prophecy[];
+  revelationMode: boolean;
+  buildings: Building[];
+  couriers: Courier[];
+  vans: Van[];
+  agents: AgentUnit[];
+  strikes: StrikeCharge[];
+  nextEntityId: number;
+  alliances: Alliance[];
+  allianceOffers: AllianceOffer[];
+  grudges: Grudge[];
+  scandals: Scandal[];
+  cropCircles: CropCircle[];
+  pickets: Picket[];
+  courtCooldowns: Record<number, number>;
+  raidLockouts: Record<number, number>;
+  nextSplinterId: number;
+  cpaNextPicketTick: number;
+  cpaNextBusTick: number;
 }
 
 export function toSnapshot(s: SimState): Snapshot {
@@ -72,8 +104,11 @@ export function toSnapshot(s: SimState): Snapshot {
       scarTicks: [...w.scarTicks],
       district: [...w.district],
       districtCoeffs: w.districtCoeffs.map((d) => ({ ...d })),
+      landmark: [...w.landmark],
+      holdTicks: [...w.holdTicks],
+      flags: [...w.flags],
     },
-    players: s.players.map((p) => ({ ...p, cooldowns: { ...p.cooldowns } })),
+    players: s.players.map((p) => ({ ...p, cooldowns: { ...p.cooldowns }, doctrine: [...p.doctrine] })),
     fronts: s.fronts.map((f) => ({ ...f, tiles: [...f.tiles] })),
     nextFrontId: s.nextFrontId,
     progress: [...s.progress.entries()].sort((a, z) => a[0] - z[0]),
@@ -86,6 +121,24 @@ export function toSnapshot(s: SimState): Snapshot {
     districtBuffs: s.districtBuffs.map((e) => ({ ...e })),
     auras: s.auras.map((e) => ({ ...e })),
     prophecies: s.prophecies.map((e) => ({ ...e })),
+    revelationMode: s.revelationMode,
+    buildings: s.buildings.map((e) => ({ ...e })),
+    couriers: s.couriers.map((e) => ({ ...e, path: [...e.path] })),
+    vans: s.vans.map((e) => ({ ...e, path: [...e.path] })),
+    agents: s.agents.map((e) => ({ ...e })),
+    strikes: s.strikes.map((e) => ({ ...e })),
+    nextEntityId: s.nextEntityId,
+    alliances: s.alliances.map((e) => ({ ...e })),
+    allianceOffers: s.allianceOffers.map((e) => ({ ...e })),
+    grudges: s.grudges.map((e) => ({ ...e })),
+    scandals: s.scandals.map((e) => ({ ...e })),
+    cropCircles: s.cropCircles.map((e) => ({ ...e })),
+    pickets: s.pickets.map((e) => ({ ...e })),
+    courtCooldowns: { ...s.courtCooldowns },
+    raidLockouts: { ...s.raidLockouts },
+    nextSplinterId: s.nextSplinterId,
+    cpaNextPicketTick: s.cpaNextPicketTick,
+    cpaNextBusTick: s.cpaNextBusTick,
   };
 }
 
@@ -105,12 +158,19 @@ export function fromSnapshot(snap: Snapshot): SimState {
     scarTicks: Uint16Array.from(sw.scarTicks),
     district: Uint32Array.from(sw.district),
     districtCoeffs: sw.districtCoeffs.map((d) => ({ ...d })),
+    landmark: Uint8Array.from(sw.landmark),
+    holdTicks: Uint16Array.from(sw.holdTicks),
+    flags: Uint8Array.from(sw.flags),
   };
   return {
     tick: snap.tick,
     rng: { ...snap.rng },
     world,
-    players: snap.players.map((p) => ({ ...p, cooldowns: { ...p.cooldowns } })),
+    players: snap.players.map((p) => ({
+      ...p,
+      cooldowns: { ...p.cooldowns },
+      doctrine: [...p.doctrine],
+    })),
     fronts: snap.fronts.map((f) => ({ ...f, tiles: [...f.tiles] })),
     nextFrontId: snap.nextFrontId,
     progress: new Map(snap.progress),
@@ -123,5 +183,23 @@ export function fromSnapshot(snap: Snapshot): SimState {
     districtBuffs: snap.districtBuffs.map((e) => ({ ...e })),
     auras: snap.auras.map((e) => ({ ...e })),
     prophecies: snap.prophecies.map((e) => ({ ...e })),
+    revelationMode: snap.revelationMode,
+    buildings: snap.buildings.map((e) => ({ ...e })),
+    couriers: snap.couriers.map((e) => ({ ...e, path: [...e.path] })),
+    vans: snap.vans.map((e) => ({ ...e, path: [...e.path] })),
+    agents: snap.agents.map((e) => ({ ...e })),
+    strikes: snap.strikes.map((e) => ({ ...e })),
+    nextEntityId: snap.nextEntityId,
+    alliances: snap.alliances.map((e) => ({ ...e })),
+    allianceOffers: snap.allianceOffers.map((e) => ({ ...e })),
+    grudges: snap.grudges.map((e) => ({ ...e })),
+    scandals: snap.scandals.map((e) => ({ ...e })),
+    cropCircles: snap.cropCircles.map((e) => ({ ...e })),
+    pickets: snap.pickets.map((e) => ({ ...e })),
+    courtCooldowns: { ...snap.courtCooldowns },
+    raidLockouts: { ...snap.raidLockouts },
+    nextSplinterId: snap.nextSplinterId,
+    cpaNextPicketTick: snap.cpaNextPicketTick,
+    cpaNextBusTick: snap.cpaNextBusTick,
   };
 }

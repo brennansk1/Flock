@@ -27,6 +27,7 @@ import {
   Stance,
   Terrain,
   TileState,
+  TileFlag,
   PROGRESS_STRIDE,
   type PlayerState,
   type SimState,
@@ -34,6 +35,16 @@ import {
   type TileId,
   type PlayerId,
 } from "./types.js";
+import { areAllied, commitBetrayal, grudgeMult } from "./diplomacy.js";
+import { fortMultAt, compoundDefenseAt, destroyBuildingsOnTile } from "./buildings.js";
+import {
+  r0Mult,
+  creepMult,
+  effectiveRetain,
+  homeDefenseMult,
+  defenseAttritionMult,
+  ownDissentMult,
+} from "./doctrine.js";
 
 const HUNDRED: Fixed = fromInt(100);
 
@@ -125,18 +136,68 @@ function districtBuffMult(s: SimState, p: PlayerState, t: TileId): Fixed {
   return ONE;
 }
 
-/** Midnight Festival: 2× conversion vs neutral tiles inside the caster's aura (§9). */
-function auraNeutralMult(s: SimState, p: PlayerState, t: TileId): Fixed {
+/**
+ * Placed auras: Midnight Festival (2× neutral, §9) and Free Retreat Weekend
+ * (2.5× neutral / 1.5× enemy, §11.2). Strongest applicable aura wins.
+ */
+function auraMult(s: SimState, p: PlayerState, t: TileId, neutral: boolean): Fixed {
   const w = s.world;
   const x = t % w.width;
   const y = (t / w.width) | 0;
+  let best = ONE;
   for (const aura of s.auras) {
     if (aura.player !== p.id) continue;
     const ax = aura.tile % w.width;
     const ay = (aura.tile / w.width) | 0;
     const dx = x - ax;
     const dy = y - ay;
-    if (dx * dx + dy * dy <= aura.radius * aura.radius) return fromInt(2);
+    if (dx * dx + dy * dy > aura.radius * aura.radius) continue;
+    const m =
+      aura.kind === "festival" ? (neutral ? fromInt(2) : ONE) : neutral ? fp(2.5) : fp(1.5);
+    if (m > best) best = m;
+  }
+  return best;
+}
+
+/** Crop Circle (§11.4): +30 S on the district for everyone while active. */
+function effectiveS(s: SimState, t: TileId): Fixed {
+  let v = s.world.susceptibility[t]!;
+  for (const cc of s.cropCircles) {
+    if (cc.district === s.world.district[t]) {
+      v = min(add(v, fromInt(30)), fromInt(95));
+      break;
+    }
+  }
+  return v;
+}
+
+/** Radiant Glow (§11.2): +0.4%/s retention per second held, cap +80% at 200s. */
+function glowMult(s: SimState, defender: PlayerState, t: TileId): Fixed {
+  if (defender.archetype !== "radiant") return ONE;
+  // 0.4%/s = 0.04%/tick; holdTicks capped at 2000 (= +80%)
+  const held = Math.min(2000, s.world.holdTicks[t]!);
+  return add(ONE, Math.round(held * 0.0004 * 65536));
+}
+
+/** Stance home-defense side effects (§5): Tend +20%, CRUSADE −25%. */
+function stanceDefenseMult(b: Balance, defender: PlayerState): Fixed {
+  if (defender.stance === Stance.Tend) return fp(1.2);
+  if (defender.stance === Stance.Crusade) return fp(0.75);
+  return ONE;
+}
+
+/** CPA picket lines (§17): −30% pressure for the target within radius 4. */
+function picketMult(s: SimState, attacker: PlayerId, t: TileId): Fixed {
+  const w = s.world;
+  const x = t % w.width;
+  const y = (t / w.width) | 0;
+  for (const pk of s.pickets) {
+    if (pk.target !== attacker) continue;
+    const px = pk.tile % w.width;
+    const py = (pk.tile / w.width) | 0;
+    const dx = x - px;
+    const dy = y - py;
+    if (dx * dx + dy * dy <= 16) return fp(0.7);
   }
   return ONE;
 }
@@ -164,6 +225,12 @@ export function resolveConversion(s: SimState, b: Balance): void {
         if (seen.has(t)) continue;
         if (!convertible(w, t)) continue;
         if (w.owner[t] === p.id) continue;
+        // Opening aggression on an ally is the JUDAS moment (§16); the
+        // alliance shatters and the push proceeds — famous and expensive.
+        const tileOwner = w.owner[t]!;
+        if (tileOwner !== NEUTRAL && areAllied(s, p.id, tileOwner)) {
+          commitBetrayal(s, p, tileOwner);
+        }
         if (!adjacentToOwned(w, t, p.id)) continue;
         seen.add(t);
       }
@@ -201,17 +268,21 @@ export function resolveConversion(s: SimState, b: Balance): void {
       const owner = w.owner[t]!;
 
       // pressure numerator
-      let pr = mul(b.conversion.basePressure, co.r0);
+      let pr = mul(b.conversion.basePressure, mul(co.r0, r0Mult(p))); // T1 (§10)
       pr = mul(pr, wk.stanceMult);
       pr = mul(pr, dc.conv);
       if (owner === NEUTRAL) {
-        pr = mul(pr, sMod(w.susceptibility[t]!));
-        pr = mul(pr, auraNeutralMult(s, p, t));
+        pr = mul(pr, sMod(effectiveS(s, t)));
+        pr = mul(pr, auraMult(s, p, t, true));
+      } else {
+        pr = mul(pr, auraMult(s, p, t, false));
+        pr = mul(pr, grudgeMult(s, p.id, owner)); // betrayal grudge −15% (§16)
       }
       pr = mul(pr, atkFaith);
       pr = mul(pr, b.charismaItems);
       pr = mul(pr, globalMult);
       pr = mul(pr, districtBuffMult(s, p, t));
+      pr = mul(pr, picketMult(s, p.id, t)); // CPA picket lines −30% (§17)
       // attacker headcount scaling: effective attackers / cap → 0..1 of full rate
       pr = mul(pr, div(wk.attackersPerTile, b.conversion.maxEffPerBorderTile));
 
@@ -221,12 +292,21 @@ export function resolveConversion(s: SimState, b: Balance): void {
         const defender = s.players.find((pl) => pl.id === owner);
         const dpt = defendersPerTile.get(owner) ?? 0;
         res = add(ONE, div(dpt, fromInt(40)));
-        res = mul(res, dc.retain);
+        res = mul(res, effectiveRetain(p, dc.retain)); // T4 halves district retain (§10)
+        res = mul(res, fortMultAt(s, owner, t)); // Watchtower fort_mult 5 (§6)
+        res = mul(res, compoundDefenseAt(s, owner, t)); // Compound +10% (§6)
         if (defender) {
           res = mul(res, coeffsOf(b, defender).retain);
           res = mul(res, faithCombatMod(defender.faith));
+          res = mul(res, homeDefenseMult(defender)); // B2 Uniforms (§10)
+          res = mul(res, glowMult(s, defender, t)); // Radiant Glow (§11.2)
+          res = mul(res, stanceDefenseMult(b, defender)); // Tend +20% / Crusade −25% (§5)
+          if (defender.judasTicks > 0) res = mul(res, fp(0.5)); // JUDAS shock (§16)
+          if (defender.retentionDebuffTicks > 0) res = mul(res, fp(0.5)); // Exposé (§8)
         }
-        // fort_mult (Watchtower=5) joins here when buildings land.
+        if (w.landmark[t] !== 0) res = mul(res, fromInt(2)); // landmarks 0.5× capture (§12)
+      } else if (w.landmark[t] !== 0) {
+        res = mul(res, fromInt(2));
       }
       pr = div(pr, res);
 
@@ -236,46 +316,36 @@ export function resolveConversion(s: SimState, b: Balance): void {
   }
 
   // ---- Pass 3: ambient creep onto neutral tiles (§4.6). ----
+  const playerById = new Map<PlayerId, PlayerState>();
+  for (const p of s.players) playerById.set(p.id, p);
   for (let t = 0; t < w.owner.length; t++) {
     const owner = w.owner[t]!;
     if (owner === NEUTRAL || w.state[t] !== TileState.Believer) continue;
-    const p = s.players.find((pl) => pl.id === owner);
+    const p = playerById.get(owner);
     if (!p || !p.alive) continue;
-    const r0 = coeffsOf(b, p).r0;
+    const r0 = mul(coeffsOf(b, p).r0, r0Mult(p));
+    const cm = creepMult(p); // T2 Whisper Network +60% (§10)
     forEachNeighbor(w, t, (n) => {
       if (w.owner[n] !== NEUTRAL || !convertible(w, n)) return;
       const dc = w.districtCoeffs[w.district[n]!] ?? { conv: ONE, retain: ONE, income: ONE };
-      const pr = mul(mul(b.conversion.ambientCreep, r0), dc.conv);
+      const pr = mul(mul(mul(b.conversion.ambientCreep, r0), dc.conv), cm);
       const key = n * PROGRESS_STRIDE + owner;
       s.progress.set(key, add(s.progress.get(key) ?? 0, mul(pr, dt)));
     });
   }
 
+  // ---- Pass 3a: Recruitment Vans (§7) — 40-follower pressure at range 2. ----
+  for (const van of s.vans) {
+    const p = playerById.get(van.player);
+    if (!p || !p.alive) continue;
+    applyPointPressure(s, b, p, van.tile, 2, dt);
+  }
+
   // ---- Pass 3b: Street Prophet pylons (§11.1) — 40-follower pressure, range 2. ----
   for (const pylon of s.pylons) {
-    const p = s.players.find((pl) => pl.id === pylon.player);
+    const p = playerById.get(pylon.player);
     if (!p || !p.alive) continue;
-    const co = coeffsOf(b, p);
-    const atkFaith = faithCombatMod(p.faith);
-    const px = pylon.tile % w.width;
-    const py = (pylon.tile / w.width) | 0;
-    const strength = div(fromInt(40), b.conversion.maxEffPerBorderTile); // 40-follower equivalent
-    for (let dy = -2; dy <= 2; dy++) {
-      for (let dx = -2; dx <= 2; dx++) {
-        const x = px + dx;
-        const y = py + dy;
-        if (x < 0 || y < 0 || x >= w.width || y >= w.height) continue;
-        const t = y * w.width + x;
-        if (!convertible(w, t) || w.owner[t] === p.id) continue;
-        const dc = w.districtCoeffs[w.district[t]!] ?? { conv: ONE, retain: ONE, income: ONE };
-        let pr = mul(mul(b.conversion.basePressure, co.r0), strength);
-        pr = mul(pr, dc.conv);
-        if (w.owner[t] === NEUTRAL) pr = mul(pr, sMod(w.susceptibility[t]!));
-        pr = mul(pr, atkFaith);
-        const key = t * PROGRESS_STRIDE + p.id;
-        s.progress.set(key, add(s.progress.get(key) ?? 0, mul(pr, dt)));
-      }
-    }
+    applyPointPressure(s, b, p, pylon.tile, 2, dt);
   }
 
   // ---- Pass 4: flips. Sorted keys → deterministic winner on ties. ----
@@ -296,22 +366,37 @@ export function resolveConversion(s: SimState, b: Balance): void {
     }
   }
 
+  // tiles each player actively fronted this tick (for Downline creep tagging)
+  const frontedBy = new Map<PlayerId, Set<TileId>>();
+  for (const wk of work) frontedBy.set(wk.player.id, new Set(wk.tiles));
+
   for (const [t, winner] of flipped) {
     const prevOwner = w.owner[t]!;
-    const p = s.players.find((pl) => pl.id === winner);
+    const p = playerById.get(winner);
     if (!p) continue;
 
     if (prevOwner !== NEUTRAL) {
-      const loser = s.players.find((pl) => pl.id === prevOwner);
+      const loser = playerById.get(prevOwner);
       if (loser) loser.ownedTiles = Math.max(0, loser.ownedTiles - 1);
     }
     w.owner[t] = winner;
     w.state[t] = TileState.Believer;
+    w.holdTicks[t] = 0; // Glow resets on flip (§11.2)
     p.ownedTiles++;
+    destroyBuildingsOnTile(s, t); // buildings die with their tile (§6)
 
-    // CRUSADE captures stoke dissent on the taken tile (§3.4).
+    // Prosperity Circle Downline (§11.3): tiles flipped by creep alone
+    // (never fronted this tick) pay 2× tithe forever.
+    if (p.archetype === "circle" && !(frontedBy.get(winner)?.has(t) ?? false)) {
+      w.flags[t] = w.flags[t]! | TileFlag.Downline;
+    } else {
+      w.flags[t] = w.flags[t]! & ~TileFlag.Downline;
+    }
+
+    // CRUSADE captures stoke dissent on the taken tile (§3.4); B3 Curfews −40%.
     if (p.stance === Stance.Crusade) {
-      w.dissent[t] = min(add(w.dissent[t]!, b.stances.crusade.dissentPerCapture), HUNDRED);
+      const gain = mul(b.stances.crusade.dissentPerCapture, ownDissentMult(p));
+      w.dissent[t] = min(add(w.dissent[t]!, gain), HUNDRED);
     }
 
     // Clear all attackers' progress on the flipped tile.
@@ -324,10 +409,49 @@ export function resolveConversion(s: SimState, b: Balance): void {
     wk.player.followers = wk.player.followers > cost ? sub(wk.player.followers, cost) : 0;
   }
   for (const [pid, count] of defendedCount) {
-    const d = s.players.find((pl) => pl.id === pid);
+    const d = playerById.get(pid);
     if (!d || !d.alive) continue;
-    const cost = mul(mul(b.conversion.attritionDefender, fromInt(count)), dt);
+    let cost = mul(mul(b.conversion.attritionDefender, fromInt(count)), dt);
+    cost = mul(cost, defenseAttritionMult(d)); // B4 TOTAL DEVOTION −50% (§10)
     d.followers = d.followers > cost ? sub(d.followers, cost) : 0;
+  }
+}
+
+/**
+ * Point-source pressure (Vans §7, pylons §11.1): a 40-follower-equivalent
+ * converter pressing every non-owned convertible tile within `range`.
+ */
+function applyPointPressure(
+  s: SimState,
+  b: Balance,
+  p: PlayerState,
+  center: TileId,
+  range: number,
+  dt: Fixed,
+): void {
+  const w = s.world;
+  const co = coeffsOf(b, p);
+  const atkFaith = faithCombatMod(p.faith);
+  const strength = div(fromInt(40), b.conversion.maxEffPerBorderTile);
+  const cx = center % w.width;
+  const cy = (center / w.width) | 0;
+  for (let dy = -range; dy <= range; dy++) {
+    for (let dx = -range; dx <= range; dx++) {
+      const x = cx + dx;
+      const y = cy + dy;
+      if (x < 0 || y < 0 || x >= w.width || y >= w.height) continue;
+      const t = y * w.width + x;
+      if (!convertible(w, t) || w.owner[t] === p.id) continue;
+      const owner = w.owner[t]!;
+      if (owner !== NEUTRAL && areAllied(s, p.id, owner)) continue; // vans don't betray
+      const dc = w.districtCoeffs[w.district[t]!] ?? { conv: ONE, retain: ONE, income: ONE };
+      let pr = mul(mul(b.conversion.basePressure, mul(co.r0, r0Mult(p))), strength);
+      pr = mul(pr, dc.conv);
+      if (owner === NEUTRAL) pr = mul(pr, sMod(s.world.susceptibility[t]!));
+      pr = mul(pr, atkFaith);
+      const key = t * PROGRESS_STRIDE + p.id;
+      s.progress.set(key, add(s.progress.get(key) ?? 0, mul(pr, dt)));
+    }
   }
 }
 

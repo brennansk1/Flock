@@ -43,6 +43,11 @@ class Fnv {
     this.u32(Number((v >> 32n) & 0xffffffffn));
   }
 
+  str(sv: string): void {
+    this.u32(sv.length);
+    for (let i = 0; i < sv.length; i++) this.byte(sv.charCodeAt(i));
+  }
+
   hex(): string {
     return this.h.toString(16).padStart(16, "0");
   }
@@ -66,24 +71,34 @@ export function hashState(s: SimState): string {
   f.words(w.dissent);
   for (let i = 0; i < w.scarTicks.length; i++) f.u32(w.scarTicks[i]!);
   f.words(w.district);
+  f.bytes(w.landmark);
+  for (let i = 0; i < w.holdTicks.length; i++) f.u32(w.holdTicks[i]!);
+  f.bytes(w.flags);
 
   for (const p of s.players) {
     f.u32(p.id);
     f.byte(p.alive ? 1 : 0);
     f.byte(p.spawned ? 1 : 0);
     f.byte(p.prophecyUsed ? 1 : 0);
+    f.byte(p.e4Spent ? 1 : 0);
+    f.byte(p.traitor ? 1 : 0);
     f.fix(p.followers);
     f.fix(p.usd);
     f.fix(p.faith);
     f.fix(p.heat);
+    f.fix(p.maxFollowers);
     f.u32(p.compounds);
     f.u32(p.ownedTiles);
     f.u32(p.sermonBuffTicks);
     f.u32(p.atonementTicks);
+    f.u32(p.judasTicks);
+    f.u32(p.retentionDebuffTicks);
+    f.u32(p.schismRiskTicks);
+    f.str(p.doctrine.join(","));
     const cdKeys = Object.keys(p.cooldowns).sort();
     f.u32(cdKeys.length);
     for (const k of cdKeys) {
-      for (let i = 0; i < k.length; i++) f.byte(k.charCodeAt(i));
+      f.str(k);
       f.u32(p.cooldowns[k]!);
     }
   }
@@ -118,6 +133,108 @@ export function hashState(s: SimState): string {
     f.u32(e.player);
     f.u32(e.snapshotPermille);
     f.u32(e.ticksLeft);
+  }
+
+  // M1 systems: buildings, units, strikes, diplomacy, scandal, CPA.
+  f.byte(s.revelationMode ? 1 : 0);
+  f.u32(s.nextEntityId);
+  f.u32(s.nextSplinterId);
+  f.u32(s.cpaNextPicketTick);
+  f.u32(s.cpaNextBusTick);
+  f.u32(s.buildings.length);
+  for (const e of s.buildings) {
+    f.u32(e.id);
+    f.u32(e.player);
+    f.str(e.type);
+    f.u32(e.tile);
+    f.u32(e.buildTicksLeft);
+    f.u32(e.disabledTicks);
+  }
+  f.u32(s.couriers.length);
+  for (const e of s.couriers) {
+    f.u32(e.id);
+    f.u32(e.player);
+    f.u32(e.path.length);
+    f.u32(e.idx);
+    f.fix(e.moveProgress);
+    f.fix(e.usd);
+  }
+  f.u32(s.vans.length);
+  for (const e of s.vans) {
+    f.u32(e.id);
+    f.u32(e.player);
+    f.u32(e.tile);
+    f.u32(e.idx);
+    f.fix(e.moveProgress);
+  }
+  f.u32(s.agents.length);
+  for (const e of s.agents) {
+    f.u32(e.id);
+    f.u32(e.player);
+    f.u32(e.tile);
+    f.u32(e.targetDistrict);
+    f.u32(e.victim);
+    f.str(e.mission);
+    f.str(e.phase);
+    f.u32(e.travelTicks);
+    f.u32(e.channelTicks);
+    f.u32(e.exposedTicks);
+  }
+  f.u32(s.strikes.length);
+  for (const e of s.strikes) {
+    f.u32(e.id);
+    f.u32(e.player);
+    f.str(e.type);
+    f.u32(e.target);
+    f.u32(e.victim);
+    f.u32(e.chargeTicksLeft);
+    f.u32(e.warningTicksLeft);
+  }
+  f.u32(s.alliances.length);
+  for (const e of s.alliances) {
+    f.u32(e.a);
+    f.u32(e.b);
+    f.u32(e.expiresTick);
+  }
+  f.u32(s.allianceOffers.length);
+  for (const e of s.allianceOffers) {
+    f.u32(e.from);
+    f.u32(e.to);
+    f.u32(e.expiresTick);
+  }
+  f.u32(s.grudges.length);
+  for (const e of s.grudges) {
+    f.u32(e.traitor);
+    f.u32(e.victim);
+  }
+  f.u32(s.scandals.length);
+  for (const e of s.scandals) {
+    f.u32(e.attacker);
+    f.u32(e.victim);
+    f.fix(e.evidence);
+    f.byte(e.notified ? 1 : 0);
+    f.byte(e.published ? 1 : 0);
+  }
+  f.u32(s.cropCircles.length);
+  for (const e of s.cropCircles) {
+    f.u32(e.district);
+    f.u32(e.ticksLeft);
+  }
+  f.u32(s.pickets.length);
+  for (const e of s.pickets) {
+    f.u32(e.target);
+    f.u32(e.tile);
+    f.u32(e.ticksLeft);
+  }
+  for (const rec of [s.courtCooldowns, s.raidLockouts]) {
+    const rkeys = Object.keys(rec)
+      .map(Number)
+      .sort((a, z) => a - z);
+    f.u32(rkeys.length);
+    for (const k of rkeys) {
+      f.u32(k);
+      f.u32(rec[k]!);
+    }
   }
 
   // Fronts (already kept in insertion order with sorted tile lists).

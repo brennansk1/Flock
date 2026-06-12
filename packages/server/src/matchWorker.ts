@@ -16,6 +16,7 @@
  */
 
 import type { WebSocket } from "ws";
+import { mkdirSync, writeFileSync } from "node:fs";
 import {
   createSim,
   newPlayer,
@@ -27,6 +28,7 @@ import {
   nextU32,
   nextRange,
   toSnapshot,
+  generateRecap,
   IntentType,
   Terrain,
   MatchStatus,
@@ -81,8 +83,11 @@ export class MatchWorker {
   private timer: ReturnType<typeof setInterval> | null = null;
   private nextPlayerId = 1;
   private endedAnnounced = false;
+  private autoPlaced = false;
+  /** replay = seed + every Turn (§33: replays are just intent logs) */
+  private readonly replayTurns: Turn[] = [];
 
-  constructor(balanceRaw: RawBalance, seed: number, worldSize = 96, botCount = 0) {
+  constructor(balanceRaw: RawBalance, seed: number, worldSize = 96, botCount = 0, foundingTicks = 200) {
     this.balanceRaw = balanceRaw;
     this.balance = loadBalance(balanceRaw);
     this.seed = seed;
@@ -96,13 +101,14 @@ export class MatchWorker {
       balance: this.balance,
       world: generateWorld(seed, worldSize, worldSize),
       spawns: [],
+      foundingTicks, // FOUNDING spawn-pick window (§18)
     });
     for (let i = 0; i < botCount; i++) this.addBot();
   }
 
   /** Attach a connecting client; assigns a player id and spawns them in. */
   addClient(ws: WebSocket, name: string, archetype: WirePlayer["archetype"]): void {
-    const playerId = this.addPlayer(name, archetype);
+    const playerId = this.addPlayer(name, archetype, false);
     this.clients.set(playerId, { playerId, ws, windowStart: 0, windowCount: 0 });
 
     this.send(ws, {
@@ -127,20 +133,24 @@ export class MatchWorker {
       BOT_SECOND[nextRange(this.botRng, BOT_SECOND.length)]
     }`;
     const archetype = ARCHETYPES[nextRange(this.botRng, ARCHETYPES.length)]!;
-    const playerId = this.addPlayer(name, archetype);
+    const playerId = this.addPlayer(name, archetype, true);
     this.bots.push({ playerId, cadence: 25 + nextRange(this.botRng, 30) });
     this.broadcast({ type: "player_joined", player: this.roster[this.roster.length - 1]! });
   }
 
   /** Shared join path: roster + sim player + SPAWN through the turn stream. */
-  private addPlayer(name: string, archetype: WirePlayer["archetype"]): number {
+  private addPlayer(name: string, archetype: WirePlayer["archetype"], autoSpawn: boolean): number {
     const playerId = this.nextPlayerId++;
     this.roster.push({ id: playerId, name, archetype });
     // Players enter the sim via the same door as everyone: an intent in the
     // turn stream. Late join == late spawn, deterministically.
     this.sim.players.push(newPlayer(playerId, archetype, this.balance));
-    const spawnTile = spawnTileFor(this.sim.world, this.roster.length - 1);
-    this.pending.push({ t: IntentType.SPAWN, player: playerId, tile: spawnTile });
+    // Humans pick a spawn during FOUNDING (§18) by clicking; bots (and humans
+    // joining a live match) are placed immediately.
+    if (autoSpawn || this.sim.foundingTicksLeft === 0) {
+      const spawnTile = spawnTileFor(this.sim.world, this.roster.length - 1);
+      this.pending.push({ t: IntentType.SPAWN, player: playerId, tile: spawnTile });
+    }
     return playerId;
   }
 
@@ -180,13 +190,24 @@ export class MatchWorker {
   }
 
   private tick(): void {
-    if (this.sim.status === MatchStatus.Live) this.runBots();
+    // FOUNDING expiry: auto-place anyone who never clicked a spawn (§18).
+    if (this.sim.foundingTicksLeft === 1 && !this.autoPlaced) {
+      this.autoPlaced = true;
+      for (let i = 0; i < this.sim.players.length; i++) {
+        const p = this.sim.players[i]!;
+        if (!p.spawned) {
+          this.pending.push({ t: IntentType.SPAWN, player: p.id, tile: spawnTileFor(this.sim.world, i) });
+        }
+      }
+    }
+    if (this.sim.status === MatchStatus.Live && this.sim.foundingTicksLeft === 0) this.runBots();
 
     const turn: Turn = {
       n: this.sim.tick,
       intents: this.pending.splice(0, this.pending.length),
       seedSlice: nextU32(this.turnRng),
     };
+    this.replayTurns.push(turn);
     step(this.sim, turn, this.balance);
     this.broadcast({ type: "turn", turn });
 
@@ -196,9 +217,25 @@ export class MatchWorker {
 
     if (this.sim.status === MatchStatus.Ended && !this.endedAnnounced) {
       this.endedAnnounced = true;
+      const recap = generateRecap(this.sim);
+      this.broadcast({ type: "recap", recap });
+      this.writeReplay();
       const w = this.roster.find((r) => r.id === this.sim.winner);
       // eslint-disable-next-line no-console
       console.log(`[match] ended at tick ${this.sim.tick}: winner ${w?.name ?? "nobody"}`);
+    }
+  }
+
+  /** Replay Store (§34): gzipped intent logs in production; JSON here. */
+  private writeReplay(): void {
+    try {
+      mkdirSync("replays", { recursive: true });
+      writeFileSync(
+        `replays/match-${this.seed}.json`,
+        JSON.stringify({ seed: this.seed, finalHash: hashState(this.sim), turns: this.replayTurns }),
+      );
+    } catch {
+      // replays are best-effort in the dev server
     }
   }
 

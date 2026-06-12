@@ -68,6 +68,7 @@ export function commitBetrayal(s: SimState, traitor: PlayerState, victim: Player
   traitor.judasTicks = JUDAS_TICKS;
   if (!s.grudges.some((g) => g.traitor === traitor.id && g.victim === victim)) {
     s.grudges.push({ traitor: traitor.id, victim });
+    s.recap.betrayals.push({ traitor: traitor.id, victim, tick: s.tick });
   }
 }
 
@@ -206,6 +207,7 @@ function eruptSchism(s: SimState, parent: PlayerState, b: Balance): void {
   }
   parent.ownedTiles = Math.max(0, parent.ownedTiles - count);
   splinter.ownedTiles = count;
+  s.recap.schisms.push({ parent: parent.id, splinter: splinterId, tick: s.tick });
 
   // each Schism: parent −20 Faith (§3.3). (Splinter↔parent alliance lockout
   // arrives with the alliance UI; splinters are AI-driven for now, §16/§21.)

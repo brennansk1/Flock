@@ -200,7 +200,9 @@ export function stepBuildings(s: SimState, b: Balance): void {
         }
       }
       // 0.004 $/tile/sec
-      p.usd = add(p.usd, mul(mul(fromFloat(0.004), fromInt(tiles)), b.dt));
+      const tea = mul(mul(fromFloat(0.004), fromInt(tiles)), b.dt);
+      p.usd = add(p.usd, tea);
+      p.usdEarned = add(p.usdEarned, tea);
     }
   }
 }

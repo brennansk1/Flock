@@ -141,7 +141,10 @@ export function stepCouriers(s: SimState, b: Balance): void {
     if (c.idx >= c.path.length - 1) {
       // delivered
       const p = s.players.find((pl) => pl.id === c.player);
-      if (p && p.alive) p.usd = add(p.usd, c.usd);
+      if (p && p.alive) {
+        p.usd = add(p.usd, c.usd);
+        p.usdEarned = add(p.usdEarned, c.usd);
+      }
       s.couriers.splice(i, 1);
     }
   }
@@ -184,6 +187,7 @@ export function stepVans(s: SimState, b: Balance): void {
     const p = s.players.find((pl) => pl.id === robber.player);
     if (p && p.alive) {
       p.usd = add(p.usd, c.usd);
+      p.usdEarned = add(p.usdEarned, c.usd);
       gainHeatScaled(p, b, 2); // +2 heat per robbery (§3.5)
     }
     s.couriers.splice(i, 1);
@@ -357,6 +361,7 @@ export function publishScandal(s: SimState, attacker: PlayerState, victimId: Pla
   const file = s.scandals.find((sc) => sc.attacker === attacker.id && sc.victim === victimId);
   if (!file || file.published || file.evidence < HUNDRED) return false;
   file.published = true;
+  s.recap.scandals.push({ attacker: attacker.id, victim: victimId, tick: s.tick });
   gainHeatScaled(attacker, b, 10); // mud sticks to the thrower
 
   const victim = s.players.find((pl) => pl.id === victimId);

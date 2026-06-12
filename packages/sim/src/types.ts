@@ -148,6 +148,20 @@ export interface PlayerState {
   retentionDebuffTicks: number;
   /** Schism Risk gauge: consecutive ticks both schism conditions held (§16). */
   schismRiskTicks: number;
+  /** lifetime $ earned — timer tiebreak + recap stat (§1/§25) */
+  usdEarned: Fixed;
+  /** Doctrinal victory (§18): consecutive ticks at Faith 100 (Revelation). */
+  faithHoldTicks: number;
+  /** Doctrinal victory: Megachurch channel progress after the hold. */
+  channelTicks: number;
+}
+
+/** Recap event log (§25): the raw material for headlines and cards. */
+export interface RecapEvents {
+  betrayals: { traitor: PlayerId; victim: PlayerId; tick: number }[];
+  scandals: { attacker: PlayerId; victim: PlayerId; tick: number }[];
+  schisms: { parent: PlayerId; splinter: PlayerId; tick: number }[];
+  prophecies: { player: PlayerId; fulfilled: boolean; tick: number }[];
 }
 
 /** Building instance (§6). Destroyed (not captured) when its tile flips. */
@@ -368,4 +382,8 @@ export interface SimState {
   /** CPA depot timers (§17) */
   cpaNextPicketTick: number;
   cpaNextBusTick: number;
+  /** FOUNDING phase (§18): ticks left of spawn-pick; sim is frozen until 0. */
+  foundingTicksLeft: number;
+  /** recap event log (§25) */
+  recap: RecapEvents;
 }

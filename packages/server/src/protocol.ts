@@ -32,6 +32,11 @@ export type ServerMsg =
   | { type: "player_joined"; player: WirePlayer }
   | { type: "turn"; turn: Turn }
   | { type: "hash"; tick: number; hash: string }
+  | {
+      /** END → RECAP (§18/§25): the story of the match, headline grammar included. */
+      type: "recap";
+      recap: import("@flock/sim").MatchRecap;
+    }
   | { type: "error"; message: string };
 
 export type ClientMsg = { type: "intent"; intent: Intent };

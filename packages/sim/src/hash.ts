@@ -94,6 +94,9 @@ export function hashState(s: SimState): string {
     f.u32(p.judasTicks);
     f.u32(p.retentionDebuffTicks);
     f.u32(p.schismRiskTicks);
+    f.fix(p.usdEarned);
+    f.u32(p.faithHoldTicks);
+    f.u32(p.channelTicks);
     f.str(p.doctrine.join(","));
     const cdKeys = Object.keys(p.cooldowns).sort();
     f.u32(cdKeys.length);
@@ -141,6 +144,31 @@ export function hashState(s: SimState): string {
   f.u32(s.nextSplinterId);
   f.u32(s.cpaNextPicketTick);
   f.u32(s.cpaNextBusTick);
+  f.u32(s.foundingTicksLeft);
+  f.u32(s.recap.betrayals.length);
+  for (const e of s.recap.betrayals) {
+    f.u32(e.traitor);
+    f.u32(e.victim);
+    f.u32(e.tick);
+  }
+  f.u32(s.recap.scandals.length);
+  for (const e of s.recap.scandals) {
+    f.u32(e.attacker);
+    f.u32(e.victim);
+    f.u32(e.tick);
+  }
+  f.u32(s.recap.schisms.length);
+  for (const e of s.recap.schisms) {
+    f.u32(e.parent);
+    f.u32(e.splinter);
+    f.u32(e.tick);
+  }
+  f.u32(s.recap.prophecies.length);
+  for (const e of s.recap.prophecies) {
+    f.u32(e.player);
+    f.byte(e.fulfilled ? 1 : 0);
+    f.u32(e.tick);
+  }
   f.u32(s.buildings.length);
   for (const e of s.buildings) {
     f.u32(e.id);

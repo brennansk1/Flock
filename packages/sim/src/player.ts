@@ -36,5 +36,8 @@ export function newPlayer(
     traitor: false,
     retentionDebuffTicks: 0,
     schismRiskTicks: 0,
+    usdEarned: 0,
+    faithHoldTicks: 0,
+    channelTicks: 0,
   };
 }

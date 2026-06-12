@@ -153,6 +153,8 @@ export function createSim(opts: {
   timerTicks?: number;
   /** Revelation mode (§18/§19): alternate victory paths active */
   revelationMode?: boolean;
+  /** FOUNDING spawn-pick window in ticks (§18); 0 = skip straight to LIVE */
+  foundingTicks?: number;
 }): SimState {
   const rng: RngState = seedRng(opts.seed);
   let populated = 0;
@@ -194,6 +196,8 @@ export function createSim(opts: {
     nextSplinterId: 900,
     cpaNextPicketTick: 0,
     cpaNextBusTick: 0,
+    foundingTicksLeft: opts.foundingTicks ?? 0,
+    recap: { betrayals: [], scandals: [], schisms: [], prophecies: [] },
   };
 }
 
@@ -775,7 +779,9 @@ function stepEconomy(s: SimState, b: Balance): void {
     let tithePerSec = mul(mul(b.economy.tithePerFollower, p.followers), mul(incomeAvg, dissentTax));
     tithePerSec = mul(tithePerSec, b.archetypes[p.archetype].income);
     tithePerSec = mul(tithePerSec, titheMult(p)); // B1 Tithing Drill +10% (§10)
-    p.usd = add(p.usd, mul(tithePerSec, dt));
+    const tithe = mul(tithePerSec, dt);
+    p.usd = add(p.usd, tithe);
+    p.usdEarned = add(p.usdEarned, tithe);
 
     // doctrine milestones track the high-water follower count (§10)
     p.maxFollowers = max(p.maxFollowers, p.followers);
@@ -836,6 +842,22 @@ function stepEffects(s: SimState, b: Balance): void {
     if (p.atonementTicks > 0) p.atonementTicks--;
     if (p.judasTicks > 0) p.judasTicks--;
     if (p.retentionDebuffTicks > 0) p.retentionDebuffTicks--;
+
+    // Doctrinal victory progress (§18, Revelation): Faith pinned at 100 for
+    // 90s, then a 20s uninterrupted channel at an owned Megachurch.
+    if (s.revelationMode && p.alive) {
+      if (p.faith >= HUNDRED) {
+        p.faithHoldTicks++;
+        if (p.faithHoldTicks >= 90 * TPS && ownsLandmark(s, p.id, Landmark.Megachurch)) {
+          p.channelTicks++;
+        } else {
+          p.channelTicks = 0; // megachurch lost mid-channel = interrupted
+        }
+      } else {
+        p.faithHoldTicks = 0;
+        p.channelTicks = 0;
+      }
+    }
     for (const key of Object.keys(p.cooldowns).sort()) {
       const left = p.cooldowns[key]! - 1;
       if (left <= 0) delete p.cooldowns[key];
@@ -884,9 +906,11 @@ function resolveProphecies(s: SimState, b: Balance): void {
     if (nowPermille > pr.snapshotPermille) {
       prophecyRapture(s, p);
       p.faith = clamp(add(p.faith, fromInt(KIT.prophecy.winFaith)), 0, HUNDRED);
+      s.recap.prophecies.push({ player: p.id, fulfilled: true, tick: s.tick });
     } else if (tryAbsorbMassApostasy(p)) {
       // E4 UNSHAKEABLE eats the backfire (§10)
     } else {
+      s.recap.prophecies.push({ player: p.id, fulfilled: false, tick: s.tick });
       p.faith = clamp(sub(p.faith, fromInt(KIT.prophecy.failFaith)), 0, HUNDRED);
       p.followers = mul(p.followers, fp(1 - KIT.prophecy.failApostasyPct / 100));
       const w = s.world;
@@ -982,6 +1006,17 @@ function checkVictory(s: SimState, b: Balance): void {
     return;
   }
 
+  // (3) [Revelation] Doctrinal: Faith 100 held 90s + 20s Megachurch channel (§18).
+  if (s.revelationMode) {
+    for (const p of contenders) {
+      if (p.channelTicks >= 20 * 10) {
+        s.status = MatchStatus.Ended;
+        s.winner = p.id;
+        return;
+      }
+    }
+  }
+
   // (4) [Revelation] Economic: The Ledger — bank ≥ map target (§11.3/§18).
   if (s.revelationMode) {
     const target = fromInt(1_200_000); // S-map target; M/L wire in with map sizes
@@ -1023,6 +1058,13 @@ export function step(s: SimState, turn: Turn, b: Balance): SimState {
 
   // Intents apply in their given (server-bundled) order for determinism.
   for (const intent of turn.intents) applyIntent(s, intent, b);
+
+  // FOUNDING (§18): spawn picks land, but the town holds its breath.
+  if (s.foundingTicksLeft > 0) {
+    s.foundingTicksLeft--;
+    s.tick++;
+    return s;
+  }
 
   stepEconomy(s, b);
   stepBuildings(s, b); // construction, downtime, supplement labs (§6)

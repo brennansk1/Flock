@@ -25,7 +25,11 @@ async function boot(): Promise<void> {
   document.getElementById("app")!.appendChild(app.canvas);
 
   const q = new URLSearchParams(location.search);
-  const name = q.get("name") ?? `Cultist${Math.floor(Math.random() * 1000)}`;
+  if (!q.get("play")) {
+    showLanding();
+    return;
+  }
+  const name = q.get("name") || `Cultist${Math.floor(Math.random() * 1000)}`;
   const archetype = q.get("archetype") ?? "dawn";
   const server = q.get("server") ?? `ws://${location.hostname}:8787`;
 
@@ -37,6 +41,7 @@ async function boot(): Promise<void> {
 
   connect(`${server}/?name=${encodeURIComponent(name)}&archetype=${archetype}`, (g) => {
     const map = new MapRenderer(app, g.sim.world.width, g.sim.world.height);
+    map.setViewer(g.playerId);
     app.stage.addChild(hud); // HUD above map
 
     wireInput(app, map, g);
@@ -68,10 +73,15 @@ function wireInput(app: Application, map: MapRenderer, g: GameSession): void {
     hover = map.tileAt(g.sim, ev.offsetX, ev.offsetY);
   });
 
-  // Click → OPEN_FRONT on a 5×5 region around the tile. Drag-select later.
+  // Click → SPAWN during FOUNDING (§18), then OPEN_FRONT on a 5×5 region.
   app.canvas.addEventListener("pointerdown", (ev) => {
     const center = map.tileAt(g.sim, ev.offsetX, ev.offsetY);
     if (center < 0) return;
+    const meNow = g.sim.players.find((pl) => pl.id === g.playerId);
+    if (meNow && !meNow.spawned) {
+      g.sendIntent({ t: IntentType.SPAWN, tile: center });
+      return;
+    }
     const w = g.sim.world;
     const cx = center % w.width;
     const cy = (center / w.width) | 0;
@@ -173,9 +183,25 @@ function hudText(g: GameSession): string {
   if (!me) return "spectating";
 
   if (g.sim.status === MatchStatus.Ended) {
-    const winner = g.players.find((p) => p.id === g.sim.winner);
-    const verdict = g.sim.winner === g.playerId ? "★ VICTORY ★" : "match over";
-    return `${verdict}\nwinner: ${winner?.name ?? "nobody"}\n(refresh to requeue)`;
+    const verdict = g.sim.winner === g.playerId ? "★ VICTORY ★" : "MATCH OVER";
+    const out = [verdict, `winner: ${nameOf(g, g.sim.winner)}`, ""];
+    if (g.recap) {
+      out.push("— RECAP —");
+      for (const pr of g.recap.players) {
+        const tag = pr.won ? "👑" : pr.traitor ? "🗡" : "·";
+        out.push(`${tag} ${nameOf(g, pr.player)}: "${pr.headline}"`);
+        out.push(`   ${pr.tilesHeld} tiles · peak ${pr.peakFollowers} souls · $${pr.usdEarned}`);
+      }
+    }
+    out.push("", "(refresh to requeue)");
+    return out.join("\n");
+  }
+
+  if (g.sim.foundingTicksLeft > 0) {
+    const secs = (g.sim.foundingTicksLeft / 10).toFixed(0);
+    return me.spawned
+      ? `FOUNDING — flock gathers in ${secs}s`
+      : `FOUNDING — CLICK to found your compound (${secs}s)\nauto-placed if you wait`;
   }
 
   // leaderboard line: current leader's domination progress (§27 top bar)
@@ -223,6 +249,42 @@ function hudText(g: GameSession): string {
   );
   if (!me.alive) lines.unshift("☠ ELIMINATED — spectating");
   return lines.join("\n");
+}
+
+/** FTUE landing (§26): one huge PLAY button, name + archetype, no account wall. */
+function showLanding(): void {
+  const root = document.getElementById("app")!;
+  const div = document.createElement("div");
+  div.style.cssText =
+    "position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;" +
+    "justify-content:center;gap:18px;font-family:Georgia,serif;color:#f0e6d0;" +
+    "background:radial-gradient(ellipse at center,#2a2018 0%,#14100c 100%)";
+  div.innerHTML = `
+    <div style="font-size:64px;letter-spacing:14px;text-shadow:0 0 24px #c89858">FLOCK</div>
+    <div style="font-size:14px;opacity:.7;font-style:italic">Mundane Falls needs a shepherd.</div>
+    <input id="nm" placeholder="cult leader name" maxlength="24"
+      style="padding:10px 14px;font-size:16px;background:#241c14;color:#f0e6d0;border:1px solid #6a5a40;border-radius:4px;width:240px;text-align:center"/>
+    <select id="ar" style="padding:10px 14px;font-size:15px;background:#241c14;color:#f0e6d0;border:1px solid #6a5a40;border-radius:4px;width:270px">
+      <option value="dawn">⏳ The Final Dawn — blitz conversion</option>
+      <option value="radiant">🌿 The Radiant Path — unshakeable retention</option>
+      <option value="circle">💼 The Prosperity Circle — the money machine</option>
+      <option value="visitors">🛸 The Visitors' Fellowship — eyes everywhere</option>
+    </select>
+    <button id="go" style="padding:16px 64px;font-size:24px;background:#c89858;color:#1a1410;border:none;border-radius:6px;cursor:pointer;font-family:Georgia,serif;letter-spacing:4px">PLAY</button>
+    <div style="font-size:11px;opacity:.5;max-width:420px;text-align:center">
+      click to found · click to convert · 1/2/3 stances · QWER rituals · D/F actives · G signature<br/>
+      B compound · T watchtower · C plate · A raid · X snoop · O/I alliances
+    </div>`;
+  root.appendChild(div);
+  const go = (): void => {
+    const name = (document.getElementById("nm") as HTMLInputElement).value || "Shepherd";
+    const ar = (document.getElementById("ar") as HTMLSelectElement).value;
+    location.search = `?play=1&name=${encodeURIComponent(name)}&archetype=${ar}`;
+  };
+  document.getElementById("go")!.addEventListener("click", go);
+  document.getElementById("nm")!.addEventListener("keydown", (e) => {
+    if ((e as KeyboardEvent).key === "Enter") go();
+  });
 }
 
 function nameOf(g: GameSession, id: number): string {

@@ -19,6 +19,7 @@ import {
   type SimState,
   type Snapshot,
   type Turn,
+  type MatchRecap,
 } from "@flock/sim";
 
 // Protocol message shapes (kept in sync with @flock/server/src/protocol.ts;
@@ -40,6 +41,7 @@ type ServerMsg =
   | { type: "player_joined"; player: WirePlayer }
   | { type: "turn"; turn: Turn }
   | { type: "hash"; tick: number; hash: string }
+  | { type: "recap"; recap: MatchRecap }
   | { type: "error"; message: string };
 
 /** Distributive Omit so the Intent union keeps its discrimination. */
@@ -52,6 +54,8 @@ export interface GameSession {
   balance: Balance;
   playerId: number;
   players: WirePlayer[];
+  /** filled by the server at END (§25) */
+  recap?: MatchRecap;
   sendIntent(intent: ClientIntent): void;
 }
 
@@ -102,6 +106,9 @@ export function connect(url: string, onReady: (g: GameSession) => void): void {
         }
         break;
       }
+      case "recap":
+        if (session) session.recap = msg.recap;
+        break;
       case "error":
         console.error("[server]", msg.message);
         break;

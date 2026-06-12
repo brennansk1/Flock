@@ -30,9 +30,10 @@ import type {
   Scandal,
   CropCircle,
   Picket,
+  RecapEvents,
 } from "./types.js";
 
-export const SNAPSHOT_VERSION = 3;
+export const SNAPSHOT_VERSION = 4;
 
 export interface Snapshot {
   v: number;
@@ -85,6 +86,8 @@ export interface Snapshot {
   nextSplinterId: number;
   cpaNextPicketTick: number;
   cpaNextBusTick: number;
+  foundingTicksLeft: number;
+  recap: RecapEvents;
 }
 
 export function toSnapshot(s: SimState): Snapshot {
@@ -139,6 +142,13 @@ export function toSnapshot(s: SimState): Snapshot {
     nextSplinterId: s.nextSplinterId,
     cpaNextPicketTick: s.cpaNextPicketTick,
     cpaNextBusTick: s.cpaNextBusTick,
+    foundingTicksLeft: s.foundingTicksLeft,
+    recap: {
+      betrayals: s.recap.betrayals.map((e) => ({ ...e })),
+      scandals: s.recap.scandals.map((e) => ({ ...e })),
+      schisms: s.recap.schisms.map((e) => ({ ...e })),
+      prophecies: s.recap.prophecies.map((e) => ({ ...e })),
+    },
   };
 }
 
@@ -201,5 +211,12 @@ export function fromSnapshot(snap: Snapshot): SimState {
     nextSplinterId: snap.nextSplinterId,
     cpaNextPicketTick: snap.cpaNextPicketTick,
     cpaNextBusTick: snap.cpaNextBusTick,
+    foundingTicksLeft: snap.foundingTicksLeft,
+    recap: {
+      betrayals: snap.recap.betrayals.map((e) => ({ ...e })),
+      scandals: snap.recap.scandals.map((e) => ({ ...e })),
+      schisms: snap.recap.schisms.map((e) => ({ ...e })),
+      prophecies: snap.recap.prophecies.map((e) => ({ ...e })),
+    },
   };
 }

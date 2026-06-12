@@ -21,3 +21,5 @@ export * from "./buildings.js";
 export * from "./doctrine.js";
 export * from "./diplomacy.js";
 export * from "./entities.js";
+export * from "./recap.js";
+export * from "./palette.js";

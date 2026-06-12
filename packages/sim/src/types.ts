@@ -51,6 +51,13 @@ export type District = (typeof District)[keyof typeof District];
  * arrays) so the sim can iterate hot loops cache-friendly and snapshot/hash
  * cheaply. All Fixed-valued fields are Int32Array of Q16.16 values.
  */
+/** District coefficient row (§2, authoritative table). All Fixed. */
+export interface DistrictCoeffs {
+  conv: Fixed;
+  retain: Fixed;
+  income: Fixed;
+}
+
 export interface World {
   width: number;
   height: number;
@@ -68,6 +75,18 @@ export interface World {
   scarTicks: Uint16Array;
   /** District membership per tile. */
   district: Uint32Array;
+  /** Coefficient row per district id (§2). Index 0 is the 1.0/1.0/1.0 default. */
+  districtCoeffs: DistrictCoeffs[];
+}
+
+/**
+ * An active Front (§4): a player's committed push into a target region. The
+ * tile list is kept sorted ascending so every machine iterates identically.
+ */
+export interface Front {
+  id: number;
+  player: PlayerId;
+  tiles: TileId[];
 }
 
 /** Per-player runtime state (§3). */
@@ -84,10 +103,23 @@ export interface PlayerState {
   ownedTiles: number;
 }
 
+/**
+ * Per-tile, per-attacker conversion progress (§4: `conv_progress per attacker`).
+ * Key = tile * PROGRESS_STRIDE + attackerId; value = accumulated pressure as
+ * Fixed. Iterated in sorted-key order wherever order matters (hashing, flips).
+ */
+export type ProgressMap = Map<number, Fixed>;
+
+/** Key stride for ProgressMap. Player ids must stay below this. */
+export const PROGRESS_STRIDE = 1024;
+
 /** The complete, serializable simulation state. Hashing this == StateHash (§33). */
 export interface SimState {
   tick: number;
   rng: RngState;
   world: World;
   players: PlayerState[];
+  fronts: Front[];
+  nextFrontId: number;
+  progress: ProgressMap;
 }

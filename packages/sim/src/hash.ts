@@ -70,5 +70,22 @@ export function hashState(s: SimState): string {
     f.u32(p.compounds);
     f.u32(p.ownedTiles);
   }
+
+  // Fronts (already kept in insertion order with sorted tile lists).
+  f.u32(s.fronts.length);
+  for (const fr of s.fronts) {
+    f.u32(fr.id);
+    f.u32(fr.player);
+    f.u32(fr.tiles.length);
+    for (const t of fr.tiles) f.u32(t);
+  }
+
+  // Conversion progress, iterated in sorted-key order for stability.
+  const keys = [...s.progress.keys()].sort((a, z) => a - z);
+  f.u32(keys.length);
+  for (const k of keys) {
+    f.u32(k);
+    f.u32(s.progress.get(k)! | 0);
+  }
   return f.hex();
 }

@@ -16,11 +16,15 @@ import { IntentType, type Intent, type Turn } from "./intents.js";
 import {
   NEUTRAL,
   Stance,
+  Terrain,
+  TileState,
   type PlayerState,
   type SimState,
   type World,
   type PlayerId,
+  type TileId,
 } from "./types.js";
+import { resolveConversion } from "./conversion.js";
 
 const HUNDRED: Fixed = fromInt(100);
 const FIFTY: Fixed = fromInt(50);
@@ -44,6 +48,7 @@ export function createWorld(width: number, height: number): World {
     dissent: new Int32Array(n),
     scarTicks: new Uint16Array(n),
     district: new Uint32Array(n),
+    districtCoeffs: [{ conv: ONE, retain: ONE, income: ONE }],
   };
 }
 
@@ -67,7 +72,15 @@ export function createSim(opts: {
     compounds: 1, // free First Compound (§3.1)
     ownedTiles: 0,
   }));
-  return { tick: 0, rng, world: opts.world, players };
+  return {
+    tick: 0,
+    rng,
+    world: opts.world,
+    players,
+    fronts: [],
+    nextFrontId: 1,
+    progress: new Map(),
+  };
 }
 
 /** Follower cap for a player: cap_base + cap_per_compound × compounds (§3.1). */
@@ -75,16 +88,93 @@ export function followerCap(p: PlayerState, b: Balance): Fixed {
   return add(b.economy.capBase, mul(b.economy.capPerCompound, fromInt(p.compounds)));
 }
 
+/** Compound cost: $15,000 × 1.35^(existing compounds − 1); the first is free (§6). */
+export function compoundCost(p: PlayerState): Fixed {
+  let cost = fromInt(15000);
+  const growth = fromFloatish(1.35);
+  for (let i = 1; i < p.compounds; i++) cost = mul(cost, growth);
+  return cost;
+}
+
+/** Claim a radius-`r` blob of neutral citizen tiles around `center` for `pid`. */
+function claimBlob(s: SimState, pid: PlayerId, center: TileId, r: number): number {
+  const w = s.world;
+  const cx = center % w.width;
+  const cy = (center / w.width) | 0;
+  let claimed = 0;
+  for (let dy = -r; dy <= r; dy++) {
+    for (let dx = -r; dx <= r; dx++) {
+      const x = cx + dx;
+      const y = cy + dy;
+      if (x < 0 || y < 0 || x >= w.width || y >= w.height) continue;
+      if (dx * dx + dy * dy > r * r) continue;
+      const t = y * w.width + x;
+      if (w.terrain[t] !== Terrain.Citizen) continue;
+      if (w.owner[t] !== NEUTRAL || w.state[t] !== TileState.Neutral) continue;
+      w.owner[t] = pid;
+      w.state[t] = TileState.Believer;
+      claimed++;
+    }
+  }
+  return claimed;
+}
+
 /** Apply a single validated intent. Mutating, deterministic, no I/O. */
-export function applyIntent(s: SimState, intent: Intent, _b: Balance): void {
+export function applyIntent(s: SimState, intent: Intent, b: Balance): void {
   const p = s.players.find((pl) => pl.id === intent.player);
   if (!p || !p.alive) return;
   switch (intent.t) {
     case IntentType.SET_STANCE:
       p.stance = intent.stance;
       break;
-    // Remaining intents (OPEN_FRONT, BUILD, RITUAL, STRIKE, ...) are wired in as
-    // their subsystems land. Each is a pure mutation of SimState.
+
+    case IntentType.SPAWN: {
+      // FOUNDING phase (§18): claim the starting blob around the picked tile.
+      if (p.ownedTiles > 0) break; // one spawn per player
+      p.ownedTiles += claimBlob(s, p.id, intent.tile, 3);
+      break;
+    }
+
+    case IntentType.OPEN_FRONT: {
+      // Commit toward a target region (§4.1). Tiles are deduped, sorted, and
+      // bounds-checked; eligibility (adjacency, convertibility) is re-checked
+      // every tick by resolveConversion, so stale fronts are harmless.
+      const w = s.world;
+      const tiles = [...new Set(intent.tiles)]
+        .filter((t) => t >= 0 && t < w.owner.length)
+        .sort((a, z) => a - z);
+      if (tiles.length === 0) break;
+      s.fronts.push({ id: s.nextFrontId++, player: p.id, tiles });
+      break;
+    }
+
+    case IntentType.CLOSE_FRONT: {
+      const idx = s.fronts.findIndex((f) => f.id === intent.front && f.player === p.id);
+      if (idx >= 0) s.fronts.splice(idx, 1);
+      break;
+    }
+
+    case IntentType.BUILD: {
+      // M0 scope: Compounds (follower cap + the economy backbone). The rest of
+      // the §6 table lands with the buildings subsystem.
+      if (intent.building !== "compound") break;
+      if (p.compounds >= 8) break; // max 8 (§6)
+      const w = s.world;
+      const t = intent.tile;
+      if (t < 0 || t >= w.owner.length || w.owner[t] !== p.id) break;
+      const cost = compoundCost(p);
+      if (p.usd < cost) break;
+      p.usd = sub(p.usd, cost);
+      p.compounds++;
+      break;
+    }
+
+    case IntentType.SURRENDER:
+      p.alive = false;
+      break;
+
+    // Remaining intents (RITUAL, STRIKE, AGENT_DISPATCH, diplomacy, ...) are
+    // wired in as their subsystems land. Each is a pure mutation of SimState.
     default:
       break;
   }
@@ -161,7 +251,7 @@ export function step(s: SimState, turn: Turn, b: Balance): SimState {
   for (const intent of turn.intents) applyIntent(s, intent, b);
 
   stepEconomy(s, b);
-  // resolveConversion(s, b);  // §4 — wired in by the conversion subsystem.
+  resolveConversion(s, b);
 
   s.tick++;
   return s;

@@ -24,3 +24,4 @@ export * from "./entities.js";
 export * from "./recap.js";
 export * from "./palette.js";
 export * from "./townRender.js";
+export * from "./tensorRoads.js";

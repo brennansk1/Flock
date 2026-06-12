@@ -19,6 +19,7 @@
 import { fromInt, fromFloat } from "./fixed.js";
 import { seedRng, nextRange, type RngState } from "./rng.js";
 import { Terrain, Landmark, Lot, type World, type DistrictCoeffs } from "./types.js";
+import { traceRoadNetwork } from "./tensorRoads.js";
 import { createWorld } from "./sim.js";
 
 /** District ids (index into districtCoeffs). 0 = unzoned (terrain). */
@@ -217,9 +218,12 @@ interface TownShape {
 }
 
 /**
- * The highway runs the full width with gentle jogs; a county route crosses it.
- * The town grows at the junction: a street grid only inside the town radius,
- * zoned downtown core → quarters → suburb ring → trailer fringe.
+ * Roads come from a tensor field (tensorRoads.ts — adapted from
+ * ProbableTrain/MapGenerator): the highway follows the global grain, the
+ * county route crosses it, and the town's avenues/cross-streets are
+ * major/minor streamlines of the field. The town then ZONES around the
+ * streets: every grass tile near a road inside the town radius becomes a
+ * lot, so blocks take the organic shapes the streamlines carve.
  */
 function layoutHighwaysAndTown(w: World, rng: RngState): TownShape {
   const { width, height } = w;
@@ -227,72 +231,10 @@ function layoutHighwaysAndTown(w: World, rng: RngState): TownShape {
   const cy = (height >> 1) + nextRange(rng, 9) - 4;
   const r = Math.max(14, Math.floor(Math.min(width, height) * 0.24));
 
-  // HIGHWAY (2 lanes wide, west–east, jogging every ~16 tiles)
-  let hy = cy + nextRange(rng, 7) - 3;
-  for (let x = 0; x < width; x++) {
-    if (x % 16 === 0 && x > 0) hy += nextRange(rng, 3) - 1;
-    hy = Math.max(2, Math.min(height - 3, hy));
-    w.terrain[hy * width + x] = Terrain.Road;
-    w.terrain[(hy + 1) * width + x] = Terrain.Road;
-  }
+  traceRoadNetwork(w, rng, { cx, cy, r });
 
-  // county route (north–south through town)
-  let hx = cx + nextRange(rng, 5) - 2;
-  for (let y = 0; y < height; y++) {
-    if (y % 20 === 0 && y > 0) hx += nextRange(rng, 3) - 1;
-    hx = Math.max(2, Math.min(width - 3, hx));
-    w.terrain[y * width + hx] = Terrain.Road;
-  }
-
-  // wandering country roads out of town — momentum walks rather than grid
-  // lines (a light take on tensor-field street growth à la
-  // github.com/probabletrain/mapgenerator; full streamline tracing is a
-  // future mapgen-tool upgrade)
-  const countryRoads = 2 + nextRange(rng, 2);
-  for (let i = 0; i < countryRoads; i++) {
-    // leave the town edge at a random angle
-    const angle = (nextRange(rng, 360) * Math.PI) / 180;
-    let fx = cx + Math.cos(angle) * (r + 1);
-    let fy = cy + Math.sin(angle) * (r + 1);
-    let heading = angle;
-    for (let step = 0; step < width; step++) {
-      const x = Math.round(fx);
-      const y = Math.round(fy);
-      if (x < 1 || y < 1 || x >= width - 1 || y >= height - 1) break;
-      w.terrain[y * width + x] = Terrain.Road;
-      // gentle deterministic drift gives the road its curve
-      heading += (nextRange(rng, 21) - 10) / 80;
-      fx += Math.cos(heading);
-      fy += Math.sin(heading);
-    }
-  }
-
-  // town streets: a modest grid that exists ONLY inside the town circle
+  // zone the town: lots form around the streets (≤2 tiles from a road, in town)
   const r2 = r * r;
-  let sx = cx - r + 2 + nextRange(rng, 3);
-  while (sx < cx + r) {
-    for (let y = cy - r; y <= cy + r; y++) {
-      if (y < 0 || y >= height) continue;
-      const dx = sx - cx;
-      const dy = y - cy;
-      if (dx * dx + dy * dy > r2) continue;
-      w.terrain[y * width + sx] = Terrain.Road;
-    }
-    sx += 5 + nextRange(rng, 3);
-  }
-  let sy = cy - r + 2 + nextRange(rng, 3);
-  while (sy < cy + r) {
-    for (let x = cx - r; x <= cx + r; x++) {
-      if (x < 0 || x >= width) continue;
-      const dx = x - cx;
-      const dy = sy - cy;
-      if (dx * dx + dy * dy > r2) continue;
-      w.terrain[sy * width + x] = Terrain.Road;
-    }
-    sy += 5 + nextRange(rng, 3);
-  }
-
-  // zone the town: lots become Citizen with a district
   for (let y = cy - r; y <= cy + r; y++) {
     for (let x = cx - r; x <= cx + r; x++) {
       if (x < 0 || y < 0 || x >= width || y >= height) continue;
@@ -302,6 +244,17 @@ function layoutHighwaysAndTown(w: World, rng: RngState): TownShape {
       const dy = y - cy;
       const d2 = dx * dx + dy * dy;
       if (d2 > r2) continue;
+      // a lot needs street access within 2 tiles — blocks hug the network
+      let nearStreet = false;
+      for (let oy = -2; oy <= 2 && !nearStreet; oy++) {
+        for (let ox = -2; ox <= 2 && !nearStreet; ox++) {
+          const nx = x + ox;
+          const ny = y + oy;
+          if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+          if (w.terrain[ny * width + nx] === Terrain.Road) nearStreet = true;
+        }
+      }
+      if (!nearStreet) continue;
       w.terrain[t] = Terrain.Citizen;
       const dist = Math.sqrt(d2) / r;
       if (dist < 0.32) w.district[t] = Districts.Downtown;
@@ -312,7 +265,7 @@ function layoutHighwaysAndTown(w: World, rng: RngState): TownShape {
     }
   }
 
-  return { cx, cy, r, highwayY: hy, highwayX: hx };
+  return { cx, cy, r, highwayY: cy, highwayX: cx };
 }
 
 /** Farmsteads in the outskirts: a few houses, crop fields, a dirt lane to a road. */

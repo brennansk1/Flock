@@ -8,11 +8,16 @@
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc --noEmit",
+    "test": "tsc -b && node --test --experimental-strip-types test/*.ts",
     "dev": "node --watch --experimental-strip-types src/index.ts",
     "start": "node dist/index.js",
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@flock/sim": "*"
+    "@flock/sim": "*",
+    "ws": "^8.21.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1"
   }
 }

@@ -1,0 +1,20 @@
+{
+  "name": "@flock/client",
+  "version": "0.0.0",
+  "description": "FLOCK web client — Vite + PixiJS renderer with client-side prediction (§32–33).",
+  "license": "UNLICENSED",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@flock/sim": "*",
+    "pixi.js": "^8.2.6"
+  },
+  "devDependencies": {
+    "vite": "^5.4.2"
+  }
+}

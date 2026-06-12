@@ -1,0 +1,26 @@
+{
+  "name": "flock",
+  "version": "0.0.0",
+  "private": true,
+  "description": "FLOCK — browser-first competitive territory strategy (.io) × asymmetric cult-builder",
+  "license": "UNLICENSED",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "dev:server": "npm run dev --workspace @flock/server",
+    "dev:client": "npm run dev --workspace @flock/client"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.21",
+    "typescript": "^5.5.4"
+  }
+}

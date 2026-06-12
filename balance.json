@@ -1,0 +1,43 @@
+{
+  "sim": { "tick_ms": 100, "turn_per_tick": 1, "hash_every_turns": 50 },
+  "economy": {
+    "tithe_per_follower": 0.018,
+    "start_usd": 8000,
+    "start_followers": 1000,
+    "follower_growth": 0.022,
+    "cap_base": 5000,
+    "cap_per_compound": 25000,
+    "courier_per_tile": 4,
+    "courier_cap": 1200,
+    "courier_interval_s": 20
+  },
+  "conversion": {
+    "base_pressure": 8.0,
+    "flip_threshold": 100,
+    "ambient_creep": 0.35,
+    "max_eff_per_border_tile": 60,
+    "attrition_attacker": 0.6,
+    "attrition_defender": 0.35,
+    "apostate_scar_s": 90
+  },
+  "stances": {
+    "tend": { "commit": 0.15, "mult": 0.6 },
+    "spread": { "commit": 0.4, "mult": 1.0 },
+    "crusade": { "commit": 0.75, "mult": 1.5, "heat_per_s": 0.04, "dissent_per_capture": 12 }
+  },
+  "heat": { "decay": 0.08, "cpa_harass": 60, "cpa_siege": 85 },
+  "schism": { "territory_share": 0.35, "avg_dissent": 40, "sustain_s": 30, "secede_share": 0.25 },
+  "scandal": { "evidence_per_s": 1.2, "notify_at": 50, "dmg_heat_coef": 0.6, "dmg_min": 5, "dmg_max": 35 },
+  "archetypes": {
+    "dawn": { "r0": 1.3, "retain": 0.8, "income": 0.8, "heat": 1.4 },
+    "radiant": { "r0": 0.8, "retain": 1.5, "income": 1.1, "heat": 0.7 },
+    "circle": { "r0": 0.6, "retain": 0.9, "income": 1.6, "heat": 1.0 },
+    "visitors": { "r0": 1.0, "retain": 1.0, "income": 0.9, "heat": 1.1 }
+  },
+  "victory": {
+    "domination_pct": { "S": 72, "M": 72, "L": 80 },
+    "economic_usd": { "S": 1200000, "M": 3000000, "L": 6000000 },
+    "doctrinal": { "faith_hold_s": 90, "channel_s": 20 }
+  },
+  "charisma_items": 1.0
+}

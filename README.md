@@ -68,11 +68,13 @@ Implemented, deterministic, and covered by tests:
 Try it: `npm run dev:server` (env: `BOTS=6 CHURCHES=2 WORLD=96`), then `npm run dev:client` and open two tabs. In-match keys: 1/2/3 stances · QWER rituals · D/F archetype actives · G signature · B/T/C/Y/U/H build · A raid · X snoop · P publish · K strike · V van · O/I diplomacy.
 
 **Hosted service (production layer)**
-- **Lobby Director (§32)**: many concurrent matches, capacity-based routing, graceful shutdown, `/health`
-- **Persistence (§34)**: `Store` interface + in-memory and durable JSON adapters — accounts, ratings, progression, match history, replays; results persisted at match-end (real Glicko-2 FFA + XP/Relics) with Prophet-tier recompute
+- **Lobby Director (§32)**: many concurrent matches, capacity-based routing, graceful shutdown, `/health` + a CORS REST API (`/leaderboard`, `/profile`, `/replay`, `/daily`, `/catalog`, `/congregations`, `/me`, `/purchase`)
+- **Persistence (§34)**: `Store` interface + in-memory and durable JSON adapters — accounts, ratings, progression, match history, replays, congregations; results persisted at match-end (real Glicko-2 FFA + XP/Relics) with Prophet-tier recompute
 - **Auth (§26)**: instant guests, stateless HMAC sessions, pluggable OAuth providers with guest→linked upgrade
-- **Trust & safety (§30)**: leetspeak-aware name/chat moderation; **input hardening** (length-capped array intents) + the existing per-socket rate limit
+- **Meta loop**: **Daily Prophecy** (§23), **earn/spend economy** (§22/§36 — relics never sold for money, free archetype rotation), **Congregations** (§24 — clans + weekly best-10 ladder)
+- **Trust & safety (§30)**: leetspeak-aware name/chat moderation; **input hardening** (length-capped array intents) + per-socket rate limit; XSS-escaped UI
 - **Netcode resilience (§33)**: desync → snapshot **resync** flow, session resume
-- **Ops/deploy**: structured logs + metrics, Docker images + compose, balance **bot-league** and load/desync **soak** harnesses (`tools/`)
+- **Client meta (§28)**: lobby menu, leaderboard/store/congregations/profile screens, settings & accessibility (reduced-motion / mute / colorblind), FTUE coachmark (§26)
+- **Ops/deploy**: structured logs + metrics, Docker images + compose, balance **bot-league** and load/desync **soak** harnesses (verified: 10 clients / 1400 intents / 0 desyncs)
 
-Remaining work is **external infra/content, not game logic** — a real datastore/OAuth/TLS, cross-browser determinism CI, telemetry dashboards, the moderation pipeline, legal/compliance, audio + sprite art (§30/§31), and the Steam wrap (§35). The full checklist and how each seam plugs in is in **[DEPLOY.md](./DEPLOY.md)**.
+Remaining work is **external infra/content, not game logic** — provisioning a real datastore/OAuth/TLS, cross-browser determinism CI, telemetry dashboards, a maintained moderation blocklist + human review, legal/compliance, the audio + sprite-art production passes (§30/§31), and the Steam wrap (§35). The full checklist and how each seam plugs in is in **[DEPLOY.md](./DEPLOY.md)**.

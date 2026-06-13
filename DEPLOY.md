@@ -123,7 +123,9 @@ production side needs provisioning or assets:
 8. **Legal/compliance** — ToS, privacy policy, GDPR/account-deletion, age
    gating (required once accounts exist).
 9. **Content** — audio (§31) and the ~40 sprite animations (§30) are
-   asset-production work; the renderer is procedural pixel art today. M/L maps
-   need validation; store/cosmetics, Daily Prophecy, Congregations are unbuilt
-   meta (§23/§24/§36).
+   asset-production work; the renderer is procedural pixel art today (QA'd for a
+   professional read). M/L maps need playtest validation. The store, Daily
+   Prophecy, and Congregations systems are implemented (§22/§23/§24/§36) — what
+   remains is cosmetic *content* (recolors, frames, banners) and the payment
+   gateway behind money-priced items.
 10. **Steam/Electron wrap** (§35) if targeting Steam EA.

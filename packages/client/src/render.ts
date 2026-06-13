@@ -82,6 +82,19 @@ export class MapRenderer {
     this.lastDrawnTick = -1; // force redraw
   }
 
+  /** Jump the camera to centre on a tile (minimap click). */
+  centerOn(tile: number): void {
+    this.centerX = (tile % this.mapW) + 0.5;
+    this.centerY = ((tile / this.mapW) | 0) + 0.5;
+    this.clampCenter();
+    this.lastDrawnTick = -1;
+  }
+
+  /** The current visible tile window (for the minimap viewport rectangle). */
+  getView(): { x: number; y: number; w: number; h: number } {
+    return { x: this.view.x, y: this.view.y, w: this.view.w, h: this.view.h };
+  }
+
   /** Drag-pan by a screen-pixel delta. */
   pan(dxPx: number, dyPx: number): void {
     const tilePxOnScreen = this.view.screenScale * TILE_PX * this.view.lod;

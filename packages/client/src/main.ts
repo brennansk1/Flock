@@ -70,7 +70,8 @@ async function boot(): Promise<void> {
       app.stage.addChild(barLabel);
 
       // The crisp DOM HUD (§27): top bar, rails, build palette, minimap, feed.
-      const hud = new Hud(g);
+      // The map is handed in as the camera so the minimap can jump + show the view.
+      const hud = new Hud(g, map);
       wireInput(app, map, g, hud);
 
       // Center status prompt (founding / prophecy / CPA / elimination).

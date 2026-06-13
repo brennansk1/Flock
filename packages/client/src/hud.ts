@@ -22,8 +22,11 @@ import {
   MatchStatus,
   doctrinePointsAvailable,
   colorForPlayer,
+  buildingCost,
+  KIT,
   type SimState,
   type PlayerState,
+  type BuildingType,
 } from "@flock/sim";
 import type { GameSession, ClientIntent } from "./net.js";
 
@@ -32,6 +35,12 @@ export type PlacementKind =
   | { mode: "strike"; strike: string }
   | { mode: "ritual"; ritual: string }
   | { mode: "ability"; ability: string };
+
+/** The slice of the map camera the HUD needs (minimap jump + viewport rect). */
+export interface Camera {
+  centerOn(tile: number): void;
+  getView(): { x: number; y: number; w: number; h: number };
+}
 
 /** Shared interaction state between the HUD and the map-click handler. */
 export interface UiState {
@@ -76,6 +85,14 @@ const BUILDS = [
   { id: "supplement_lab", key: "L", label: "Lab", desc: "Converts Faith into steady income (Radiant)." },
 ] as const;
 
+/** Ritual Faith costs (base; Sermon gains Faith instead of spending it). */
+const RITUAL_FAITH: Record<string, number> = {
+  sermon: 0,
+  midnight_festival: KIT.festival.cost,
+  the_offering: KIT.offering.faithCost,
+  day_of_atonement: KIT.atonement.cost,
+};
+
 const STANCES = [
   { id: Stance.Tend, key: "1", label: "TEND", hint: "defend + heal dissent" },
   { id: Stance.Spread, key: "2", label: "SPREAD", hint: "balanced growth" },
@@ -118,8 +135,12 @@ const HUD_CSS = `
 .fk-btn:hover{background:#33271a;border-color:#7a5a30}
 .fk-btn .k{font-size:9px;opacity:.5;border:1px solid #5a4a30;border-radius:3px;padding:0 3px;margin-left:5px}
 .fk-btn.on{background:#c89858;color:#1a1410;border-color:#e6be8a;font-weight:700}
-.fk-btn.cd{opacity:.45;filter:grayscale(.6)}
+.fk-btn.cd{opacity:.55;filter:grayscale(.5)}
+.fk-btn.cant{opacity:.4;filter:grayscale(.8)}
 .fk-btn.arm{outline:2px solid #ffd36a;outline-offset:1px}
+.fk-btn .cost{font-size:9px;opacity:.75;margin-left:5px;white-space:nowrap}
+.fk-btn.cant .cost{color:#e08a6a;opacity:1}
+.fk-btn .cd-t{font-size:9px;color:#e6be8a;margin-left:5px}
 .fk-bottom{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);display:flex;gap:10px;align-items:flex-end}
 .fk-builds{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;background:rgba(20,16,12,.78);
   border:1px solid #5a4a30;border-radius:8px;padding:8px;width:336px}
@@ -193,8 +214,12 @@ export class Hud {
   private seen = { scandals: 0, prophecies: 0, betrayals: 0, alliances: 0, dead: new Set<number>() };
   private banner: { text: string; until: number } | null = null;
   private lastMiniTick = -999;
+  private miniImg: ImageData | null = null;
 
-  constructor(private readonly g: GameSession) {
+  constructor(
+    private readonly g: GameSession,
+    private readonly camera: Camera | null = null,
+  ) {
     if (!document.getElementById("fk-hud-css")) {
       const style = document.createElement("style");
       style.id = "fk-hud-css";
@@ -207,6 +232,17 @@ export class Hud {
     this.mini.width = Math.min(120, g.sim.world.width);
     this.mini.height = Math.min(120, g.sim.world.height);
     this.miniCtx = this.mini.getContext("2d")!;
+    // click the minimap to jump the camera there (fast navigation on big maps)
+    if (this.camera) {
+      this.mini.style.cursor = "pointer";
+      this.mini.style.pointerEvents = "auto";
+      this.mini.onclick = (e) => {
+        const r = this.mini.getBoundingClientRect();
+        const tx = Math.floor(((e.clientX - r.left) / r.width) * g.sim.world.width);
+        const ty = Math.floor(((e.clientY - r.top) / r.height) * g.sim.world.height);
+        this.camera!.centerOn(ty * g.sim.world.width + tx);
+      };
+    }
     this.build();
     document.getElementById("app")!.appendChild(this.root);
   }
@@ -280,7 +316,12 @@ export class Hud {
         r.targeted ? this.arm({ mode: "ritual", ritual: r.id }) : this.send({ t: "RITUAL", ritual: r.id as never }),
       );
       b.dataset.cd = r.id;
-      b.title = `${r.label} — ${r.desc}`;
+      const fc = RITUAL_FAITH[r.id] ?? 0;
+      b.title = `${r.label} — ${r.desc}${fc ? ` (costs ${fc} Faith)` : " (free)"}`;
+      const cost = document.createElement("span");
+      cost.className = "cost";
+      cost.textContent = fc ? `${fc}✛` : "";
+      b.appendChild(cost);
       ritualG.appendChild(b);
     }
     this.el.ritualGroup = ritualG;
@@ -304,6 +345,9 @@ export class Hud {
       const b = this.btn(bd.label, bd.key, () => this.armBuild(bd.id, bd.key));
       b.dataset.build = bd.id;
       b.title = `${bd.label} — ${bd.desc} (click, then click a tile to place)`;
+      const cost = document.createElement("span");
+      cost.className = "cost";
+      b.appendChild(cost);
       builds.appendChild(b);
     }
     this.el.builds = builds;
@@ -445,10 +489,16 @@ export class Hud {
       b.classList.toggle("on", b.dataset.stance === me.stance);
     });
 
-    // ritual cooldowns
+    // ritual cooldowns + Faith affordability + numeric countdown
+    const faith = toFloat(me.faith);
     this.el.ritualGroup.querySelectorAll<HTMLElement>("[data-cd]").forEach((b) => {
-      const cd = me.cooldowns[b.dataset.cd!] ?? 0;
+      const id = b.dataset.cd!;
+      const cd = me.cooldowns[id] ?? 0;
+      const fc = RITUAL_FAITH[id] ?? 0;
       b.classList.toggle("cd", cd > 0);
+      b.classList.toggle("cant", cd <= 0 && fc > 0 && faith < fc);
+      const costEl = b.querySelector<HTMLElement>(".cost");
+      if (costEl) costEl.textContent = cd > 0 ? `${Math.ceil(cd / 10)}s` : fc ? `${fc}✛` : "";
     });
 
     // powers labels + tooltips (your archetype's signature kit)
@@ -462,10 +512,16 @@ export class Hud {
       (this.el[id] as HTMLElement).classList.toggle("cd", (me.cooldowns[ab] ?? 0) > 0);
     }
 
-    // armed placement highlight
+    // build palette: live cost, affordability greying, armed highlight
+    const usd = toInt(me.usd);
     this.el.builds.querySelectorAll<HTMLElement>("[data-build]").forEach((b) => {
-      const armed = this.ui.placement?.mode === "build" && this.ui.placement.building === b.dataset.build;
+      const type = b.dataset.build as BuildingType;
+      const cost = toInt(buildingCost(s, me.id, type));
+      const armed = this.ui.placement?.mode === "build" && this.ui.placement.building === type;
       b.classList.toggle("arm", armed);
+      b.classList.toggle("cant", usd < cost && !armed);
+      const costEl = b.querySelector<HTMLElement>(".cost");
+      if (costEl) costEl.textContent = fmtMoney(cost);
     });
 
     // doctrine badge
@@ -556,33 +612,52 @@ export class Hud {
 
   /** Throttled minimap: territory colors + fog, sampled straight from owner[]. */
   private renderMinimap(s: SimState): void {
-    if (s.tick - this.lastMiniTick < 10 && s.status !== MatchStatus.Ended) return;
-    this.lastMiniTick = s.tick;
     const w = s.world;
     const W = this.mini.width;
     const H = this.mini.height;
-    const img = this.miniCtx.createImageData(W, H);
-    for (let y = 0; y < H; y++) {
-      const sy = (y * w.height / H) | 0;
-      for (let x = 0; x < W; x++) {
-        const sx = (x * w.width / W) | 0;
-        const t = sy * w.width + sx;
-        const o = w.owner[t]!;
-        let r = 26, g = 22, b = 18;
-        if (o !== 0) {
-          const hex = colorForPlayer(o);
-          r = parseInt(hex.slice(1, 3), 16);
-          g = parseInt(hex.slice(3, 5), 16);
-          b = parseInt(hex.slice(5, 7), 16);
+    // territory (throttled — the expensive part), cached on an offscreen image
+    if (s.tick - this.lastMiniTick >= 5 || !this.miniImg) {
+      this.lastMiniTick = s.tick;
+      const img = this.miniCtx.createImageData(W, H);
+      for (let y = 0; y < H; y++) {
+        const sy = ((y * w.height) / H) | 0;
+        for (let x = 0; x < W; x++) {
+          const sx = ((x * w.width) / W) | 0;
+          const t = sy * w.width + sx;
+          const o = w.owner[t]!;
+          let r = 26,
+            g = 22,
+            b = 18;
+          if (o !== 0) {
+            const hex = colorForPlayer(o);
+            r = parseInt(hex.slice(1, 3), 16);
+            g = parseInt(hex.slice(3, 5), 16);
+            b = parseInt(hex.slice(5, 7), 16);
+          }
+          const i = (y * W + x) * 4;
+          img.data[i] = r;
+          img.data[i + 1] = g;
+          img.data[i + 2] = b;
+          img.data[i + 3] = 255;
         }
-        const i = (y * W + x) * 4;
-        img.data[i] = r;
-        img.data[i + 1] = g;
-        img.data[i + 2] = b;
-        img.data[i + 3] = 255;
+      }
+      this.miniImg = img;
+    }
+    this.miniCtx.putImageData(this.miniImg, 0, 0);
+    // live viewport rectangle so you know where you're looking
+    if (this.camera) {
+      const v = this.camera.getView();
+      if (v.w > 0 && v.w < w.width) {
+        this.miniCtx.strokeStyle = "rgba(255,255,255,0.85)";
+        this.miniCtx.lineWidth = 1;
+        this.miniCtx.strokeRect(
+          (v.x / w.width) * W + 0.5,
+          (v.y / w.height) * H + 0.5,
+          (v.w / w.width) * W,
+          (v.h / w.height) * H,
+        );
       }
     }
-    this.miniCtx.putImageData(img, 0, 0);
   }
 
   destroy(): void {

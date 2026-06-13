@@ -11,19 +11,22 @@ TypeScript monorepo (npm workspaces), per the technical spec (§32):
 
 | Package | Role |
 |---|---|
-| [`packages/sim`](./packages/sim) — `@flock/sim` | Deterministic simulation core. Fixed-point Q16.16, seeded xoshiro RNG, the Intent protocol, and the lockstep StateHash. Runs **bit-identically** on client and server. |
-| [`packages/server`](./packages/server) — `@flock/server` | Node 20 match host: Lobby Director + pinned Match Workers, lockstep turn loop, WSS transport. *(skeleton)* |
-| [`packages/client`](./packages/client) — `@flock/client` | Vite + PixiJS web client: map renderer, client-side prediction, HUD. *(skeleton)* |
+| [`packages/sim`](./packages/sim) — `@flock/sim` | Deterministic simulation core. Fixed-point Q16.16, seeded xoshiro RNG, the Intent protocol, the lockstep StateHash, plus meta logic (Glicko-2 ranked, progression, bot brains, Recap Card). Runs **bit-identically** on client and server. |
+| [`packages/server`](./packages/server) — `@flock/server` | Node 22 match host: Lobby Director hosting many concurrent Match Workers, lockstep turn loop, persistence (`Store`), auth, moderation, `/health`, desync resync. |
+| [`packages/client`](./packages/client) — `@flock/client` | Vite + PixiJS web client: map renderer, client-side prediction, full HUD, loading/lobby screens. |
 
 ## Getting started
 
 ```bash
 npm install
 npm run build          # build all packages
-npm test               # run the determinism CI gate (§40)
-npm run dev:server     # run the server stub
-npm run dev:client     # run the Vite client (http://localhost:5173)
+npm test               # determinism gate + sim + server services (§40)
+FLOCK_SECRET=dev-secret-please-change npm run dev:server
+npm run dev:client     # http://localhost:5173
 ```
+
+**Running it for real** — persistence, auth, Docker, scaling, ops, and the
+honest pre-launch checklist live in **[DEPLOY.md](./DEPLOY.md)**.
 
 ## The determinism contract
 
@@ -64,4 +67,12 @@ Implemented, deterministic, and covered by tests:
 
 Try it: `npm run dev:server` (env: `BOTS=6 CHURCHES=2 WORLD=96`), then `npm run dev:client` and open two tabs. In-match keys: 1/2/3 stances · QWER rituals · D/F archetype actives · G signature · B/T/C/Y/U/H build · A raid · X snoop · P publish · K strike · V van · O/I diplomacy.
 
-Remaining (external infra/content, not deterministic sim logic): hosted accounts + rating persistence + moderation pipeline (§22/§34), Congregations/Daily Prophecy backends (§23/§24), Steam/Electron wrap (§35), and the audio + pixel-art asset production passes (§30/§31). See [DESIGN.md §39](./DESIGN.md).
+**Hosted service (production layer)**
+- **Lobby Director (§32)**: many concurrent matches, capacity-based routing, graceful shutdown, `/health`
+- **Persistence (§34)**: `Store` interface + in-memory and durable JSON adapters — accounts, ratings, progression, match history, replays; results persisted at match-end (real Glicko-2 FFA + XP/Relics) with Prophet-tier recompute
+- **Auth (§26)**: instant guests, stateless HMAC sessions, pluggable OAuth providers with guest→linked upgrade
+- **Trust & safety (§30)**: leetspeak-aware name/chat moderation; **input hardening** (length-capped array intents) + the existing per-socket rate limit
+- **Netcode resilience (§33)**: desync → snapshot **resync** flow, session resume
+- **Ops/deploy**: structured logs + metrics, Docker images + compose, balance **bot-league** and load/desync **soak** harnesses (`tools/`)
+
+Remaining work is **external infra/content, not game logic** — a real datastore/OAuth/TLS, cross-browser determinism CI, telemetry dashboards, the moderation pipeline, legal/compliance, audio + sprite art (§30/§31), and the Steam wrap (§35). The full checklist and how each seam plugs in is in **[DEPLOY.md](./DEPLOY.md)**.

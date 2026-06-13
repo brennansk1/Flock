@@ -29,7 +29,7 @@ npm run dev:client     # run the Vite client (http://localhost:5173)
 
 The whole game rides on one invariant (§32, §40): **same seed + same Intents ⇒ same StateHash**, on every machine and browser. The sim therefore contains **zero floats, zero `Date`, zero `Math.random`** in sim scope — all math is fixed-point and all randomness flows through the seeded RNG in the turn stream. `packages/sim/test/determinism.test.ts` is the gate that protects this; if it ever fails, lockstep is broken and every downstream system is unsafe.
 
-## Status — M0 complete, M1 gameplay systems online
+## Status — M0 complete, M1 gameplay + client + meta online
 
 Implemented, deterministic, and covered by tests:
 
@@ -50,8 +50,16 @@ Implemented, deterministic, and covered by tests:
 - **Doctrine (§10)**: all 16 BITE nodes, milestone points, tier gating, every effect plumbed
 - **All four archetype kits (§11)**: Final Dawn (Prophecy Countdown), Radiant Path (Glow/Cleanse/Retreat/Labs), Prosperity Circle (Downline/Blitz/Acquisition/Ledger), Visitors' Fellowship (Crop Circle/Static/Saucer satellites)
 - **The CPA (§17)**: picket lines at Heat 60, Deprogrammer Bus at 85, Town Hall immunity below 75
-- **Bots (§21)**: Drifter expansion + Sect-tier build scripts, all via the Intent API
+- **Bots (§21)**: all three tiers — Drifter backfill, Sect utility-AI, and **Established Church** majors (behaviour tree: stance discipline, doctrine build order, border-rival grudges, scandal publishing; difficulty knob = cadence/aggression, never stat cheats), all via the Intent API in one unit-tested `bots.ts`
 
-Try it: `npm run dev:server` (env: `BOTS=6 WORLD=96`), then `npm run dev:client` and open two tabs. In-match keys: 1/2/3 stances · QWER rituals · D/F archetype actives · G signature · B/T/C/Y/U/H build · A raid · X snoop · P publish · K strike · V van · O/I diplomacy.
+**Client & meta (M1 close-out)**
+- **Client-side prediction + reconciliation (§33)**: a confirmed sim (hashed authority) + a predicted sim rebuilt each Turn with the local player's in-flight intents — instant feedback, rollback-free self-heal within one turn
+- **Fog of war (§14)**: owned + radius, unit vision, allied vision; spectators see all
+- **FOUNDING spawn-pick UI (§18/§26)**: pulsing rings on recommended high-susceptibility spawns; click to found
+- **Recap Card (§25.1)**: deterministic 1080×1350 share card (built-in pixel font, archetype sigils, headline grammar, stat block, standings), shown center-stage at END with SAVE/REQUEUE; `tools/recapcard.mjs` renders a PNG headless
+- **Ranked (§20)**: Glicko-2 (rating/RD/volatility, FFA pairwise decomposition, tier ladder, seasonal soft reset)
+- **Progression (§22)**: XP/level curve, Relic earn band, level-5 ranked unlock — wired into a post-match `results` ticker
 
-Next: client prediction + fog of war, FOUNDING spawn-pick UI, Recap Cards (§25), accounts/ranked (§20/§22), Established Church bots, Steam wrap (§35) — see [DESIGN.md §39](./DESIGN.md).
+Try it: `npm run dev:server` (env: `BOTS=6 CHURCHES=2 WORLD=96`), then `npm run dev:client` and open two tabs. In-match keys: 1/2/3 stances · QWER rituals · D/F archetype actives · G signature · B/T/C/Y/U/H build · A raid · X snoop · P publish · K strike · V van · O/I diplomacy.
+
+Remaining (external infra/content, not deterministic sim logic): hosted accounts + rating persistence + moderation pipeline (§22/§34), Congregations/Daily Prophecy backends (§23/§24), Steam/Electron wrap (§35), and the audio + pixel-art asset production passes (§30/§31). See [DESIGN.md §39](./DESIGN.md).

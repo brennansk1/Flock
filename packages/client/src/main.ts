@@ -444,6 +444,17 @@ function showRecapCard(g: GameSession): void {
     "max-height:72vh;height:auto;image-rendering:pixelated;border:2px solid #6a5a40;box-shadow:0 8px 40px #000";
   overlay.appendChild(canvas);
 
+  // XP / Relic ticker + provisional rating (§28) for the local player.
+  const mine = g.results?.find((r) => r.player === g.playerId);
+  if (mine) {
+    const ticker = document.createElement("div");
+    ticker.style.cssText = "font-size:16px;letter-spacing:1px;color:#e6be8a";
+    ticker.textContent =
+      `PLACED #${mine.placement}   +${mine.xp} XP   +${mine.relics} ◈ RELICS   ` +
+      `RATING ${mine.provisionalRating}`;
+    overlay.appendChild(ticker);
+  }
+
   const row = document.createElement("div");
   row.style.cssText = "display:flex;gap:14px;align-items:center";
   const download = document.createElement("button");

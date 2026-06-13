@@ -51,7 +51,17 @@ type ServerMsg =
   | { type: "turn"; turn: Turn }
   | { type: "hash"; tick: number; hash: string }
   | { type: "recap"; recap: MatchRecap }
+  | { type: "results"; results: MatchResult[] }
   | { type: "error"; message: string };
+
+/** Post-match XP/Relic ticker + provisional rating (§20/§22). */
+export interface MatchResult {
+  player: number;
+  placement: number;
+  xp: number;
+  relics: number;
+  provisionalRating: number;
+}
 
 /** Distributive Omit so the Intent union keeps its discrimination. */
 type DistOmit<T, K extends keyof never> = T extends unknown ? Omit<T, K> : never;
@@ -66,6 +76,8 @@ export interface GameSession {
   players: WirePlayer[];
   /** filled by the server at END (§25) */
   recap?: MatchRecap;
+  /** filled by the server at END (§20/§22) */
+  results?: MatchResult[];
   sendIntent(intent: ClientIntent): void;
 }
 
@@ -160,6 +172,9 @@ export function connect(url: string, onReady: (g: GameSession) => void): void {
       }
       case "recap":
         if (session) session.recap = msg.recap;
+        break;
+      case "results":
+        if (session) session.results = msg.results;
         break;
       case "error":
         console.error("[server]", msg.message);

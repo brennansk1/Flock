@@ -37,6 +37,25 @@ export type ServerMsg =
       type: "recap";
       recap: import("@flock/sim").MatchRecap;
     }
+  | {
+      /**
+       * END → RESULTS (§20/§22): the post-match XP/Relic ticker (§28) and a
+       * provisional ranked delta. XP/Relics are self-contained per-match
+       * values; the ranked field is provisional from a 1500 baseline because
+       * persistent ratings live in the accounts service (§34), not the match.
+       */
+      type: "results";
+      results: MatchResult[];
+    }
   | { type: "error"; message: string };
+
+export interface MatchResult {
+  player: number;
+  placement: number;
+  xp: number;
+  relics: number;
+  /** new rating after this match assuming a fresh 1500 entry (provisional). */
+  provisionalRating: number;
+}
 
 export type ClientMsg = { type: "intent"; intent: Intent };

@@ -31,6 +31,10 @@ import {
   generateRecap,
   botTurn,
   botShouldAct,
+  matchXp,
+  matchRelics,
+  updateFFA,
+  newRating,
   IntentType,
   Terrain,
   MatchStatus,
@@ -44,7 +48,7 @@ import {
   type BotState,
   type BotTier,
 } from "@flock/sim";
-import type { ServerMsg, WirePlayer } from "./protocol.js";
+import type { ServerMsg, WirePlayer, MatchResult } from "./protocol.js";
 
 const RATE_LIMIT_PER_SEC = 20;
 const ARCHETYPES = ["dawn", "radiant", "circle", "visitors"] as const;
@@ -300,11 +304,43 @@ export class MatchWorker {
       this.endedAnnounced = true;
       const recap = generateRecap(this.sim);
       this.broadcast({ type: "recap", recap });
+      this.broadcast({ type: "results", results: this.computeResults() });
       this.writeReplay();
       const w = this.roster.find((r) => r.id === this.sim.winner);
       // eslint-disable-next-line no-console
       console.log(`[match] ended at tick ${this.sim.tick}: winner ${w?.name ?? "nobody"}`);
     }
+  }
+
+  /**
+   * Post-match XP/Relic ticker (§22) + provisional ranked delta (§20). Final
+   * placement = winner first, then spawned players by tiles held. XP/Relics are
+   * exact per-match values; ratings are provisional from a 1500 baseline since
+   * persisted ratings live in the accounts service (§34), not the match worker.
+   */
+  private computeResults(): MatchResult[] {
+    const ranked = this.sim.players
+      .filter((p) => p.spawned)
+      .sort((a, b) => {
+        if (a.id === this.sim.winner) return -1;
+        if (b.id === this.sim.winner) return 1;
+        return b.ownedTiles - a.ownedTiles;
+      });
+    const playerCount = ranked.length;
+    const newRatings = updateFFA(ranked.map(() => newRating()));
+    return ranked.map((p, i): MatchResult => {
+      // we don't persist per-player elimination ticks; alive players survived
+      // the whole match, eliminated ones get a half-match approximation.
+      const survivedTicks = p.alive ? this.sim.tick : Math.floor(this.sim.tick * 0.5);
+      const outcome = { survivedTicks, placement: i + 1, playerCount, firstWinOfDay: false };
+      return {
+        player: p.id,
+        placement: i + 1,
+        xp: matchXp(outcome),
+        relics: matchRelics(outcome),
+        provisionalRating: Math.round(newRatings[i]!.rating),
+      };
+    });
   }
 
   /** Replay Store (§34): gzipped intent logs in production; JSON here. */

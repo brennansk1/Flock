@@ -14,6 +14,7 @@ import { InMemoryStore, JsonFileStore } from "../dist/store.js";
 import { AuthService } from "../dist/auth.js";
 import { moderateName, moderateChat, containsProfanity } from "../dist/moderation.js";
 import { persistMatch } from "../dist/lobby.js";
+import { CongregationService } from "../dist/congregations.js";
 
 test("InMemoryStore: account CRUD, match history, leaderboard", async () => {
   const s = new InMemoryStore();
@@ -146,4 +147,46 @@ test("guests gain progression but not persisted rating", async () => {
   const g = (await store.getAccount(guest.id))!;
   assert.equal(g.rating.rating, g0, "guest rating untouched");
   assert.ok(g.relics > 0, "guest still earns relics/XP");
+});
+
+test("congregations: create/join/leave, tag validation, capacity, ownership", async () => {
+  const store = new InMemoryStore();
+  const cong = new CongregationService(store);
+  const owner = await store.createAccount({ name: "Leader", guest: false });
+
+  assert.equal((await cong.create(owner.id, "Good Name", "@@")).ok, false, "bad tag rejected");
+  assert.equal((await cong.create(owner.id, "Good Name", "fuck")).ok, false, "profane tag rejected");
+  const created = await cong.create(owner.id, "The Open Wallet", "WLT");
+  assert.ok(created.ok && created.congregation, "valid creation");
+  const id = created.congregation!.id;
+  assert.equal(created.congregation!.tag, "WLT");
+
+  const m1 = await store.createAccount({ name: "M1", guest: false });
+  assert.ok((await cong.join(id, m1.id)).ok);
+  assert.equal((await store.getCongregation(id))!.members.length, 2);
+
+  // owner leaves → ownership passes
+  await cong.leave(id, owner.id);
+  const after = await store.getCongregation(id);
+  assert.equal(after!.ownerId, m1.id, "ownership passed to remaining member");
+});
+
+test("congregation score sums members' best match results into a ladder", async () => {
+  const store = new InMemoryStore();
+  const cong = new CongregationService(store);
+  const a = await store.createAccount({ name: "A", guest: false });
+  const created = (await cong.create(a.id, "Scorers", "SCR")).congregation!;
+  // give A two match results (1st and 3rd)
+  await store.recordMatch({
+    id: "x1", seed: 1, startedAt: 0, endedAt: 1, durationTicks: 10, winner: a.id,
+    participants: [{ accountId: a.id, placement: 1, xp: 0, relics: 0, ratingBefore: 1500, ratingAfter: 1520 }],
+  });
+  await store.recordMatch({
+    id: "x2", seed: 2, startedAt: 0, endedAt: 2, durationTicks: 10, winner: null,
+    participants: [{ accountId: a.id, placement: 3, xp: 0, relics: 0, ratingBefore: 1520, ratingAfter: 1510 }],
+  });
+  assert.equal(await cong.score(created.id), 10 + 8, "1st(10) + 3rd(8)");
+  const ladder = await cong.ladder();
+  assert.equal(ladder[0]!.congregation.id, created.id);
+  assert.equal(ladder[0]!.score, 18);
 });

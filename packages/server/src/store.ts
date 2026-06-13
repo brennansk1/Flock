@@ -53,6 +53,19 @@ export interface MatchRecord {
   participants: MatchParticipant[];
 }
 
+/** A Congregation (clan, §24): ≤50 members, moderated tag, shared banner. */
+export interface Congregation {
+  id: string;
+  name: string;
+  tag: string;
+  bannerCosmetic: string;
+  ownerId: string;
+  members: string[];
+  createdAt: number;
+}
+
+export const CONGREGATION_MAX_MEMBERS = 50; // §24
+
 export interface Store {
   getAccount(id: string): Promise<Account | null>;
   getByProvider(provider: string, sub: string): Promise<Account | null>;
@@ -64,6 +77,11 @@ export interface Store {
   topRatings(limit: number): Promise<Account[]>;
   saveReplay(id: string, data: unknown): Promise<void>;
   loadReplay(id: string): Promise<unknown | null>;
+
+  createCongregation(c: Congregation): Promise<void>;
+  getCongregation(id: string): Promise<Congregation | null>;
+  saveCongregation(c: Congregation): Promise<void>;
+  listCongregations(): Promise<Congregation[]>;
 }
 
 let counter = 0;
@@ -97,6 +115,7 @@ export class InMemoryStore implements Store {
   protected accounts = new Map<string, Account>();
   protected matches: MatchRecord[] = [];
   protected replays = new Map<string, unknown>();
+  protected congregations = new Map<string, Congregation>();
 
   async getAccount(id: string): Promise<Account | null> {
     return this.accounts.get(id) ?? null;
@@ -134,6 +153,18 @@ export class InMemoryStore implements Store {
   async loadReplay(id: string): Promise<unknown | null> {
     return this.replays.get(id) ?? null;
   }
+  async createCongregation(c: Congregation): Promise<void> {
+    this.congregations.set(c.id, c);
+  }
+  async getCongregation(id: string): Promise<Congregation | null> {
+    return this.congregations.get(id) ?? null;
+  }
+  async saveCongregation(c: Congregation): Promise<void> {
+    this.congregations.set(c.id, c);
+  }
+  async listCongregations(): Promise<Congregation[]> {
+    return [...this.congregations.values()];
+  }
 }
 
 /**
@@ -153,6 +184,12 @@ export class JsonFileStore extends InMemoryStore {
   private matchesPath(): string {
     return join(this.dir, "matches.json");
   }
+  private congsPath(): string {
+    return join(this.dir, "congregations.json");
+  }
+  private flushCongs(): void {
+    writeFileSync(this.congsPath(), JSON.stringify([...this.congregations.values()]));
+  }
   private load(): void {
     if (existsSync(this.accountsPath())) {
       const arr = JSON.parse(readFileSync(this.accountsPath(), "utf8")) as Account[];
@@ -160,6 +197,11 @@ export class JsonFileStore extends InMemoryStore {
     }
     if (existsSync(this.matchesPath())) {
       this.matches = JSON.parse(readFileSync(this.matchesPath(), "utf8")) as MatchRecord[];
+    }
+    if (existsSync(this.congsPath())) {
+      for (const c of JSON.parse(readFileSync(this.congsPath(), "utf8")) as Congregation[]) {
+        this.congregations.set(c.id, c);
+      }
     }
     for (const f of existsSync(join(this.dir, "replays")) ? readdirSync(join(this.dir, "replays")) : []) {
       if (f.endsWith(".json")) {
@@ -186,5 +228,13 @@ export class JsonFileStore extends InMemoryStore {
   override async saveReplay(id: string, data: unknown): Promise<void> {
     await super.saveReplay(id, data);
     writeFileSync(join(this.dir, "replays", `${id}.json`), JSON.stringify(data));
+  }
+  override async createCongregation(c: Congregation): Promise<void> {
+    await super.createCongregation(c);
+    this.flushCongs();
+  }
+  override async saveCongregation(c: Congregation): Promise<void> {
+    await super.saveCongregation(c);
+    this.flushCongs();
   }
 }

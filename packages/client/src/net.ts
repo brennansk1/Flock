@@ -88,9 +88,17 @@ interface PendingIntent {
   authoredTick: number;
 }
 
-export function connect(url: string, onReady: (g: GameSession) => void): void {
+/** Connection lifecycle hooks for the loading screen / error surfacing. */
+export interface ConnectHooks {
+  onError?(message: string): void;
+  onClose?(): void;
+}
+
+export function connect(url: string, onReady: (g: GameSession) => void, hooks: ConnectHooks = {}): void {
   const ws = new WebSocket(url);
   let session: GameSession | null = null;
+  ws.onerror = () => hooks.onError?.("connection failed");
+  ws.onclose = () => hooks.onClose?.();
 
   // The authority: advanced only by server Turns, hashed for desync checks.
   let confirmed: SimState | null = null;
@@ -98,20 +106,24 @@ export function connect(url: string, onReady: (g: GameSession) => void): void {
   const pending: PendingIntent[] = [];
 
   /**
-   * Rebuild the rendered sim from the confirmed snapshot, then replay the
-   * pending local intents as one speculative step so the player sees their own
-   * actions immediately. Cheap at 10 Hz; corrected every server Turn.
+   * Point the rendered sim at the freshly-confirmed state, then (only if the
+   * player has intents in flight) replay them on a clone so their own actions
+   * show instantly. The common case — no pending intents — renders `confirmed`
+   * directly with zero copies, so the snapshot round-trip cost is paid only
+   * while the player is actively acting.
    */
   const rebuildPrediction = (): void => {
     if (!session || !confirmed) return;
-    const predicted = fromSnapshot(toSnapshot(confirmed));
-    if (pending.length > 0) {
-      step(
-        predicted,
-        { n: confirmed.tick, intents: pending.map((p) => p.intent), seedSlice: 0 },
-        session.balance,
-      );
+    if (pending.length === 0) {
+      session.sim = confirmed; // fast path: no prediction needed
+      return;
     }
+    const predicted = fromSnapshot(toSnapshot(confirmed));
+    step(
+      predicted,
+      { n: confirmed.tick, intents: pending.map((p) => p.intent), seedSlice: 0 },
+      session.balance,
+    );
     session.sim = predicted;
   };
 
@@ -178,6 +190,7 @@ export function connect(url: string, onReady: (g: GameSession) => void): void {
         break;
       case "error":
         console.error("[server]", msg.message);
+        hooks.onError?.(msg.message);
         break;
     }
   };

@@ -53,7 +53,9 @@ Implemented, deterministic, and covered by tests:
 - **Bots (§21)**: all three tiers — Drifter backfill, Sect utility-AI, and **Established Church** majors (behaviour tree: stance discipline, doctrine build order, border-rival grudges, scandal publishing; difficulty knob = cadence/aggression, never stat cheats), all via the Intent API in one unit-tested `bots.ts`
 
 **Client & meta (M1 close-out)**
-- **Client-side prediction + reconciliation (§33)**: a confirmed sim (hashed authority) + a predicted sim rebuilt each Turn with the local player's in-flight intents — instant feedback, rollback-free self-heal within one turn
+- **Full in-match HUD (§27)**: crisp DOM UI over the chunky world — top bar (followers + trend arrow, treasury + $/sec, faith, pulsing Heat gauge, timer, leader %), left rail (stances · rituals · archetype powers · signature with cooldowns), build palette with click-to-place targeting, doctrine picker (BITE grid, point badge), live minimap, player list (ally/break), and a drama kill-feed with freeze-frame banners (§25.3)
+- **Loading & connection screens (§28)**: animated connect screen, error/disconnect surfacing with RETRY, lobby with name/archetype/host selection for multiplayer
+- **Client-side prediction + reconciliation (§33)**: a confirmed sim (hashed authority) + a predicted sim rebuilt each Turn with the local player's in-flight intents — instant feedback, rollback-free self-heal within one turn. Renders the confirmed state directly with zero copies when nothing is in flight; HUD/minimap/feed updates are throttled to sim rate
 - **Fog of war (§14)**: owned + radius, unit vision, allied vision; spectators see all
 - **FOUNDING spawn-pick UI (§18/§26)**: pulsing rings on recommended high-susceptibility spawns; click to found
 - **Recap Card (§25.1)**: deterministic 1080×1350 share card (built-in pixel font, archetype sigils, headline grammar, stat block, standings), shown center-stage at END with SAVE/REQUEUE; `tools/recapcard.mjs` renders a PNG headless

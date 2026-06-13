@@ -73,6 +73,15 @@ const FIFTY: Fixed = fromInt(50);
 /** ticks per second at the canonical 100ms tick */
 const TPS = 10;
 
+/**
+ * Hard caps on client-supplied array intents (§33 hardening). The sim is
+ * defensive by construction, but unbounded arrays would let a hostile client
+ * force O(n) work 20×/s; legitimate use is far below these. A click-front is
+ * 25 tiles; a van path only needs its endpoints.
+ */
+const MAX_FRONT_TILES = 128;
+const MAX_PATH_TILES = 1024;
+
 /** Ritual/ability tuning (§9, §11.1). ITVs; promote to balance.json when tuned. */
 export const KIT = {
   sermon: { cooldown: 30 * TPS, faithGain: 12, buffTicks: 20 * TPS },
@@ -591,11 +600,13 @@ export function applyIntent(s: SimState, intent: Intent, b: Balance): void {
     }
 
     case IntentType.OPEN_FRONT: {
-      // Commit toward a target region (§4.1). Tiles are deduped, sorted, and
-      // bounds-checked; eligibility (adjacency, convertibility) is re-checked
-      // every tick by resolveConversion, so stale fronts are harmless.
+      // Commit toward a target region (§4.1). Tiles are length-capped (a hostile
+      // client must not be able to ship a giant array 20×/s, §33 rate limit),
+      // deduped, sorted, and bounds-checked; eligibility (adjacency,
+      // convertibility) is re-checked every tick by resolveConversion, so stale
+      // fronts are harmless.
       const w = s.world;
-      const tiles = [...new Set(intent.tiles)]
+      const tiles = [...new Set(intent.tiles.slice(0, MAX_FRONT_TILES))]
         .filter((t) => t >= 0 && t < w.owner.length)
         .sort((a, z) => a - z);
       if (tiles.length === 0) break;
@@ -666,7 +677,9 @@ export function applyIntent(s: SimState, intent: Intent, b: Balance): void {
       const capacity = vanCapacity(s, p.id);
       const mine = s.vans.filter((v) => v.player === p.id);
       const w = s.world;
-      const path = intent.path.filter((t) => t >= 0 && t < w.owner.length);
+      // Only the endpoints matter (linePath re-routes); cap before filtering so
+      // a giant path array can't force unbounded work.
+      const path = intent.path.slice(0, MAX_PATH_TILES).filter((t) => t >= 0 && t < w.owner.length);
       if (path.length === 0) break;
       if (intent.van >= 0) {
         const v = mine.find((vv) => vv.id === intent.van);

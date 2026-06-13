@@ -16,7 +16,24 @@ export interface WirePlayer {
   archetype: "dawn" | "radiant" | "circle" | "visitors";
 }
 
+/** Account summary handed to the client at connect (§22/§28 profile bits). */
+export interface WireAccount {
+  id: string;
+  name: string;
+  guest: boolean;
+  level: number;
+  relics: number;
+  rating: number;
+  tier: string;
+}
+
 export type ServerMsg =
+  | {
+      /** Auth result (§26): the session token to persist + account summary. */
+      type: "auth";
+      token: string;
+      account: WireAccount;
+    }
   | {
       /**
        * Join payload: full state snapshot (§33) — joining is just the resync
@@ -32,6 +49,13 @@ export type ServerMsg =
   | { type: "player_joined"; player: WirePlayer }
   | { type: "turn"; turn: Turn }
   | { type: "hash"; tick: number; hash: string }
+  | {
+      /** Resync response (§33): a fresh authoritative snapshot after a desync. */
+      type: "snapshot";
+      snapshot: Snapshot;
+      players: WirePlayer[];
+    }
+  | { type: "chat"; from: number; channel: string; msg: string }
   | {
       /** END → RECAP (§18/§25): the story of the match, headline grammar included. */
       type: "recap";
@@ -58,4 +82,7 @@ export interface MatchResult {
   provisionalRating: number;
 }
 
-export type ClientMsg = { type: "intent"; intent: Intent };
+export type ClientMsg =
+  | { type: "intent"; intent: Intent }
+  /** Client asks for a fresh snapshot after detecting a StateHash divergence. */
+  | { type: "resync" };

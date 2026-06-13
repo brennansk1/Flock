@@ -38,7 +38,17 @@ export interface WirePlayer {
   name: string;
   archetype: "dawn" | "radiant" | "circle" | "visitors";
 }
+export interface WireAccount {
+  id: string;
+  name: string;
+  guest: boolean;
+  level: number;
+  relics: number;
+  rating: number;
+  tier: string;
+}
 type ServerMsg =
+  | { type: "auth"; token: string; account: WireAccount }
   | {
       type: "welcome";
       playerId: number;
@@ -50,6 +60,8 @@ type ServerMsg =
   | { type: "player_joined"; player: WirePlayer }
   | { type: "turn"; turn: Turn }
   | { type: "hash"; tick: number; hash: string }
+  | { type: "snapshot"; snapshot: Snapshot; players: WirePlayer[] }
+  | { type: "chat"; from: number; channel: string; msg: string }
   | { type: "recap"; recap: MatchRecap }
   | { type: "results"; results: MatchResult[] }
   | { type: "error"; message: string };
@@ -74,11 +86,16 @@ export interface GameSession {
   balance: Balance;
   playerId: number;
   players: WirePlayer[];
+  /** the authenticated account (guest or linked), from the auth handshake. */
+  account?: WireAccount;
+  /** rolling chat log (server-moderated). */
+  chat: { from: number; msg: string }[];
   /** filled by the server at END (§25) */
   recap?: MatchRecap;
   /** filled by the server at END (§20/§22) */
   results?: MatchResult[];
   sendIntent(intent: ClientIntent): void;
+  sendChat(msg: string): void;
 }
 
 /** A locally-authored intent waiting to be confirmed by a server Turn. */
@@ -94,9 +111,23 @@ export interface ConnectHooks {
   onClose?(): void;
 }
 
+/** Persist the session token so a returning player resumes their account. */
+const TOKEN_KEY = "flock.session";
+function withToken(url: string): string {
+  try {
+    const tok = localStorage.getItem(TOKEN_KEY);
+    if (tok && !/[?&]token=/.test(url)) return url + (url.includes("?") ? "&" : "?") + `token=${encodeURIComponent(tok)}`;
+  } catch {
+    /* storage unavailable (private mode) — fall back to guest */
+  }
+  return url;
+}
+
 export function connect(url: string, onReady: (g: GameSession) => void, hooks: ConnectHooks = {}): void {
-  const ws = new WebSocket(url);
+  const ws = new WebSocket(withToken(url));
   let session: GameSession | null = null;
+  let pendingAccount: WireAccount | null = null;
+  let lastResyncAt = 0;
   ws.onerror = () => hooks.onError?.("connection failed");
   ws.onclose = () => hooks.onClose?.();
 
@@ -130,6 +161,18 @@ export function connect(url: string, onReady: (g: GameSession) => void, hooks: C
   ws.onmessage = (ev) => {
     const msg = JSON.parse(ev.data as string) as ServerMsg;
     switch (msg.type) {
+      case "auth": {
+        // Persist the session token (so RETRY/return resumes the account) and
+        // stash the summary to attach when the match session is created.
+        try {
+          localStorage.setItem(TOKEN_KEY, msg.token);
+        } catch {
+          /* ignore */
+        }
+        pendingAccount = msg.account;
+        if (session) session.account = msg.account;
+        break;
+      }
       case "welcome": {
         const balance = loadBalance(msg.balance);
         // Joining IS the resync path: restore the authoritative snapshot and
@@ -140,6 +183,8 @@ export function connect(url: string, onReady: (g: GameSession) => void, hooks: C
           balance,
           playerId: msg.playerId,
           players: [...msg.players],
+          chat: [],
+          ...(pendingAccount ? { account: pendingAccount } : {}),
           sendIntent: (intent) => {
             const full = { ...intent, player: msg.playerId } as Intent;
             ws.send(JSON.stringify({ type: "intent", intent: full }));
@@ -147,6 +192,7 @@ export function connect(url: string, onReady: (g: GameSession) => void, hooks: C
             if (confirmed) pending.push({ intent: full, authoredTick: confirmed.tick });
             rebuildPrediction();
           },
+          sendChat: (text: string) => ws.send(JSON.stringify({ type: "intent", intent: { t: "CHAT", player: msg.playerId, channel: "all", msg: text } })),
         };
         onReady(session);
         break;
@@ -176,9 +222,32 @@ export function connect(url: string, onReady: (g: GameSession) => void, hooks: C
         // Always hash the AUTHORITY, never the prediction (§33).
         const local = hashState(confirmed);
         if (local !== msg.hash) {
-          // Desync (§33): production path requests a snapshot resync; the
-          // skeleton logs loudly — this should be a <0.1% event (§40).
-          console.error(`[desync] tick=${msg.tick} server=${msg.hash} local=${local}`);
+          // Desync (§33): request a fresh authoritative snapshot and re-mirror.
+          // Debounced so a streak of bad hashes triggers one recovery, not a
+          // flood. Should be a <0.1% event (§40).
+          console.error(`[desync] tick=${msg.tick} server=${msg.hash} local=${local} — requesting resync`);
+          const now = Date.now();
+          if (now - lastResyncAt > 2000) {
+            lastResyncAt = now;
+            ws.send(JSON.stringify({ type: "resync" }));
+          }
+        }
+        break;
+      }
+      case "snapshot": {
+        // Resync recovery: replace the authority with the server snapshot and
+        // drop any in-flight predictions (they're superseded).
+        if (!session) break;
+        confirmed = fromSnapshot(msg.snapshot);
+        session.players = [...msg.players];
+        pending.length = 0;
+        rebuildPrediction();
+        break;
+      }
+      case "chat": {
+        if (session) {
+          session.chat.push({ from: msg.from, msg: msg.msg });
+          if (session.chat.length > 50) session.chat.shift();
         }
         break;
       }

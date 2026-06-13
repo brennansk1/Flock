@@ -47,8 +47,10 @@ import {
   type RngState,
   type BotState,
   type BotTier,
+  type MatchRecap,
 } from "@flock/sim";
 import type { ServerMsg, WirePlayer, MatchResult } from "./protocol.js";
+import { moderateChat } from "./moderation.js";
 
 const RATE_LIMIT_PER_SEC = 20;
 const ARCHETYPES = ["dawn", "radiant", "circle", "visitors"] as const;
@@ -78,13 +80,34 @@ const CHURCH_NAMES = [
 interface ClientSlot {
   playerId: number;
   ws: WebSocket;
+  /** persistent account behind this seat (guests included). */
+  accountId: string;
   /** sliding-window intent counter for rate limiting */
   windowStart: number;
   windowCount: number;
 }
 
+/** Reported to the Lobby Director at END so it can persist results (§34). */
+export interface MatchEndInfo {
+  matchId: string;
+  seed: number;
+  durationTicks: number;
+  winnerPlayerId: number;
+  recap: MatchRecap;
+  results: MatchResult[];
+  /** playerId → accountId for every human seat (bots excluded). */
+  accountOf: Map<number, string>;
+  replay: { seed: number; finalHash: string; turns: Turn[] };
+}
 
 export class MatchWorker {
+  /** stable match id (the lobby assigns one; defaults to the seed). */
+  matchId: string;
+  /** max human seats before the lobby opens a new match. */
+  readonly capacity: number;
+  private onEnd: ((info: MatchEndInfo) => void) | null = null;
+  private readonly accountOf = new Map<number, string>();
+  private readonly startedAt = Date.now();
   private readonly balanceRaw: RawBalance;
   private readonly balance: Balance;
   private readonly seed: number;
@@ -109,10 +132,13 @@ export class MatchWorker {
     botCount = 0,
     foundingTicks = 200,
     churchCount = 0,
+    capacity = 20,
   ) {
     this.balanceRaw = balanceRaw;
     this.balance = loadBalance(balanceRaw);
     this.seed = seed;
+    this.matchId = `m_${(seed >>> 0).toString(36)}`;
+    this.capacity = capacity;
     // Separate RNG streams: seedSlice feeds the sim's randomness through the
     // turn stream (replays stay pure intent logs, §33); botRng drives Drifter
     // decisions, which also enter the turn stream as plain intents.
@@ -131,10 +157,28 @@ export class MatchWorker {
     for (let i = 0; i < botCount; i++) this.addBot();
   }
 
+  /** The Lobby Director registers a callback to persist results at END (§34). */
+  setOnEnd(cb: (info: MatchEndInfo) => void): void {
+    this.onEnd = cb;
+  }
+
+  /** Live human seats (for lobby capacity decisions). */
+  humanCount(): number {
+    return this.clients.size;
+  }
+  /** A match accepts new humans until it ends or fills (founding still open). */
+  isJoinable(): boolean {
+    return this.sim.status === MatchStatus.Live && this.clients.size < this.capacity;
+  }
+  isEnded(): boolean {
+    return this.sim.status === MatchStatus.Ended;
+  }
+
   /** Attach a connecting client; assigns a player id and spawns them in. */
-  addClient(ws: WebSocket, name: string, archetype: WirePlayer["archetype"]): void {
+  addClient(ws: WebSocket, name: string, archetype: WirePlayer["archetype"], accountId = ""): void {
     const playerId = this.addPlayer(name, archetype, false);
-    this.clients.set(playerId, { playerId, ws, windowStart: 0, windowCount: 0 });
+    this.clients.set(playerId, { playerId, ws, accountId, windowStart: 0, windowCount: 0 });
+    if (accountId) this.accountOf.set(playerId, accountId);
 
     this.send(ws, {
       type: "welcome",
@@ -257,10 +301,27 @@ export class MatchWorker {
     } catch {
       return;
     }
-    if (typeof msg !== "object" || msg === null || (msg as { type?: string }).type !== "intent")
+    if (typeof msg !== "object" || msg === null) return;
+    const type = (msg as { type?: string }).type;
+
+    // Desync recovery (§33): a client whose StateHash diverged asks for a fresh
+    // authoritative snapshot and re-mirrors from there.
+    if (type === "resync") {
+      this.send(slot.ws, { type: "snapshot", snapshot: toSnapshot(this.sim), players: this.roster });
       return;
+    }
+    if (type !== "intent") return;
     const intent = (msg as { intent?: Intent }).intent;
     if (!intent || typeof intent.t !== "string") return;
+
+    // CHAT is relayed by the server (never simulated), moderated on the way out.
+    if (intent.t === IntentType.CHAT) {
+      const chat = intent as Extract<Intent, { t: typeof IntentType.CHAT }>;
+      const { allowed, text } = moderateChat(chat.msg ?? "");
+      if (allowed) this.broadcast({ type: "chat", from: playerId, channel: chat.channel ?? "all", msg: text });
+      return;
+    }
+
     // Identity is the socket's, never the payload's.
     this.pending.push({ ...intent, player: playerId } as Intent);
   }
@@ -303,12 +364,23 @@ export class MatchWorker {
     if (this.sim.status === MatchStatus.Ended && !this.endedAnnounced) {
       this.endedAnnounced = true;
       const recap = generateRecap(this.sim);
+      const results = this.computeResults();
       this.broadcast({ type: "recap", recap });
-      this.broadcast({ type: "results", results: this.computeResults() });
+      this.broadcast({ type: "results", results });
+      const replay = { seed: this.seed, finalHash: hashState(this.sim), turns: this.replayTurns };
       this.writeReplay();
-      const w = this.roster.find((r) => r.id === this.sim.winner);
-      // eslint-disable-next-line no-console
-      console.log(`[match] ended at tick ${this.sim.tick}: winner ${w?.name ?? "nobody"}`);
+      // Hand the result to the Lobby Director for durable persistence (§34).
+      this.onEnd?.({
+        matchId: this.matchId,
+        seed: this.seed,
+        durationTicks: this.sim.tick,
+        winnerPlayerId: this.sim.winner,
+        recap,
+        results,
+        accountOf: new Map(this.accountOf),
+        replay,
+      });
+      this.stop(); // the match is over; release the tick loop
     }
   }
 

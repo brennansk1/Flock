@@ -26,6 +26,8 @@ export * from "./recapCard.js";
 export * from "./ranked.js";
 export * from "./bots.js";
 export * from "./progression.js";
+export * from "./daily.js";
+export * from "./economy.js";
 export * from "./palette.js";
 export * from "./townRender.js";
 export * from "./tensorRoads.js";

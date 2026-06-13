@@ -69,20 +69,35 @@ const YARD_CHANCE: Record<number, number> = {
   [Districts.Trailer]: 50,
 };
 
+/**
+ * Minimum population the map must support: enough residents and conversion-
+ * eligible lots for a full lobby's worth of cults to grow into. Below this
+ * the town is regrown a notch larger; the radius cap in layoutHighwaysAndTown
+ * still guarantees open country around it.
+ */
+const MIN_POPULATED_TILES = 700;
+const MIN_TOTAL_POP = 3200;
+
 export function generateWorld(seed: number, width: number, height: number): World {
-  const rng = seedRng(seed ^ 0x6d61_7067); // "mapg"
-  const w = createWorld(width, height);
-  w.districtCoeffs = districtCoeffTable();
+  let w!: World;
+  // grow the town until it clears the population floor (deterministic per
+  // seed — same input always walks the same retry sequence).
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const rScale = 1 + attempt * 0.12;
+    const rng = seedRng((seed ^ 0x6d61_7067) + attempt); // "mapg" + retry salt
+    w = createWorld(width, height);
+    w.districtCoeffs = districtCoeffTable();
+    w.terrain.fill(Terrain.Grass); // the whole map starts as open country
 
-  // the whole map starts as open country
-  w.terrain.fill(Terrain.Grass);
+    const town = layoutHighwaysAndTown(w, rng, rScale);
+    layoutFarms(w, rng, town);
+    placeNature(w, rng, town);
+    placeTownBuildings(w, rng, town);
+    placeLandmarks(w, town);
+    rollLots(w, rng);
 
-  const town = layoutHighwaysAndTown(w, rng);
-  layoutFarms(w, rng, town);
-  placeNature(w, rng, town);
-  placeTownBuildings(w, rng, town);
-  placeLandmarks(w, town);
-  rollLots(w, rng);
+    if (countPopulated(w) >= MIN_POPULATED_TILES && countTotalPop(w) >= MIN_TOTAL_POP) break;
+  }
   return w;
 }
 
@@ -213,6 +228,41 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
     placedGas++;
   }
 
+  // PARKING LOTS: big commercial/civic boxes get an adjacent asphalt apron —
+  // converts one neighboring house lot, giving the building padding + a lot.
+  const wantsParking = new Set<number>([
+    Lot.Supermarket,
+    Lot.Office,
+    Lot.Factory,
+    Lot.Bank,
+    Lot.FireStation,
+    Lot.School,
+    Lot.Motel,
+  ]);
+  const parkSeen = new Set<number>();
+  for (let t = 0; t < w.terrain.length; t++) {
+    const lot = w.lot[t]!;
+    if (!wantsParking.has(lot) || parkSeen.has(lot + (w.district[t]! << 8))) continue;
+    // one apron per (lot type, district) cluster keeps it from over-paving
+    const x = t % width;
+    const y = (t / width) | 0;
+    for (const [nx, ny] of [
+      [x, y + 1],
+      [x + 1, y],
+      [x, y - 1],
+      [x - 1, y],
+    ] as [number, number][]) {
+      if (nx < 0 || ny < 0 || nx >= width || ny >= w.height) continue;
+      const n = ny * width + nx;
+      if (w.terrain[n] === Terrain.Citizen && w.lot[n] === 0) {
+        w.lot[n] = Lot.Parking;
+        w.pop[n] = 0;
+        parkSeen.add(lot + (w.district[n]! << 8));
+        break;
+      }
+    }
+  }
+
   // barns + silos at farmsteads (next to existing farm houses)
   for (let t = 0; t < w.terrain.length; t++) {
     if (w.terrain[t] !== Terrain.Citizen || w.district[t] !== Districts.Trailer) continue;
@@ -255,11 +305,14 @@ interface TownShape {
  * at the fringe. Lots only appear with street access, so blocks take the
  * shapes the streamlines carve.
  */
-function layoutHighwaysAndTown(w: World, rng: RngState): TownShape {
+function layoutHighwaysAndTown(w: World, rng: RngState, rScale = 1): TownShape {
   const { width, height } = w;
   const cx = (width >> 1) + nextRange(rng, 9) - 4;
   const cy = (height >> 1) + nextRange(rng, 9) - 4;
-  const r = Math.max(16, Math.floor(Math.min(width, height) * 0.27));
+  // town radius scales up if a seed underpopulates (generateWorld retries),
+  // but stays capped so the countryside around it never disappears.
+  const base = Math.min(width, height) * 0.27 * rScale;
+  const r = Math.max(16, Math.min(Math.floor(Math.min(width, height) * 0.36), Math.floor(base)));
 
   // lumpy boundary: 12 spokes, radius 0.62r–1.05r, cosine-interpolated
   const SPOKES = 12;

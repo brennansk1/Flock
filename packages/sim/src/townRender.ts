@@ -206,6 +206,12 @@ const C = {
   flowerY: hexToRgb("#e8d24a"),
   flowerW: hexToRgb("#e8e4d8"),
   fence: hexToRgb("#8a7a5c"),
+  grassHigh: hexToRgb("#bcc28a"),
+  grassLow: hexToRgb("#8f9a68"),
+  rock: hexToRgb("#9c968a"),
+  rockShade: hexToRgb("#7c766c"),
+  bush: hexToRgb("#5a7340"),
+  shadow: hexToRgb("#6f7a52"),
 } as const;
 
 /** Town building styles: [body, roof, accent]. */
@@ -243,6 +249,24 @@ function pixHash(x: number, y: number, z = 0): number {
   let h = (x * 374761393 + y * 668265263 + z * 1442695041) | 0;
   h = Math.imul(h ^ (h >>> 13), 1274126177);
   return (h ^ (h >>> 16)) >>> 0;
+}
+
+/** Smooth 0..1 value noise over a coarse lattice (cosine-interpolated). */
+function valueNoise(x: number, y: number, cell: number, z = 0): number {
+  const gx = x / cell;
+  const gy = y / cell;
+  const x0 = Math.floor(gx);
+  const y0 = Math.floor(gy);
+  const fx = (1 - Math.cos((gx - x0) * Math.PI)) / 2;
+  const fy = (1 - Math.cos((gy - y0) * Math.PI)) / 2;
+  const at = (ix: number, iy: number): number => (pixHash(ix, iy, z) % 1000) / 1000;
+  const a = at(x0, y0);
+  const b = at(x0 + 1, y0);
+  const c = at(x0, y0 + 1);
+  const d = at(x0 + 1, y0 + 1);
+  const top = a * (1 - fx) + b * fx;
+  const bot = c * (1 - fx) + d * fx;
+  return top * (1 - fy) + bot * fy;
 }
 
 export interface RenderOpts {
@@ -387,22 +411,46 @@ function drawTile(
       return;
     }
     case Terrain.Grass: {
+      // gentle rolling elevation: a low-frequency noise field tints grass from
+      // shaded valleys (grassLow) up to sunlit rises (grassHigh), and its slope
+      // (the east-west gradient) shades west-facing banks for a hilly read.
+      const eC = valueNoise(x0, y0, 40, 71);
+      const eE = valueNoise(x0 + TILE_PX, y0, 40, 71);
+      const slope = eE - eC; // >0 means rising to the east → west face in shade
       for (let py = 0; py < TILE_PX; py++) {
         for (let px = 0; px < TILE_PX; px++) {
           const gx = x0 + px;
           const gy = y0 + py;
           const h = pixHash(gx, gy, 5);
-          // soft meadow mottling via cell noise + rare wildflowers
+          const elev = valueNoise(gx, gy, 40, 71);
           const cell = pixHash(gx >> 3, gy >> 3, 13) % 3;
           let c = cell === 0 ? C.meadowLight : C.meadow;
+          if (elev > 0.66) c = C.grassHigh; // hilltops catch the light
+          else if (elev < 0.36) c = C.grassLow; // hollows sit in shade
+          if (slope > 0.06 && px < 2) c = shade(c, 0.92); // west-facing bank
           if (h % 19 === 0) c = C.scrub;
           if (h % 211 === 0) c = C.flowerY;
           else if (h % 223 === 0) c = C.flowerW;
           put(gx, gy, c);
         }
       }
-      // the occasional lone country tree
+      // sparse rock outcrops on the higher, drier ground
+      if (eC > 0.62 && pixHash(t, 4, 23) % 17 === 0) {
+        put(x0 + 3, y0 + 4, C.rock);
+        put(x0 + 4, y0 + 4, C.rockShade);
+        put(x0 + 3, y0 + 5, C.rockShade);
+      }
+      // scattered low brush, clustered by a coarse noise band (flora pockets)
+      if (valueNoise(x0, y0, 22, 88) > 0.6 && pixHash(t, 7, 31) % 5 === 0) {
+        put(x0 + 2, y0 + 5, C.bush);
+        put(x0 + 3, y0 + 5, C.bush);
+        put(x0 + 3, y0 + 6, shade(C.bush, 0.85)); // bottom-right shadow
+      }
+      // the occasional lone country tree — matched to town-tree scale, with a
+      // soft bottom-right cast shadow for depth
       if (pixHash(t, 3, 19) % 37 === 0) {
+        put(x0 + 4, y0 + 5, C.shadow); // cast shadow
+        put(x0 + 5, y0 + 5, C.shadow);
         put(x0 + 3, y0 + 3, C.canopy);
         put(x0 + 4, y0 + 3, C.canopyLight);
         put(x0 + 3, y0 + 4, C.canopyDark);
@@ -424,6 +472,21 @@ function drawTile(
             c = C.fence;
           put(x0 + px, y0 + py, c);
         }
+      }
+      // Visitors press crop circles into the fields they're colonizing: a ring
+      // of flattened (darkened) crop with a swirl center.
+      const fieldClaim = woodsClaim(sim, t, tx, ty);
+      if (fieldClaim && fieldClaim.archetype === "visitors") {
+        const cxp = x0 + 4;
+        const cyp = y0 + 4;
+        const flat = shade(C.cropRow, 0.7);
+        for (let a = 0; a < 8; a++) {
+          const ax = cxp + Math.round(2.4 * Math.cos((a / 8) * Math.PI * 2));
+          const ay = cyp + Math.round(2.4 * Math.sin((a / 8) * Math.PI * 2));
+          put(ax, ay, flat);
+        }
+        if (fieldClaim.stage >= 2) put(cxp, cyp, flat);
+        if (fieldClaim.stage >= 3) put(cxp, cyp, hexToRgb("#9bf6ff"));
       }
       return;
     }
@@ -556,6 +619,23 @@ function drawLotBuilding(
   lot: number,
   put: Put,
 ): void {
+  if (lot === Lot.Parking) {
+    // asphalt apron with painted bays + a parked car or two
+    for (let py = 0; py < TILE_PX; py++) {
+      for (let px = 0; px < TILE_PX; px++) {
+        let c: RGB = C.asphalt;
+        if (px % 3 === 1 && py >= 2 && py <= 6) c = C.asphaltDash; // bay stripes
+        put(x0 + px, y0 + py, c);
+      }
+    }
+    if (pixHash(t, 1, 44) % 2 === 0) {
+      const cc = pixHash(t, 2, 44) % 3;
+      const car = cc === 0 ? hexToRgb("#7088b0") : cc === 1 ? hexToRgb("#b06a60") : hexToRgb("#d8d2c4");
+      put(x0 + 2, y0 + 3, car);
+      put(x0 + 2, y0 + 4, shade(car, 0.85));
+    }
+    return;
+  }
   if (lot === Lot.Park) {
     // pocket park: tree + path
     for (let i = 0; i < 5; i++) {
@@ -574,6 +654,9 @@ function drawLotBuilding(
   const sameRight = tx < w.width - 1 && w.lot[t + 1] === lot;
   const sameUp = ty > 0 && w.lot[t - w.width] === lot;
   const sameDown = ty < w.height - 1 && w.lot[t + w.width] === lot;
+
+  // shadow on the south/east faces of the whole footprint (sun from NW)
+  if (!sameDown || !sameRight) castShadow(x0, y0, put);
 
   const xL = sameLeft ? 0 : 1;
   const xR = sameRight ? TILE_PX - 1 : TILE_PX - 2;
@@ -801,8 +884,19 @@ function drawCompoundAssets(
   }
 }
 
+/**
+ * Directional drop shadow: a soft dark fringe along the south and east of a
+ * footprint (sun from the north-west), giving every structure a 3D pop. Cast
+ * onto the lot ground before the building body is drawn over it.
+ */
+function castShadow(x0: number, y0: number, put: Put, w = 6): void {
+  for (let px = 2; px <= w + 1; px++) put(x0 + px, y0 + TILE_PX - 1, C.shadow);
+  for (let py = 3; py <= TILE_PX - 1; py++) put(x0 + TILE_PX - 1, y0 + py, C.shadow);
+}
+
 /** family house: roof, wall, door — roof color by district. */
 function drawHouse(x0: number, y0: number, district: number, t: number, put: Put): void {
+  castShadow(x0, y0, put);
   const roof = ROOFS[district % ROOFS.length]!;
   const flip = pixHash(t, 1) & 1; // door left/right variety
   for (let px = 1; px <= 6; px++) {
@@ -826,6 +920,7 @@ function drawHouse(x0: number, y0: number, district: number, t: number, put: Put
 
 /** downtown block: tall footprint with lit windows. */
 function drawBlock(x0: number, y0: number, t: number, put: Put): void {
+  castShadow(x0, y0, put);
   for (let py = 0; py <= 6; py++) {
     for (let px = 1; px <= 6; px++) {
       put(x0 + px, y0 + py, py === 0 ? C.blockShade : C.block);

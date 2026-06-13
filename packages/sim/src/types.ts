@@ -96,6 +96,12 @@ export const Lot = {
   Barn: 10,
   Silo: 11,
   Park: 12,
+  Church: 13,
+  Bank: 14,
+  PostOffice: 15,
+  FireStation: 16,
+  Factory: 17,
+  Motel: 18,
 } as const;
 export type Lot = (typeof Lot)[keyof typeof Lot];
 

@@ -289,4 +289,37 @@ export function traceRoadNetwork(
       { dtest: 3, maxSteps: w.width, wobble: 0.08, rng },
     );
   }
+
+  // ORTHOGONAL CONNECTORS: Euler steps along a diagonal heading leave road
+  // tiles that touch only at their corners (a stairstep). Corner-only contact
+  // doesn't read or walk as a connected street, so fill an elbow tile wherever
+  // two roads meet diagonally with no side-by-side link between them.
+  fillDiagonalElbows(w);
+}
+
+function fillDiagonalElbows(w: World): void {
+  const passable = (t: number): boolean =>
+    w.terrain[t] === Terrain.Grass || w.terrain[t] === Terrain.Field || w.terrain[t] === Terrain.Dirt;
+  for (let y = 0; y < w.height - 1; y++) {
+    for (let x = 0; x < w.width - 1; x++) {
+      const a = y * w.width + x; // top-left
+      const b = a + 1; // top-right
+      const c = a + w.width; // bottom-left
+      const d = c + 1; // bottom-right
+      const aR = w.terrain[a] === Terrain.Road;
+      const bR = w.terrain[b] === Terrain.Road;
+      const cR = w.terrain[c] === Terrain.Road;
+      const dR = w.terrain[d] === Terrain.Road;
+      // ↘ diagonal: a & d road, b & c both open → bridge through one corner
+      if (aR && dR && !bR && !cR) {
+        if (passable(b)) w.terrain[b] = Terrain.Road;
+        else if (passable(c)) w.terrain[c] = Terrain.Road;
+      }
+      // ↙ diagonal: b & c road, a & d both open → bridge through one corner
+      if (bR && cR && !aR && !dR) {
+        if (passable(a)) w.terrain[a] = Terrain.Road;
+        else if (passable(d)) w.terrain[d] = Terrain.Road;
+      }
+    }
+  }
 }

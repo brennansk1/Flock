@@ -221,6 +221,12 @@ const LOT_STYLE: Record<number, [RGB, RGB, RGB]> = {
   [Lot.Office]: [hexToRgb("#9aa0a8"), hexToRgb("#7e848c"), hexToRgb("#cfd8e2")],
   [Lot.Barn]: [hexToRgb("#a8392e"), hexToRgb("#7e2b22"), hexToRgb("#efe6d0")],
   [Lot.Silo]: [hexToRgb("#c4c8cc"), hexToRgb("#9b9fa3"), hexToRgb("#8a8e92")],
+  [Lot.Church]: [hexToRgb("#e7e0cf"), hexToRgb("#6f6456"), hexToRgb("#caa53a")],
+  [Lot.Bank]: [hexToRgb("#d6cfb8"), hexToRgb("#b0a888"), hexToRgb("#3f5e7a")],
+  [Lot.PostOffice]: [hexToRgb("#c9cdd2"), hexToRgb("#3f5e7a"), hexToRgb("#c8554a")],
+  [Lot.FireStation]: [hexToRgb("#b03a30"), hexToRgb("#8c2c24"), hexToRgb("#e8e4d8")],
+  [Lot.Factory]: [hexToRgb("#9a9088"), hexToRgb("#736a62"), hexToRgb("#5a5450")],
+  [Lot.Motel]: [hexToRgb("#cabf9c"), hexToRgb("#7a6f58"), hexToRgb("#3fa0bf")],
 };
 
 /** roof palettes by district */
@@ -356,22 +362,24 @@ function drawTile(
       for (const n of [t - 1, t + 1, t - w.width, t + w.width]) {
         if (n >= 0 && n < w.terrain.length && w.terrain[n] === Terrain.Citizen) fronted = true;
       }
+      void vRoad;
+      // plain gray roadway: subtle worn mottling, sidewalk where it fronts
+      // town lots and a gravel shoulder out in the country — no painted lines.
       for (let py = 0; py < TILE_PX; py++) {
         for (let px = 0; px < TILE_PX; px++) {
-          let c: RGB = highway ? shade(C.asphalt, 0.88) : C.asphalt;
+          let c: RGB = highway ? shade(C.asphalt, 0.92) : C.asphalt;
           const gx = tx * TILE_PX + px;
           const gy = ty * TILE_PX + py;
-          if (pixHash(gx, gy, 51) % 29 === 0) c = shade(c, 1.08); // worn patches
-          const edge = vRoad ? px === 0 || px === TILE_PX - 1 : py === 0 || py === TILE_PX - 1;
-          if (edge) c = fronted ? C.sidewalk : highway ? C.shoulder : shade(C.asphalt, 0.96);
-          if (highway) {
-            // yellow centerline along the seam between the two lanes
-            const seamBelow = ty < w.height - 1 && w.terrain[t + w.width] === Terrain.Road;
-            if (seamBelow && py === TILE_PX - 1 && gx % 8 < 5) c = C.highwayLine;
-          } else if (vRoad && px === TILE_PX / 2 && gy % 6 < 3) {
-            c = C.asphaltDash;
-          } else if (!vRoad && py === TILE_PX / 2 && gx % 6 < 3) {
-            c = C.asphaltDash;
+          if (pixHash(gx, gy, 51) % 29 === 0) c = shade(c, 1.06); // worn patches
+          const onEdge = px === 0 || px === TILE_PX - 1 || py === 0 || py === TILE_PX - 1;
+          // only skirt edges that don't abut another road tile, so the surface
+          // stays continuous through intersections
+          if (onEdge && fronted) {
+            const skirtN = py === 0 && !(ty > 0 && w.terrain[t - w.width] === Terrain.Road);
+            const skirtS = py === TILE_PX - 1 && !(ty < w.height - 1 && w.terrain[t + w.width] === Terrain.Road);
+            const skirtW = px === 0 && !(tx > 0 && w.terrain[t - 1] === Terrain.Road);
+            const skirtE = px === TILE_PX - 1 && !(tx < w.width - 1 && w.terrain[t + 1] === Terrain.Road);
+            if (skirtN || skirtS || skirtW || skirtE) c = C.sidewalk;
           }
           put(x0 + px, y0 + py, c);
         }
@@ -628,6 +636,59 @@ function drawLotBuilding(
       break;
     case Lot.Sheriff:
       put(x0 + 3, y0 + 1, accent); // the star
+      break;
+    case Lot.Church:
+      // steeple with a cross on the top (north) tile, arched window below
+      if (!sameUp) {
+        put(x0 + 3, y0, accent);
+        put(x0 + 4, y0, accent);
+        put(x0 + 3, y0 - 0, accent);
+        put(x0 + 4, y0 + 1, roof);
+        put(x0 + 3, y0 + 1, roof);
+      }
+      if (sameUp) {
+        put(x0 + 3, y0 + 3, C.windowDark); // tall nave window
+        put(x0 + 4, y0 + 3, C.windowDark);
+      }
+      break;
+    case Lot.Bank:
+      // columned facade
+      put(x0 + 2, y0 + 2, accent);
+      put(x0 + 4, y0 + 2, accent);
+      put(x0 + 2, y0 + 3, accent);
+      put(x0 + 4, y0 + 3, accent);
+      put(x0 + 2, y0 + 4, accent);
+      put(x0 + 4, y0 + 4, accent);
+      break;
+    case Lot.PostOffice:
+      put(x0 + 2, y0 + 1, accent); // flag/sign stripe
+      put(x0 + 3, y0 + 1, accent);
+      put(x0 + 4, y0 + 5, C.windowDark);
+      break;
+    case Lot.FireStation:
+      // big garage bays
+      if (!sameLeft) {
+        put(x0 + 2, y0 + 4, accent);
+        put(x0 + 2, y0 + 5, accent);
+        put(x0 + 4, y0 + 4, accent);
+        put(x0 + 4, y0 + 5, accent);
+      }
+      break;
+    case Lot.Factory:
+      // smokestacks + sawtooth roof
+      if (!sameUp && !sameLeft) {
+        put(x0 + 1, y0, C.iconDark);
+        put(x0 + 1, y0 + 1, accent);
+      }
+      put(x0 + 2, y0 + 2, accent);
+      put(x0 + 4, y0 + 2, accent);
+      break;
+    case Lot.Motel:
+      // row of unit doors under a long eave
+      put(x0 + 2, y0 + 5, C.door);
+      put(x0 + 5, y0 + 5, C.door);
+      put(x0 + 2, y0 + 1, accent); // neon "VACANCY"
+      put(x0 + 3, y0 + 1, accent);
       break;
     case Lot.Office:
       for (let wy = 2; wy <= 5; wy += 2) {

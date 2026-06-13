@@ -146,9 +146,13 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
   };
 
   const D = Districts;
-  // Downtown commercial strip
+  // Downtown: civic core + commercial strip. Every real Main Street has a
+  // town hall (landmark), bank, post office, and a fire station.
   stamp(Lot.Supermarket, 2, 1, D.Downtown, 10);
   stamp(Lot.Office, 2, 2, D.Downtown, 16);
+  stamp(Lot.Bank, 1, 1, D.Downtown, 6);
+  stamp(Lot.PostOffice, 1, 1, D.Downtown, 5);
+  stamp(Lot.FireStation, 2, 1, D.Downtown, 6);
   stamp(Lot.Diner, 1, 1, D.Downtown, 6);
   stamp(Lot.Sheriff, 1, 1, D.Downtown, 5);
   for (let i = 0; i < 6; i++) stamp(Lot.Shop, 1, 1, D.Downtown, 4 + nextRange(rng, 3));
@@ -156,16 +160,40 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
   stamp(Lot.School, 2, 2, D.College, 14);
   stamp(Lot.Library, 1, 1, D.College, 5);
   stamp(Lot.Shop, 1, 1, D.College, 4);
-  // Old Town
+  // Old Town: the steepled church (a town's spiritual landmark) + diner
+  stamp(Lot.Church, 1, 2, D.OldTown, 6);
   stamp(Lot.Chapel, 1, 1, D.OldTown, 4);
   stamp(Lot.Diner, 1, 1, D.OldTown, 5);
-  // Suburbs: corner shops + parks
+  // Suburbs: corner shops, a church, parks
   stamp(Lot.Shop, 1, 1, D.Suburbs, 4);
   stamp(Lot.Shop, 1, 1, D.Suburbs, 4);
+  stamp(Lot.Church, 1, 2, D.Suburbs, 5);
   stamp(Lot.Park, 2, 2, D.Suburbs, 1, 80);
   stamp(Lot.Park, 1, 1, D.College, 1);
-  // Trailer fringe
+  // Trailer fringe: gas, and an industrial lot (the town's one factory)
   stamp(Lot.GasStation, 1, 1, D.Trailer, 3);
+  stamp(Lot.Factory, 2, 2, D.Trailer, 8);
+
+  // a roadside motel out on the highway, beside the gas stations
+  let placedMotel = false;
+  for (let attempt = 0; attempt < 200 && !placedMotel; attempt++) {
+    const x = nextRange(rng, width);
+    const y = town.highwayY + (nextRange(rng, 2) === 0 ? -2 : 3);
+    if (y < 0 || y >= w.height) continue;
+    const ddx = x - town.cx;
+    const ddy = y - town.cy;
+    if (ddx * ddx + ddy * ddy < (town.r + 8) * (town.r + 8)) continue;
+    const t = y * width + x;
+    if (w.terrain[t] !== Terrain.Grass || w.terrain[t + 1] !== Terrain.Grass) continue;
+    if (nearestRoad(w, t, 3) < 0) continue;
+    for (const n of [t, t + 1]) {
+      w.terrain[n] = Terrain.Citizen;
+      w.district[n] = Districts.Trailer;
+      w.lot[n] = Lot.Motel;
+      w.pop[n] = 3;
+    }
+    placedMotel = true;
+  }
 
   // gas stations along the highway, outside town
   let placedGas = 0;
@@ -519,12 +547,22 @@ function rollLots(w: World, rng: RngState): void {
       continue;
     }
 
-    if (nextRange(rng, 100) < (YARD_CHANCE[d] ?? 40)) {
+    const x = t % width;
+    const y = (t / width) | 0;
+    // Detached-lot spacing: in the low-density residential districts a real
+    // house needs a yard, so a full house can't sit directly beside another
+    // (raster order means west/north neighbors are already finalized). This
+    // gives every home a minimum lot footprint instead of wall-to-wall infill.
+    const lowDensity = d === Districts.Suburbs || d === Districts.OldTown || d === Districts.Trailer;
+    const crowded =
+      lowDensity &&
+      ((x > 0 && w.district[t - 1] === d && w.pop[t - 1]! >= 3) ||
+        (y > 0 && w.district[t - width] === d && w.pop[t - width]! >= 3));
+
+    if (crowded || nextRange(rng, 100) < (YARD_CHANCE[d] ?? 40)) {
       w.pop[t] = nextRange(rng, 2); // 0–1: a yard, a garden
     } else {
       let pop = lo + nextRange(rng, Math.max(1, hi - lo + 1));
-      const x = t % width;
-      const y = (t / width) | 0;
       const facing =
         (x > 0 && w.terrain[t - 1] === Terrain.Road) ||
         (x < width - 1 && w.terrain[t + 1] === Terrain.Road) ||

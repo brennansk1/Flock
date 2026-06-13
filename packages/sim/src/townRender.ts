@@ -404,6 +404,9 @@ export function renderTown(sim: SimState, opts: RenderOpts = {}): RenderedFrame 
     drawIcon(ICONS[bd.type], bd.tile, w.width, ownerRgb, put);
   }
 
+  // ---- pass 2.5: area effects (auras) under the people ----
+  drawEffects(sim, tick, fog, put);
+
   // ---- pass 3: the people ----
   drawResidents(sim, tick, fog, put);
   drawUnits(sim, opts.viewer ?? 0, fog, put);
@@ -1380,6 +1383,45 @@ const UNIT_SPRITES = {
   // CPA picket — a protester holding a sign
   picket: ["####..", "#oo#.o", "####.o", "...#oo", "...oo.", "..s.s."],
 } as const;
+
+/**
+ * Conversion auras (§9 Midnight Festival, §11.2 Free Retreat Weekend): a
+ * shimmering ring + twinkling sparkles over the boosted radius so players can
+ * see where conversion is supercharged. Festival reads warm-gold, retreat
+ * reads bloom-green. Animated by frameTick for a gentle glimmer.
+ */
+function drawEffects(sim: SimState, tick: number, fog: Uint8Array | null, put: Put): void {
+  const w = sim.world;
+  for (const aura of sim.auras) {
+    const cx = aura.tile % w.width;
+    const cy = (aura.tile / w.width) | 0;
+    const r = aura.radius;
+    const glow = aura.kind === "festival" ? hexToRgb("#ffe08a") : hexToRgb("#a6f08a");
+    const spark = aura.kind === "festival" ? hexToRgb("#fff4c8") : hexToRgb("#e2ffd0");
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        const x = cx + dx;
+        const y = cy + dy;
+        if (x < 0 || y < 0 || x >= w.width || y >= w.height) continue;
+        const t = y * w.width + x;
+        if (fog && fog[t] !== 1) continue;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        if (d > r) continue;
+        const ox = x * TILE_PX;
+        const oy = y * TILE_PX;
+        // dotted perimeter ring
+        if (Math.abs(d - r) < 0.55 && (x + y + (tick >> 3)) % 2 === 0) {
+          put(ox + 4, oy + 4, glow);
+        }
+        // sparse interior twinkle that drifts with the frame tick
+        const h = pixHash(t, 0, 61) + (tick >> 2);
+        if (h % 11 === 0) {
+          put(ox + (h % 7), oy + ((h >> 3) % 7), spark);
+        }
+      }
+    }
+  }
+}
 
 function drawUnits(sim: SimState, viewer: number, fog: Uint8Array | null, put: Put): void {
   const w = sim.world;

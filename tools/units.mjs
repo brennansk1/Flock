@@ -40,6 +40,7 @@ sim.vans.push({ id: 2, player: 1, tile: row + 9, path: [row + 9, row + 10], idx:
 sim.pylons.push({ player: 1, tile: row + 13, ticksLeft: 100 });
 sim.pickets.push({ target: 1, tile: row + 16, ticksLeft: 100 });
 sim.agents.push({ id: 3, player: 1, tile: row + 19, district: 1, mission: "deprogram", phase: "act", travelTicksLeft: 0, exposureTicks: 0 });
+sim.auras.push({ player: 1, tile: 12 * SIZE + 11, radius: 5, ticksLeft: 100, kind: "festival" });
 
 // render at LOD 6 so the 8px tiles blow up for inspection
 const view = { x: 3, y: 8, w: 18, h: 6 };

@@ -25,6 +25,7 @@ import {
   Lot,
   type SimState,
   type Building,
+  type World,
 } from "./types.js";
 import {
   hexToRgb,
@@ -276,6 +277,15 @@ export interface RenderOpts {
   fog?: Uint8Array | null;
   /** animation clock; pass sim.tick */
   frameTick?: number;
+  /**
+   * Level of detail: output pixels per logical sub-pixel. 1 = overview
+   * (whole map, 8px/tile); 2+ = zoomed in, where extra fine detail is drawn
+   * (window mullions, brick courses, finer terrain texture). The client picks
+   * this from the zoom level and renders only the visible `view`.
+   */
+  lod?: number;
+  /** visible tile rectangle to render; omitted = the whole map. */
+  view?: { x: number; y: number; w: number; h: number };
 }
 
 export interface RenderedFrame {
@@ -286,8 +296,14 @@ export interface RenderedFrame {
 
 export function renderTown(sim: SimState, opts: RenderOpts = {}): RenderedFrame {
   const w = sim.world;
-  const W = w.width * TILE_PX;
-  const H = w.height * TILE_PX;
+  const S = Math.max(1, Math.floor(opts.lod ?? 1)); // output px per logical px
+  // viewport in tile coords (clamped to the map)
+  const vx = Math.max(0, Math.min(w.width - 1, opts.view?.x ?? 0));
+  const vy = Math.max(0, Math.min(w.height - 1, opts.view?.y ?? 0));
+  const vw = Math.max(1, Math.min(w.width - vx, opts.view?.w ?? w.width));
+  const vh = Math.max(1, Math.min(w.height - vy, opts.view?.h ?? w.height));
+  const W = vw * TILE_PX * S;
+  const H = vh * TILE_PX * S;
   const data = new Uint8ClampedArray(W * H * 4);
   const tick = opts.frameTick ?? sim.tick;
   const fog = opts.fog ?? null;
@@ -295,20 +311,55 @@ export function renderTown(sim: SimState, opts: RenderOpts = {}): RenderedFrame 
   const archetypeOf = new Map<number, Archetype>();
   for (const p of sim.players) archetypeOf.set(p.id, p.archetype);
 
+  // logical (8px/tile) origin of the viewport
+  const ox = vx * TILE_PX;
+  const oy = vy * TILE_PX;
+  const logW = vw * TILE_PX;
+  const logH = vh * TILE_PX;
+
+  // base put: a logical pixel paints an S×S block, offset by the viewport
   const put = (gx: number, gy: number, rgb: RGB): void => {
-    if (gx < 0 || gy < 0 || gx >= W || gy >= H) return;
-    const o = (gy * W + gx) * 4;
+    const lx = gx - ox;
+    const ly = gy - oy;
+    if (lx < 0 || ly < 0 || lx >= logW || ly >= logH) return;
+    const bx = lx * S;
+    const by = ly * S;
+    for (let sy = 0; sy < S; sy++) {
+      let o = ((by + sy) * W + bx) * 4;
+      for (let sx = 0; sx < S; sx++) {
+        data[o] = rgb[0];
+        data[o + 1] = rgb[1];
+        data[o + 2] = rgb[2];
+        data[o + 3] = 255;
+        o += 4;
+      }
+    }
+  };
+  // fine put: one output pixel on the S× sub-grid (for zoom-in detail).
+  // fx,fy are in the logical-×S space (i.e. gx*S + subpixel).
+  const putF = (fx: number, fy: number, rgb: RGB): void => {
+    const lx = fx - ox * S;
+    const ly = fy - oy * S;
+    if (lx < 0 || ly < 0 || lx >= W || ly >= H) return;
+    const o = (ly * W + lx) * 4;
     data[o] = rgb[0];
     data[o + 1] = rgb[1];
     data[o + 2] = rgb[2];
     data[o + 3] = 255;
   };
+  const detail: Detail | null = S >= 2 ? { S, putF } : null;
+
+  // tile range to draw: only the viewport (+1 margin for spillover detail)
+  const tx0 = Math.max(0, vx - 1);
+  const ty0 = Math.max(0, vy - 1);
+  const tx1 = Math.min(w.width - 1, vx + vw);
+  const ty1 = Math.min(w.height - 1, vy + vh);
 
   // ---- pass 1: ground + lots ----
-  for (let ty = 0; ty < w.height; ty++) {
-    for (let tx = 0; tx < w.width; tx++) {
+  for (let ty = ty0; ty <= ty1; ty++) {
+    for (let tx = tx0; tx <= tx1; tx++) {
       const t = ty * w.width + tx;
-      drawTile(sim, t, tx, ty, put, archetypeOf);
+      drawTile(sim, t, tx, ty, put, archetypeOf, detail);
     }
   }
 
@@ -333,17 +384,20 @@ export function renderTown(sim: SimState, opts: RenderOpts = {}): RenderedFrame 
   drawResidents(sim, tick, fog, put);
   drawUnits(sim, opts.viewer ?? 0, fog, put);
 
-  // ---- pass 4: fog dimming ----
+  // ---- pass 4: fog dimming (operate on output blocks) ----
   if (fog) {
-    for (let ty = 0; ty < w.height; ty++) {
-      for (let tx = 0; tx < w.width; tx++) {
+    for (let ty = vy; ty < vy + vh; ty++) {
+      for (let tx = vx; tx < vx + vw; tx++) {
         if (fog[ty * w.width + tx] === 1) continue;
-        for (let py = 0; py < TILE_PX; py++) {
-          for (let px = 0; px < TILE_PX; px++) {
-            const o = ((ty * TILE_PX + py) * W + tx * TILE_PX + px) * 4;
+        const bx0 = (tx - vx) * TILE_PX * S;
+        const by0 = (ty - vy) * TILE_PX * S;
+        for (let py = 0; py < TILE_PX * S; py++) {
+          let o = ((by0 + py) * W + bx0) * 4;
+          for (let px = 0; px < TILE_PX * S; px++) {
             data[o] = (data[o]! * 96) >> 8;
             data[o + 1] = (data[o + 1]! * 96) >> 8;
             data[o + 2] = (data[o + 2]! * 96) >> 8;
+            o += 4;
           }
         }
       }
@@ -357,6 +411,62 @@ export function renderTown(sim: SimState, opts: RenderOpts = {}): RenderedFrame 
 
 type Put = (gx: number, gy: number, rgb: RGB) => void;
 
+/**
+ * Zoom-in detail channel. `putF` writes a single output pixel on the S× sub-
+ * grid (coords in logical-×S space), letting draw paths add fine features —
+ * window mullions, brick courses, ragged tree/water edges — that only exist
+ * when the map is rendered close up. Null at LOD 1 (overview).
+ */
+export interface Detail {
+  S: number;
+  putF: (fx: number, fy: number, rgb: RGB) => void;
+}
+
+/**
+ * Sub-tile bleed for woods & lake: terrain is a tile grid, but a hard
+ * tile-aligned forest/shore edge reads as blocky. For a grass pixel beside a
+ * woods/lake tile we let the blob spill a noise-ragged few pixels across the
+ * shared border, so forests and lakes get organic edges finer than one tile.
+ * Returns the override color, or null to keep grass.
+ */
+function naturalEdgeBleed(
+  w: World,
+  tx: number,
+  ty: number,
+  px: number,
+  py: number,
+): RGB | null {
+  const gx = tx * TILE_PX + px;
+  const gy = ty * TILE_PX + py;
+  let bestKind = 0;
+  let bestPen = 0;
+  const consider = (ntx: number, nty: number, dist: number): void => {
+    if (ntx < 0 || nty < 0 || ntx >= w.width || nty >= w.height) return;
+    const tr = w.terrain[nty * w.width + ntx]!;
+    if (tr !== Terrain.Woods && tr !== Terrain.Lake) return;
+    const reach = 1 + valueNoise(gx, gy, 5, tr === Terrain.Lake ? 91 : 93) * 3.2;
+    const pen = reach - dist;
+    if (pen > bestPen) {
+      bestPen = pen;
+      bestKind = tr;
+    }
+  };
+  consider(tx, ty - 1, py + 1); // N
+  consider(tx, ty + 1, TILE_PX - py); // S
+  consider(tx - 1, ty, px + 1); // W
+  consider(tx + 1, ty, TILE_PX - px); // E
+  if (bestKind === 0) return null;
+  const h = pixHash(gx, gy, 7);
+  if (bestKind === Terrain.Lake) {
+    if (bestPen < 0.8) return C.sand; // a thin beach where water meets land
+    return h % 41 === 0 ? C.waterGlint : (gy + (gx >> 2)) % 7 === 0 ? C.waterRipple : C.waterDeep;
+  }
+  // woods: canopy clumps thinning at the very fringe
+  const blob = pixHash(gx >> 2, gy >> 2, 77) % 5;
+  if (bestPen < 0.7 && h % 2 === 0) return null; // frayed outermost rim
+  return h % 23 === 0 ? C.trunk : blob < 2 ? C.canopy : blob < 4 ? C.canopyDark : C.canopyLight;
+}
+
 function drawTile(
   sim: SimState,
   t: number,
@@ -364,6 +474,7 @@ function drawTile(
   ty: number,
   put: Put,
   archetypeOf: Map<number, Archetype>,
+  detail: Detail | null = null,
 ): void {
   const w = sim.world;
   const x0 = tx * TILE_PX;
@@ -431,6 +542,9 @@ function drawTile(
           if (h % 19 === 0) c = C.scrub;
           if (h % 211 === 0) c = C.flowerY;
           else if (h % 223 === 0) c = C.flowerW;
+          // woods/lake spill a ragged sub-tile edge into this grass pixel
+          const bleed = naturalEdgeBleed(w, tx, ty, px, py);
+          if (bleed) c = bleed;
           put(gx, gy, c);
         }
       }
@@ -594,7 +708,7 @@ function drawTile(
   } else if (pop >= 8 && district === 3) {
     drawBlock(x0, y0, t, put); // downtown apartment block
   } else if (pop >= 3) {
-    drawHouse(x0, y0, district, t, put);
+    drawHouse(x0, y0, district, t, put, detail);
   } else if (pop >= 1) {
     // garden: a few flowers
     for (let i = 0; i < 3; i++) {
@@ -895,7 +1009,14 @@ function castShadow(x0: number, y0: number, put: Put, w = 6): void {
 }
 
 /** family house: roof, wall, door — roof color by district. */
-function drawHouse(x0: number, y0: number, district: number, t: number, put: Put): void {
+function drawHouse(
+  x0: number,
+  y0: number,
+  district: number,
+  t: number,
+  put: Put,
+  detail: Detail | null = null,
+): void {
   castShadow(x0, y0, put);
   const roof = ROOFS[district % ROOFS.length]!;
   const flip = pixHash(t, 1) & 1; // door left/right variety
@@ -915,7 +1036,33 @@ function drawHouse(x0: number, y0: number, district: number, t: number, put: Put
   const doorX = flip ? 2 : 5;
   put(x0 + doorX, y0 + 5, C.door);
   put(x0 + doorX, y0 + 6, C.door);
-  put(x0 + (flip ? 4 : 2), y0 + 5, C.windowDark);
+  const winX = flip ? 4 : 2;
+  put(x0 + winX, y0 + 5, C.windowDark);
+
+  // ---- zoom-in detail: things that only resolve up close ----
+  if (detail) {
+    const S = detail.S;
+    const f = detail.putF;
+    // shingle courses across the roof (fine horizontal lines)
+    const shingle = shade(roof, 0.82);
+    for (let px = 1; px <= 6; px++) {
+      const bx = (x0 + px) * S;
+      f(bx, (y0 + 2) * S + Math.floor(S / 2), shingle);
+      f(bx + Math.floor(S / 2), (y0 + 3) * S + S - 1, shingle);
+    }
+    // window mullions: a cross of frame color inside the window pixel
+    const frame = shade(C.wall, 0.7);
+    const wbx = (x0 + winX) * S;
+    const wby = (y0 + 5) * S;
+    for (let i = 0; i < S; i++) {
+      f(wbx + Math.floor(S / 2), wby + i, frame); // vertical bar
+      f(wbx + i, wby + Math.floor(S / 2), frame); // horizontal bar
+    }
+    // a glint in the lit corner
+    f(wbx + 1, wby + 1, C.windowLit);
+    // door knob
+    f((x0 + doorX) * S + (flip ? S - 2 : 1), (y0 + 5) * S + Math.floor(S / 2), C.iconAccent);
+  }
 }
 
 /** downtown block: tall footprint with lit windows. */

@@ -2,24 +2,45 @@
  * Client map view: thin wrapper over @flock/sim's shared town renderer
  * (townRender.ts draws streets, houses, people-dots, icons — identically
  * here and in headless screenshot/recap renderers). This file owns only the
- * client-specific parts: the PixiJS texture, fog computation for the viewing
- * player, and screen↔tile math.
+ * client-specific parts: the PixiJS texture, the camera (zoom + pan with
+ * level-of-detail), fog computation, and screen↔tile math.
+ *
+ * Zoom drives level-of-detail: at fit-to-screen the whole map renders at LOD 1
+ * (8px/tile); as you zoom in, only the visible window is rendered at a higher
+ * LOD so finer detail (window mullions, shingles, ragged tree edges) resolves.
  */
 
 import { Application, Sprite, Texture } from "pixi.js";
 import { renderTown, TILE_PX, type SimState } from "@flock/sim";
 
+const MAX_LOD = 4;
+
 export class MapRenderer {
-  private readonly canvas: HTMLCanvasElement;
-  private readonly ctx: CanvasRenderingContext2D;
-  private readonly texture: Texture;
+  private readonly app: Application;
+  private canvas: HTMLCanvasElement;
+  private ctx: CanvasRenderingContext2D;
+  private texture: Texture;
   readonly sprite: Sprite;
   private fog: Uint8Array | null = null;
   private fogTick = -1;
   private lastDrawnTick = -1;
   private viewerId = 0;
+  private readonly mapW: number;
+  private readonly mapH: number;
+
+  // camera: zoom (1 = fit whole map) and the tile-space center of the view
+  private zoom = 1;
+  private centerX: number;
+  private centerY: number;
+  // last view used (tile coords) so tileAt can invert screen→tile
+  private view = { x: 0, y: 0, w: 0, h: 0, lod: 1, screenScale: 1 };
 
   constructor(app: Application, width: number, height: number) {
+    this.app = app;
+    this.mapW = width;
+    this.mapH = height;
+    this.centerX = width / 2;
+    this.centerY = height / 2;
     this.canvas = document.createElement("canvas");
     this.canvas.width = width * TILE_PX;
     this.canvas.height = height * TILE_PX;
@@ -27,28 +48,74 @@ export class MapRenderer {
     this.texture = Texture.from(this.canvas);
     this.texture.source.scaleMode = "nearest";
     this.sprite = new Sprite(this.texture);
-
-    const scale = Math.min(
-      app.renderer.width / this.canvas.width,
-      (app.renderer.height - 24) / this.canvas.height,
-    );
-    this.sprite.scale.set(Math.max(0.5, Math.floor(scale * 2) / 2));
     this.sprite.y = 24; // leave room for the conversion bar
     app.stage.addChild(this.sprite);
+    this.lastDrawnTick = -1;
   }
 
   setViewer(playerId: number): void {
     this.viewerId = playerId;
   }
 
+  /** Screen viewport in CSS pixels (below the 24px conversion bar). */
+  private screen(): { w: number; h: number } {
+    return { w: this.app.renderer.width, h: Math.max(1, this.app.renderer.height - 24) };
+  }
+
+  /** Mouse-wheel zoom, keeping the tile under the cursor fixed. */
+  zoomAt(clientX: number, clientY: number, deltaY: number): void {
+    const focus = this.tileAtF(clientX, clientY);
+    const prev = this.zoom;
+    const factor = deltaY < 0 ? 1.2 : 1 / 1.2;
+    this.zoom = Math.max(1, Math.min(MAX_LOD, this.zoom * factor));
+    if (focus && this.zoom !== prev) {
+      // pull the focused tile back under the cursor after the zoom
+      const { w, h } = this.screen();
+      const fx = (clientX - this.sprite.x) / w - 0.5;
+      const fy = (clientY - this.sprite.y) / h - 0.5;
+      const tilesAcross = this.mapW / this.zoom;
+      const tilesDown = this.mapH / this.zoom;
+      this.centerX = focus.x - fx * tilesAcross;
+      this.centerY = focus.y - fy * tilesDown;
+    }
+    this.clampCenter();
+    this.lastDrawnTick = -1; // force redraw
+  }
+
+  /** Drag-pan by a screen-pixel delta. */
+  pan(dxPx: number, dyPx: number): void {
+    const tilePxOnScreen = this.view.screenScale * TILE_PX * this.view.lod;
+    if (tilePxOnScreen <= 0) return;
+    this.centerX -= dxPx / tilePxOnScreen;
+    this.centerY -= dyPx / tilePxOnScreen;
+    this.clampCenter();
+    this.lastDrawnTick = -1;
+  }
+
+  private clampCenter(): void {
+    const tilesAcross = this.mapW / this.zoom;
+    const tilesDown = this.mapH / this.zoom;
+    this.centerX = Math.max(tilesAcross / 2, Math.min(this.mapW - tilesAcross / 2, this.centerX));
+    this.centerY = Math.max(tilesDown / 2, Math.min(this.mapH - tilesDown / 2, this.centerY));
+  }
+
+  /** Map a client pixel to a fractional tile position (for zoom focus). */
+  private tileAtF(clientX: number, clientY: number): { x: number; y: number } | null {
+    const v = this.view;
+    if (v.w === 0) return null;
+    const lx = (clientX - this.sprite.x) / (v.screenScale * v.lod * TILE_PX);
+    const ly = (clientY - this.sprite.y) / (v.screenScale * v.lod * TILE_PX);
+    const x = v.x + lx;
+    const y = v.y + ly;
+    if (x < 0 || y < 0 || x >= this.mapW || y >= this.mapH) return null;
+    return { x, y };
+  }
+
   /** Map a client pixel position to a tile id, or −1 outside the map. */
-  tileAt(sim: SimState, clientX: number, clientY: number): number {
-    const s = this.sprite;
-    const x = Math.floor((clientX - s.x) / (s.scale.x * TILE_PX));
-    const y = Math.floor((clientY - s.y) / (s.scale.y * TILE_PX));
-    const w = sim.world;
-    if (x < 0 || y < 0 || x >= w.width || y >= w.height) return -1;
-    return y * w.width + x;
+  tileAt(_sim: SimState, clientX: number, clientY: number): number {
+    const f = this.tileAtF(clientX, clientY);
+    if (!f) return -1;
+    return ((f.y | 0) * this.mapW + (f.x | 0)) | 0;
   }
 
   /** Fog of war (§14): owned tiles + radius 6, units radius 4, allied vision. */
@@ -92,10 +159,40 @@ export class MapRenderer {
     this.lastDrawnTick = sim.tick;
     this.updateFog(sim);
 
-    const frame = renderTown(sim, { viewer: this.viewerId, fog: this.fog, frameTick: sim.tick });
+    const { w: screenW, h: screenH } = this.screen();
+    const lod = Math.max(1, Math.min(MAX_LOD, Math.round(this.zoom)));
+
+    // visible tile window, centered on the camera
+    const tilesAcross = Math.min(this.mapW, Math.ceil(this.mapW / this.zoom) + 1);
+    const tilesDown = Math.min(this.mapH, Math.ceil(this.mapH / this.zoom) + 1);
+    const vx = Math.max(0, Math.min(this.mapW - tilesAcross, Math.round(this.centerX - tilesAcross / 2)));
+    const vy = Math.max(0, Math.min(this.mapH - tilesDown, Math.round(this.centerY - tilesDown / 2)));
+
+    const frame = renderTown(sim, {
+      viewer: this.viewerId,
+      fog: this.fog,
+      frameTick: sim.tick,
+      lod,
+      view: { x: vx, y: vy, w: tilesAcross, h: tilesDown },
+    });
+
+    if (this.canvas.width !== frame.width || this.canvas.height !== frame.height) {
+      this.canvas.width = frame.width;
+      this.canvas.height = frame.height;
+      this.texture = Texture.from(this.canvas);
+      this.texture.source.scaleMode = "nearest";
+      this.sprite.texture = this.texture;
+    }
     const img = this.ctx.createImageData(frame.width, frame.height);
     img.data.set(frame.data);
     this.ctx.putImageData(img, 0, 0);
     this.texture.source.update();
+
+    // fit the rendered window to the screen and center it
+    const screenScale = Math.min(screenW / frame.width, screenH / frame.height);
+    this.sprite.scale.set(screenScale);
+    this.sprite.x = (screenW - frame.width * screenScale) / 2;
+    this.sprite.y = 24 + (screenH - frame.height * screenScale) / 2;
+    this.view = { x: vx, y: vy, w: tilesAcross, h: tilesDown, lod, screenScale };
   }
 }

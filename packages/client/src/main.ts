@@ -131,12 +131,40 @@ const ACTIVE_F: Record<string, string> = {
 
 function wireInput(app: Application, map: MapRenderer, g: GameSession): void {
   let hover = -1;
+  // drag-pan + wheel-zoom (zoom drives level-of-detail in the renderer)
+  let dragging = false;
+  let dragMoved = false;
+  let lastX = 0;
+  let lastY = 0;
+  app.canvas.addEventListener("wheel", (ev) => {
+    ev.preventDefault();
+    map.zoomAt(ev.offsetX, ev.offsetY, ev.deltaY);
+  }, { passive: false });
   app.canvas.addEventListener("pointermove", (ev) => {
     hover = map.tileAt(g.sim, ev.offsetX, ev.offsetY);
+    if (dragging) {
+      const dx = ev.offsetX - lastX;
+      const dy = ev.offsetY - lastY;
+      if (Math.abs(dx) + Math.abs(dy) > 2) dragMoved = true;
+      map.pan(dx, dy);
+      lastX = ev.offsetX;
+      lastY = ev.offsetY;
+    }
   });
 
-  // Click → SPAWN during FOUNDING (§18), then OPEN_FRONT on a 5×5 region.
   app.canvas.addEventListener("pointerdown", (ev) => {
+    dragging = true;
+    dragMoved = false;
+    lastX = ev.offsetX;
+    lastY = ev.offsetY;
+  });
+  window.addEventListener("pointerup", () => {
+    dragging = false;
+  });
+
+  // Click (without dragging) → SPAWN during FOUNDING (§18), then OPEN_FRONT.
+  app.canvas.addEventListener("click", (ev) => {
+    if (dragMoved) return; // it was a pan, not a click
     const center = map.tileAt(g.sim, ev.offsetX, ev.offsetY);
     if (center < 0) return;
     const meNow = g.sim.players.find((pl) => pl.id === g.playerId);

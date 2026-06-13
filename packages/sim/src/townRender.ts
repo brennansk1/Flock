@@ -138,8 +138,29 @@ const ICONS: Record<Building["type"], string[]> = {
 };
 
 const LANDMARK_ICON: Record<number, string[]> = {
-  [Landmark.RadioTower]: ICONS.broadcast_tower,
-  [Landmark.Megachurch]: ICONS.compound,
+  // a tall guyed broadcast mast with a blinking top accent — taller/leaner than
+  // the player Broadcast Tower so the landmark reads as a grand fixture.
+  [Landmark.RadioTower]: [
+    "...*....",
+    "...#....",
+    "..#o#...",
+    "..#o#...",
+    ".#o#o#..",
+    ".#o#o#..",
+    "#o#.#o#.",
+    "#.....#.",
+  ],
+  // a megachurch: broad nave with a cross-topped spire and a rose window.
+  [Landmark.Megachurch]: [
+    "...*....",
+    "...#....",
+    "..#o#...",
+    ".#ooo#..",
+    ".#o*o#..",
+    "#ooooo#.",
+    "#o#o#o#.",
+    "#######.",
+  ],
   [Landmark.TownHall]: [
     "..****..",
     ".######.",

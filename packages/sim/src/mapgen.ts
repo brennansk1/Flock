@@ -90,6 +90,7 @@ export function generateWorld(seed: number, width: number, height: number): Worl
     w.terrain.fill(Terrain.Grass); // the whole map starts as open country
 
     const town = layoutHighwaysAndTown(w, rng, rScale);
+    scatterExurbs(w, rng, town);
     layoutFarms(w, rng, town);
     placeNature(w, rng, town);
     placeTownBuildings(w, rng, town);
@@ -400,16 +401,67 @@ function isHighwayTile(w: World, t: number): boolean {
   return left && right && (up || down);
 }
 
-/** Farmsteads in the outskirts: a few houses, crop fields, a dirt lane to a road. */
+/**
+ * Density falloff: a real town doesn't end at a hard line — past the last
+ * subdivision the lots thin out into exurban homes strung along the roads
+ * that leave town, then peter out into open country. We walk the road tiles
+ * in the transition ring just beyond the town boundary and drop the occasional
+ * lone house beside one, with probability decaying as you get farther out, so
+ * the urban edge dissolves gradually instead of snapping to grass.
+ */
+function scatterExurbs(w: World, rng: RngState, town: TownShape): void {
+  const { width, height } = w;
+  const inner = town.r * 1.05;
+  const outer = town.r * 1.6;
+  for (let t = 0; t < w.terrain.length; t++) {
+    if (w.terrain[t] !== Terrain.Road) continue;
+    const x = t % width;
+    const y = (t / width) | 0;
+    const dx = x - town.cx;
+    const dy = y - town.cy;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    if (d < inner || d > outer) continue;
+    // probability fades linearly from ~35% at the edge to 0 in deep country
+    const falloff = 1 - (d - inner) / (outer - inner);
+    if (nextRange(rng, 100) >= Math.floor(35 * falloff)) continue;
+    // drop a lone home one tile off the road, on the country side
+    const offX = dx >= 0 ? 1 : -1;
+    const offY = dy >= 0 ? 1 : -1;
+    const hx = x + (nextRange(rng, 2) ? offX : 0);
+    const hy = y + (nextRange(rng, 2) ? offY : 0);
+    if (hx < 2 || hy < 2 || hx >= width - 2 || hy >= height - 2) continue;
+    const ht = hy * width + hx;
+    if (w.terrain[ht] !== Terrain.Grass) continue;
+    // keep exurban homes from touching each other (raster-order spacing)
+    if (
+      (w.terrain[ht - 1] === Terrain.Citizen) ||
+      (w.terrain[ht - width] === Terrain.Citizen)
+    )
+      continue;
+    w.terrain[ht] = Terrain.Citizen;
+    w.district[ht] = Districts.Trailer; // rural-fringe density coefficients
+  }
+}
+
+/**
+ * Farmsteads: real farms cluster in a belt on the rural edge of town, not
+ * scattered to the map's corners. We pick a few "farm road" anchors out in
+ * the countryside ring around town and grow a small group of farmsteads at
+ * each — every one a few houses, a barn-ready yard, big crop fields, and a
+ * dirt lane back to the nearest road. Fields border each other so the belt
+ * reads as contiguous agricultural land rather than floating plots.
+ */
 function layoutFarms(w: World, rng: RngState, town: TownShape): void {
   const { width, height } = w;
-  const farms = 10 + nextRange(rng, 5);
-  for (let i = 0; i < farms; i++) {
-    const fx = 4 + nextRange(rng, width - 8);
-    const fy = 4 + nextRange(rng, height - 8);
+  const beltInner = town.r + 6;
+  const beltOuter = Math.min(width, height) * 0.46;
+  const clusters = 3 + nextRange(rng, 3);
+
+  const placeFarm = (fx: number, fy: number): void => {
+    if (fx < 5 || fy < 5 || fx >= width - 5 || fy >= height - 5) return;
     const ddx = fx - town.cx;
     const ddy = fy - town.cy;
-    if (ddx * ddx + ddy * ddy < (town.r + 5) * (town.r + 5)) continue; // out of town only
+    if (ddx * ddx + ddy * ddy < beltInner * beltInner) return; // out of town only
 
     // farmhouse cluster (2–4 lots)
     const houses = 2 + nextRange(rng, 3);
@@ -423,21 +475,33 @@ function layoutFarms(w: World, rng: RngState, town: TownShape): void {
         w.district[t] = Districts.Trailer;
       }
     }
-    // crop fields beside the farm
-    const fieldW = 3 + nextRange(rng, 4);
-    const fieldH = 2 + nextRange(rng, 3);
-    const offX = nextRange(rng, 2) === 0 ? 2 : -fieldW - 1;
-    for (let dy = 0; dy < fieldH; dy++) {
-      for (let dx = 0; dx < fieldW; dx++) {
-        const x = fx + offX + dx;
-        const y = fy + dy - 1;
-        if (x < 0 || y < 0 || x >= width || y >= height) continue;
-        const t = y * width + x;
-        if (w.terrain[t] === Terrain.Grass) w.terrain[t] = Terrain.Field;
+    // big crop fields flanking the farmstead (both sides → contiguous belt)
+    for (const side of [1, -1]) {
+      const fieldW = 4 + nextRange(rng, 5);
+      const fieldH = 3 + nextRange(rng, 4);
+      const offX = side === 1 ? 2 : -fieldW - 1;
+      for (let dy = 0; dy < fieldH; dy++) {
+        for (let dx = 0; dx < fieldW; dx++) {
+          const x = fx + offX + dx;
+          const y = fy + dy - 1;
+          if (x < 0 || y < 0 || x >= width || y >= height) continue;
+          const t = y * width + x;
+          if (w.terrain[t] === Terrain.Grass) w.terrain[t] = Terrain.Field;
+        }
       }
     }
-    // dirt lane to the nearest road
     carveDirtLane(w, fy * width + fx);
+  };
+
+  for (let c = 0; c < clusters; c++) {
+    const angle = (nextRange(rng, 360) * Math.PI) / 180;
+    const dist = beltInner + nextRange(rng, Math.max(4, Math.floor(beltOuter - beltInner)));
+    const ax = Math.round(town.cx + Math.cos(angle) * dist);
+    const ay = Math.round(town.cy + Math.sin(angle) * dist);
+    const farmsHere = 2 + nextRange(rng, 3);
+    for (let f = 0; f < farmsHere; f++) {
+      placeFarm(ax + nextRange(rng, 13) - 6, ay + nextRange(rng, 13) - 6);
+    }
   }
 }
 

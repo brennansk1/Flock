@@ -27,6 +27,8 @@ import {
 import { connect, type GameSession } from "./net.js";
 import { MapRenderer } from "./render.js";
 import { Hud } from "./hud.js";
+import { showMenu } from "./menu.js";
+import { applySettings } from "./settings.js";
 
 async function boot(): Promise<void> {
   const app = new Application();
@@ -36,10 +38,11 @@ async function boot(): Promise<void> {
     antialias: false, // chunky 8×8 tile look (§30)
   });
   document.getElementById("app")!.appendChild(app.canvas);
+  applySettings(); // reflect saved accessibility prefs onto <html> before anything mounts
 
   const q = new URLSearchParams(location.search);
   if (!q.get("play")) {
-    showLanding();
+    showMenu();
     return;
   }
   const name = q.get("name") || `Cultist${Math.floor(Math.random() * 1000)}`;
@@ -77,6 +80,8 @@ async function boot(): Promise<void> {
         "font-family:'Segoe UI',sans-serif;font-size:16px;font-weight:700;letter-spacing:1px;color:#ffe6b0;" +
         "text-shadow:0 1px 4px #000;background:rgba(20,16,12,.6);padding:6px 18px;border-radius:6px;display:none";
       document.getElementById("app")!.appendChild(prompt);
+
+      maybeShowFtue(); // first-session contextual coaching (§26)
 
       // FOUNDING spawn-pick overlay (§18/§26): pulsing rings on recommended
       // spawns until the player clicks one.
@@ -500,53 +505,44 @@ function showRecapCard(g: GameSession): void {
   document.getElementById("app")!.appendChild(overlay);
 }
 
-/** FTUE landing (§26): one huge PLAY button, name + archetype, no account wall. */
-function showLanding(): void {
-  const root = document.getElementById("app")!;
-  const div = document.createElement("div");
-  div.style.cssText =
-    "position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;" +
-    "justify-content:center;gap:18px;font-family:Georgia,serif;color:#f0e6d0;" +
-    "background:radial-gradient(ellipse at center,#2a2018 0%,#14100c 100%)";
-  const q = new URLSearchParams(location.search);
-  const presetServer = q.get("server") ?? "";
-  div.innerHTML = `
-    <div style="font-size:64px;letter-spacing:14px;text-shadow:0 0 24px #c89858">FLOCK</div>
-    <div style="font-size:14px;opacity:.7;font-style:italic">Mundane Falls needs a shepherd.</div>
-    <input id="nm" placeholder="cult leader name" maxlength="24"
-      style="padding:10px 14px;font-size:16px;background:#241c14;color:#f0e6d0;border:1px solid #6a5a40;border-radius:4px;width:240px;text-align:center"/>
-    <select id="ar" style="padding:10px 14px;font-size:15px;background:#241c14;color:#f0e6d0;border:1px solid #6a5a40;border-radius:4px;width:300px">
-      <option value="dawn">⏳ The Final Dawn — blitz conversion</option>
-      <option value="radiant">🌿 The Radiant Path — unshakeable retention</option>
-      <option value="circle">💼 The Prosperity Circle — the money machine</option>
-      <option value="visitors">🛸 The Visitors' Fellowship — eyes everywhere</option>
-    </select>
-    <button id="go" style="padding:16px 64px;font-size:24px;background:#c89858;color:#1a1410;border:none;border-radius:6px;cursor:pointer;font-family:Georgia,serif;letter-spacing:4px">PLAY</button>
-    <details style="font-size:12px;opacity:.7;max-width:440px;text-align:center">
-      <summary style="cursor:pointer;opacity:.8">multiplayer &amp; how to play</summary>
-      <div style="margin-top:10px;line-height:1.6">
-        Open the same match in two tabs (or share your host URL) to play live —
-        the server backfills the rest with bots.<br/>
-        <input id="sv" placeholder="ws://host:8787 (optional)" value="${presetServer}"
-          style="margin-top:8px;padding:7px 10px;font-size:12px;background:#241c14;color:#f0e6d0;border:1px solid #6a5a40;border-radius:4px;width:280px;text-align:center"/>
-        <div style="margin-top:10px;opacity:.8">
-          click a glowing spot to found · click to convert · 1/2/3 stances<br/>
-          QWER rituals · D/F powers · G signature · build palette + minimap in the HUD
-        </div>
-      </div>
-    </details>`;
-  root.appendChild(div);
-  const go = (): void => {
-    const name = (document.getElementById("nm") as HTMLInputElement).value || "Shepherd";
-    const ar = (document.getElementById("ar") as HTMLSelectElement).value;
-    const sv = (document.getElementById("sv") as HTMLInputElement | null)?.value?.trim();
-    const svParam = sv ? `&server=${encodeURIComponent(sv)}` : "";
-    location.search = `?play=1&name=${encodeURIComponent(name)}&archetype=${ar}${svParam}`;
+/**
+ * FTUE contextual overlay (§26): a 4-step coachmark shown once, the first time
+ * a player drops into a match. Advances on click; gated by localStorage so it
+ * never nags a returning player.
+ */
+function maybeShowFtue(): void {
+  try {
+    if (localStorage.getItem("flock.ftue") === "done") return;
+  } catch {
+    return;
+  }
+  const steps = [
+    "① Click a glowing spot on the map to found your compound.",
+    "② Use 1 / 2 / 3 to set your stance — Spread grows, Crusade pushes hard.",
+    "③ Press B then click a tile to build a Compound (more followers).",
+    "④ Watch the bar up top — convert the town to win. Good luck, Shepherd.",
+  ];
+  let i = 0;
+  const tip = document.createElement("div");
+  tip.style.cssText =
+    "position:absolute;bottom:120px;left:50%;transform:translateX(-50%);z-index:55;max-width:460px;" +
+    "background:rgba(20,16,12,.95);border:1px solid #c89858;border-radius:8px;padding:14px 20px;" +
+    "font-family:'Segoe UI',sans-serif;color:#f0e6d0;font-size:15px;text-align:center;cursor:pointer;box-shadow:0 6px 24px #000";
+  const paint = (): void => {
+    tip.innerHTML = `${steps[i]}<div style="font-size:11px;opacity:.55;margin-top:8px">click to continue (${i + 1}/${steps.length})</div>`;
   };
-  document.getElementById("go")!.addEventListener("click", go);
-  document.getElementById("nm")!.addEventListener("keydown", (e) => {
-    if ((e as KeyboardEvent).key === "Enter") go();
-  });
+  tip.onclick = () => {
+    if (++i >= steps.length) {
+      try {
+        localStorage.setItem("flock.ftue", "done");
+      } catch {
+        /* ignore */
+      }
+      tip.remove();
+    } else paint();
+  };
+  paint();
+  document.getElementById("app")!.appendChild(tip);
 }
 
 function nameOf(g: GameSession, id: number): string {

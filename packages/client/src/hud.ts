@@ -82,6 +82,11 @@ const STANCES = [
   { id: Stance.Crusade, key: "3", label: "CRUSADE", hint: "max pressure, +Heat" },
 ] as const;
 
+/** Escape user-supplied text before it touches innerHTML (XSS guard). */
+function esc(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+}
+
 function fmtMoney(n: number): string {
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
   if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}k`;
@@ -142,6 +147,11 @@ const HUD_CSS = `
 .fk-heat.hot .v{animation:fkpulse 1s infinite}
 @keyframes fkpulse{50%{text-shadow:0 0 10px #ff5a2a}}
 @media(max-width:900px){.fk-rail{width:96px}.fk-right{width:150px}.fk-builds{width:200px}}
+/* accessibility (§28): reduced motion kills pulses/animations; mute hides chat */
+.fk-reduced-motion .fk-heat.hot .v{animation:none}
+.fk-reduced-motion .fk-feed .e{animation:none;opacity:1}
+.fk-reduced-motion .fk-banner{animation:none}
+.fk-mute-chat .fk-chat{display:none}
 `;
 
 /**
@@ -362,7 +372,7 @@ export class Hud {
 
   /** Scan sim state for new dramatic events since last update (the kill-feed). */
   private collectDrama(s: SimState): void {
-    const name = (id: number): string => this.g.players.find((p) => p.id === id)?.name ?? `Cult #${id}`;
+    const name = (id: number): string => esc(this.g.players.find((p) => p.id === id)?.name ?? `Cult #${id}`);
 
     const published = s.scandals.filter((x) => x.published).length;
     if (published > this.seen.scandals) {
@@ -474,7 +484,7 @@ export class Hud {
     }
     const html = rows
       .map((p) => {
-        const nm = this.g.players.find((q) => q.id === p.id)?.name ?? `Cult #${p.id}`;
+        const nm = esc(this.g.players.find((q) => q.id === p.id)?.name ?? `Cult #${p.id}`);
         const me = p.id === this.g.playerId;
         const tags = `${p.traitor ? "🗡" : ""}${allies.has(p.id) ? "🤝" : ""}${!p.alive ? "☠" : ""}`;
         const acts = me || !p.alive ? "" : `<span class="act" data-ally="${p.id}">${allies.has(p.id) ? "✕" : "ally"}</span>`;
@@ -501,12 +511,20 @@ export class Hud {
     const offers = s.allianceOffers
       .filter((o) => o.to === this.g.playerId)
       .map((o) => {
-        const nm = this.g.players.find((p) => p.id === o.from)?.name ?? `Cult #${o.from}`;
+        const nm = esc(this.g.players.find((p) => p.id === o.from)?.name ?? `Cult #${o.from}`);
         return `<div class="e" style="color:#9be6c0">✉ ${nm} offers alliance — <span class="act" data-accept="${o.from}" style="pointer-events:auto;cursor:pointer;text-decoration:underline">accept</span></div>`;
       })
       .join("");
     const lines = this.feed.map((f) => `<div class="e">${f.text}</div>`).join("");
-    const html = `<div style="opacity:.5;font-size:9px;letter-spacing:1px">DRAMA FEED</div>${offers}${lines}`;
+    // chat (server-moderated) — hidden when muted via the .fk-mute-chat class
+    const chat = this.g.chat
+      .slice(-8)
+      .map((c) => {
+        const nm = this.g.players.find((p) => p.id === c.from)?.name ?? `Cult #${c.from}`;
+        return `<div class="e fk-chat" style="opacity:.85">💬 ${esc(nm)}: ${esc(c.msg)}</div>`;
+      })
+      .join("");
+    const html = `<div style="opacity:.5;font-size:9px;letter-spacing:1px">DRAMA FEED</div>${offers}${lines}${chat}`;
     if (this.el.feed.dataset.h !== html) {
       this.el.feed.innerHTML = html;
       this.el.feed.dataset.h = html;

@@ -47,6 +47,7 @@ const CONTROL = /[\x00-\x1f\x7f]/g;
 export function moderateName(raw: string): NameVerdict {
   const cleaned = (raw ?? "")
     .replace(CONTROL, "")
+    .replace(/[<>]/g, "") // strip HTML-tag characters (defense-in-depth vs XSS)
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 24);

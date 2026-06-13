@@ -23,6 +23,7 @@ export * from "./diplomacy.js";
 export * from "./entities.js";
 export * from "./recap.js";
 export * from "./ranked.js";
+export * from "./bots.js";
 export * from "./progression.js";
 export * from "./palette.js";
 export * from "./townRender.js";

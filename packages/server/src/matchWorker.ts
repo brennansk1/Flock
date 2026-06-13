@@ -29,6 +29,8 @@ import {
   nextRange,
   toSnapshot,
   generateRecap,
+  botTurn,
+  botShouldAct,
   IntentType,
   Terrain,
   MatchStatus,
@@ -39,6 +41,8 @@ import {
   type Turn,
   type World,
   type RngState,
+  type BotState,
+  type BotTier,
 } from "@flock/sim";
 import type { ServerMsg, WirePlayer } from "./protocol.js";
 
@@ -55,6 +59,18 @@ const BOT_SECOND = [
   "Choir", "Seekers", "Witnesses", "Potluck", "Revival", "Study Group",
 ];
 
+/** Established Church proper-noun grammar (§21): map-fixture majors. */
+const CHURCH_NAMES = [
+  "The First Church of the Open Wallet",
+  "Tabernacle of the Reasonable Price",
+  "The Reformed Order of Punctual Salvation",
+  "Cathedral of the Second Opinion",
+  "The Congregation of Acceptable Outcomes",
+  "Holy Temple of the Extended Warranty",
+  "The Brethren of the Bottomless Casserole",
+  "Sanctuary of the Mildly Inconvenient Truth",
+];
+
 interface ClientSlot {
   playerId: number;
   ws: WebSocket;
@@ -63,11 +79,6 @@ interface ClientSlot {
   windowCount: number;
 }
 
-interface Bot {
-  playerId: number;
-  /** ticks between decisions, with per-bot phase offset */
-  cadence: number;
-}
 
 export class MatchWorker {
   private readonly balanceRaw: RawBalance;
@@ -79,7 +90,7 @@ export class MatchWorker {
   private readonly clients = new Map<number, ClientSlot>();
   private readonly roster: WirePlayer[] = [];
   private readonly pending: Intent[] = [];
-  private readonly bots: Bot[] = [];
+  private readonly bots: BotState[] = [];
   private timer: ReturnType<typeof setInterval> | null = null;
   private nextPlayerId = 1;
   private endedAnnounced = false;
@@ -87,7 +98,14 @@ export class MatchWorker {
   /** replay = seed + every Turn (§33: replays are just intent logs) */
   private readonly replayTurns: Turn[] = [];
 
-  constructor(balanceRaw: RawBalance, seed: number, worldSize = 96, botCount = 0, foundingTicks = 200) {
+  constructor(
+    balanceRaw: RawBalance,
+    seed: number,
+    worldSize = 96,
+    botCount = 0,
+    foundingTicks = 200,
+    churchCount = 0,
+  ) {
     this.balanceRaw = balanceRaw;
     this.balance = loadBalance(balanceRaw);
     this.seed = seed;
@@ -103,6 +121,9 @@ export class MatchWorker {
       spawns: [],
       foundingTicks, // FOUNDING spawn-pick window (§18)
     });
+    // Established Churches first (they want their pre-seed expansion early),
+    // then Drifter backfill fills the rest of the lobby.
+    for (let i = 0; i < churchCount; i++) this.addChurch();
     for (let i = 0; i < botCount; i++) this.addBot();
   }
 
@@ -134,7 +155,67 @@ export class MatchWorker {
     }`;
     const archetype = ARCHETYPES[nextRange(this.botRng, ARCHETYPES.length)]!;
     const playerId = this.addPlayer(name, archetype, true);
-    this.bots.push({ playerId, cadence: 25 + nextRange(this.botRng, 30) });
+    this.bots.push({
+      playerId,
+      tier: "drifter",
+      cadence: 25 + nextRange(this.botRng, 30),
+      aggression: 0,
+      grudge: 0,
+    });
+    this.broadcast({ type: "player_joined", player: this.roster[this.roster.length - 1]! });
+  }
+
+  /**
+   * Add an Established Church (§21): a major with a proper noun, a tighter
+   * decision cadence (the difficulty knob is latency, never stat cheats), a
+   * high aggression prior, and a pre-seed territory blob expanded out from its
+   * spawn — all entered through the turn stream so replays stay faithful.
+   */
+  addChurch(tier: BotTier = "church", aggression = 2): void {
+    const name = CHURCH_NAMES[nextRange(this.botRng, CHURCH_NAMES.length)]!;
+    const archetype = ARCHETYPES[nextRange(this.botRng, ARCHETYPES.length)]!;
+    const idx = this.roster.length;
+    const playerId = this.addPlayer(name, archetype, true);
+    this.bots.push({
+      playerId,
+      tier,
+      cadence: 10 + nextRange(this.botRng, 8), // sharper than Drifters/Sects
+      aggression,
+      grudge: 0,
+    });
+    // Pre-seed territory: a ring of OPEN_FRONT around the spawn so the major
+    // starts the match already established (intents, not a direct world poke).
+    const spawn = spawnTileFor(this.sim.world, idx);
+    const w = this.sim.world;
+    const sx = spawn % w.width;
+    const sy = (spawn / w.width) | 0;
+    const seedTiles: number[] = [];
+    for (let oy = -4; oy <= 4; oy++) {
+      for (let ox = -4; ox <= 4; ox++) {
+        const x = sx + ox;
+        const y = sy + oy;
+        if (x < 0 || y < 0 || x >= w.width || y >= w.height) continue;
+        seedTiles.push(y * w.width + x);
+      }
+    }
+    this.pending.push({ t: IntentType.OPEN_FRONT, player: playerId, tiles: seedTiles });
+    this.broadcast({ type: "player_joined", player: this.roster[this.roster.length - 1]! });
+  }
+
+  /** Promote a Sect-tier bot (utility AI), used for unclaimed splinter sects. */
+  addSect(): void {
+    const name = `${BOT_FIRST[nextRange(this.botRng, BOT_FIRST.length)]} ${
+      BOT_SECOND[nextRange(this.botRng, BOT_SECOND.length)]
+    }`;
+    const archetype = ARCHETYPES[nextRange(this.botRng, ARCHETYPES.length)]!;
+    const playerId = this.addPlayer(name, archetype, true);
+    this.bots.push({
+      playerId,
+      tier: "sect",
+      cadence: 18 + nextRange(this.botRng, 16),
+      aggression: 1,
+      grudge: 0,
+    });
     this.broadcast({ type: "player_joined", player: this.roster[this.roster.length - 1]! });
   }
 
@@ -240,68 +321,16 @@ export class MatchWorker {
   }
 
   /**
-   * Drifter brains (§21): random-walk expansion. Every `cadence` ticks a bot
-   * opens a small front in a random direction from a random owned tile. They
-   * never ally, never build, never push back — they fold under pressure.
+   * Run every bot brain whose cadence is up (§21). The decision logic lives in
+   * @flock/sim's shared `botTurn` (Drifter / Sect / Established Church tiers) so
+   * it is unit-tested in the sim package; the worker only feeds its botRng and
+   * queues the produced intents into the turn stream.
    */
   private runBots(): void {
     for (const bot of this.bots) {
-      if ((this.sim.tick + bot.playerId * 7) % bot.cadence !== 0) continue;
-      const p = this.sim.players.find((pl) => pl.id === bot.playerId);
-      if (!p || !p.alive || !p.spawned) continue;
-
-      const w = this.sim.world;
-      // random owned tile: sample up to 30 positions
-      let origin = -1;
-      for (let i = 0; i < 30; i++) {
-        const t = nextRange(this.botRng, w.owner.length);
-        if (w.owner[t] === bot.playerId) {
-          origin = t;
-          break;
-        }
-      }
-      if (origin < 0) continue;
-
-      const dir = nextRange(this.botRng, 4);
-      const dx = dir === 0 ? 3 : dir === 1 ? -3 : 0;
-      const dy = dir === 2 ? 3 : dir === 3 ? -3 : 0;
-      const cx = (origin % w.width) + dx;
-      const cy = ((origin / w.width) | 0) + dy;
-      const tiles: number[] = [];
-      for (let oy = -2; oy <= 2; oy++) {
-        for (let ox = -2; ox <= 2; ox++) {
-          const x = cx + ox;
-          const y = cy + oy;
-          if (x < 0 || y < 0 || x >= w.width || y >= w.height) continue;
-          tiles.push(y * w.width + x);
-        }
-      }
-      if (tiles.length === 0) continue;
-
-      // Drifters drift: mostly Spread, occasional brief Crusade.
-      if (nextRange(this.botRng, 12) === 0) {
-        this.pending.push({
-          t: IntentType.SET_STANCE,
-          player: bot.playerId,
-          stance: nextRange(this.botRng, 3) === 0 ? "crusade" : "spread",
-        });
-      }
-      this.pending.push({ t: IntentType.OPEN_FRONT, player: bot.playerId, tiles });
-
-      // Sect-tier economy script with noise (§21): Compound → Plate → Watchtower.
-      if (p.usd > 40_000 * 65536 && nextRange(this.botRng, 6) === 0) {
-        const builds = ["compound", "collection_plate", "watchtower"] as const;
-        this.pending.push({
-          t: IntentType.BUILD,
-          player: bot.playerId,
-          building: builds[nextRange(this.botRng, builds.length)]!,
-          tile: origin,
-        });
-      }
-      // naive gimmick usage: rituals keep Faith healthy
-      if (nextRange(this.botRng, 40) === 0) {
-        this.pending.push({ t: IntentType.RITUAL, player: bot.playerId, ritual: "sermon" });
-      }
+      if (!botShouldAct(bot, this.sim.tick)) continue;
+      const intents = botTurn(this.sim, bot, this.botRng);
+      for (const intent of intents) this.pending.push(intent);
     }
   }
 

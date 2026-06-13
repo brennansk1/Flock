@@ -27,7 +27,8 @@ function main(): void {
   const seed = (Date.now() ^ (process.pid << 16)) >>> 0; // lobby-level, not sim-level
   const worldSize = Number(process.env.WORLD ?? 96);
   const bots = Number(process.env.BOTS ?? 6); // Drifter backfill (§21)
-  const match = new MatchWorker(raw, seed, worldSize, bots);
+  const churches = Number(process.env.CHURCHES ?? 0); // Established Church majors (§21)
+  const match = new MatchWorker(raw, seed, worldSize, bots, undefined, churches);
 
   const wss = new WebSocketServer({ port: PORT });
   wss.on("connection", (ws, req) => {

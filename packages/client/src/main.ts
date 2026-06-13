@@ -20,6 +20,8 @@ import {
   NEUTRAL,
   TileState,
   colorForPlayer,
+  renderRecapCard,
+  type Archetype,
 } from "@flock/sim";
 import { connect, type GameSession } from "./net.js";
 import { MapRenderer } from "./render.js";
@@ -68,12 +70,20 @@ async function boot(): Promise<void> {
     wireInput(app, map, g);
 
     let lastBarTick = -1;
+    let cardShown = false;
     app.ticker.add(() => {
       map.draw(g.sim);
       hud.text = hudText(g);
       if (g.sim.tick - lastBarTick >= 5) {
         lastBarTick = g.sim.tick;
         drawConversionBar(app, bar, barLabel, g);
+      }
+      // Recap Card (§25.1): once the server's recap lands, show the shareable
+      // 1080×1350 card center-stage (the same deterministic renderer the
+      // headless share-pipeline uses).
+      if (!cardShown && g.recap) {
+        cardShown = true;
+        showRecapCard(g);
       }
     });
   });
@@ -339,6 +349,61 @@ function hudText(g: GameSession): string {
   );
   if (!me.alive) lines.unshift("☠ ELIMINATED — spectating");
   return lines.join("\n");
+}
+
+/**
+ * Recap Card overlay (§25/§28): render the deterministic share card to a canvas
+ * centered over the map, with download + requeue actions (the requeue button is
+ * the largest element per §28).
+ */
+function showRecapCard(g: GameSession): void {
+  if (!g.recap) return;
+  const names: Record<number, string> = {};
+  const archetypes: Record<number, Archetype> = {};
+  for (const p of g.players) {
+    names[p.id] = p.name;
+    archetypes[p.id] = p.archetype;
+  }
+  const frame = renderRecapCard(g.recap, names, archetypes);
+
+  const canvas = document.createElement("canvas");
+  canvas.width = frame.width;
+  canvas.height = frame.height;
+  const ctx = canvas.getContext("2d")!;
+  const img = ctx.createImageData(frame.width, frame.height);
+  img.data.set(frame.data);
+  ctx.putImageData(img, 0, 0);
+
+  const overlay = document.createElement("div");
+  overlay.style.cssText =
+    "position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;" +
+    "justify-content:center;gap:14px;background:rgba(10,8,6,0.88);z-index:50;" +
+    "font-family:Georgia,serif;color:#f0e6d0";
+  canvas.style.cssText =
+    "max-height:72vh;height:auto;image-rendering:pixelated;border:2px solid #6a5a40;box-shadow:0 8px 40px #000";
+  overlay.appendChild(canvas);
+
+  const row = document.createElement("div");
+  row.style.cssText = "display:flex;gap:14px;align-items:center";
+  const download = document.createElement("button");
+  download.textContent = "⬇ SAVE CARD";
+  download.style.cssText =
+    "padding:10px 22px;font-size:15px;background:#241c14;color:#f0e6d0;border:1px solid #6a5a40;border-radius:5px;cursor:pointer;font-family:Georgia,serif";
+  download.onclick = () => {
+    const a = document.createElement("a");
+    a.href = canvas.toDataURL("image/png");
+    a.download = "flock-recap.png";
+    a.click();
+  };
+  const requeue = document.createElement("button");
+  requeue.textContent = "REQUEUE";
+  requeue.style.cssText =
+    "padding:16px 56px;font-size:22px;background:#c89858;color:#1a1410;border:none;border-radius:6px;cursor:pointer;font-family:Georgia,serif;letter-spacing:4px";
+  requeue.onclick = () => location.reload();
+  row.appendChild(download);
+  row.appendChild(requeue);
+  overlay.appendChild(row);
+  document.getElementById("app")!.appendChild(overlay);
 }
 
 /** FTUE landing (§26): one huge PLAY button, name + archetype, no account wall. */

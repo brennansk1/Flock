@@ -283,6 +283,7 @@ function wireInput(app: Application, map: MapRenderer, g: GameSession, hud: Hud)
   // Escape clears an armed placement.
   window.addEventListener("keydown", (ev) => {
     if (ev.key === "Escape") hud.arm(null);
+    if (ev.key === "?") hud.toggleHelp();
   });
 
   window.addEventListener("keydown", (ev) => {

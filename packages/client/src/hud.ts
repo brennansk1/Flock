@@ -211,7 +211,7 @@ export class Hud {
   private usdPerSec = 0;
   private folTrend = 0;
   private feed: { tick: number; text: string }[] = [];
-  private seen = { scandals: 0, prophecies: 0, betrayals: 0, alliances: 0, dead: new Set<number>() };
+  private seen = { scandals: 0, prophecies: 0, betrayals: 0, alliances: 0, dead: new Set<number>(), threats: new Set<string>() };
   private banner: { text: string; until: number } | null = null;
   private lastMiniTick = -999;
   private miniImg: ImageData | null = null;
@@ -379,6 +379,41 @@ export class Hud {
     this.el.feed = feed;
     right.append(players, feed);
     this.root.appendChild(right);
+
+    // help button (top-right) → controls reference
+    const help = document.createElement("button");
+    help.className = "fk-btn";
+    help.textContent = "?";
+    help.title = "Controls & how to play";
+    help.style.cssText = "position:absolute;top:30px;right:10px;width:34px;height:34px;font-size:18px;border-radius:50%;padding:0";
+    help.onclick = () => this.toggleHelp();
+    this.root.appendChild(help);
+  }
+
+  /** Controls reference overlay (§28 discoverability), toggled by ? button/key. */
+  toggleHelp(): void {
+    const existing = this.root.querySelector(".fk-help");
+    if (existing) {
+      existing.remove();
+      return;
+    }
+    const panel = document.createElement("div");
+    panel.className = "fk-help";
+    panel.style.cssText =
+      "position:absolute;inset:0;z-index:45;display:flex;align-items:center;justify-content:center;background:rgba(10,8,6,.8);pointer-events:auto";
+    panel.innerHTML = `<div style="background:rgba(20,16,12,.97);border:1px solid #5a4a30;border-radius:10px;padding:22px 28px;max-width:520px;line-height:1.8;font-size:14px">
+      <div style="font-size:18px;letter-spacing:2px;margin-bottom:10px">HOW TO PLAY</div>
+      <b>Goal</b> — convert the town. Watch the bar up top; reach the win % to dominate.<br/>
+      <b>Map</b> — click a tile to open a front there · drag to pan · wheel to zoom · click the minimap to jump.<br/>
+      <b>Stance</b> — 1 Tend (defend) · 2 Spread (grow) · 3 Crusade (push hard, +Heat).<br/>
+      <b>Rituals</b> — Q Sermon · W Festival · E Offering · R Atonement (spend Faith).<br/>
+      <b>Powers</b> — D / F archetype actives · G signature (your big play).<br/>
+      <b>Build</b> — click a palette button then a tile, or press B/T/C/Y/U/H/J/L. Greyed = can't afford.<br/>
+      <b>Scheme</b> — A raid · X snoop · P publish scandal · K strike · V van · O/I alliances · Esc cancels.<br/>
+      <div style="opacity:.55;margin-top:10px;font-size:12px">click anywhere to close</div>
+    </div>`;
+    panel.onclick = () => panel.remove();
+    this.root.appendChild(panel);
   }
 
   private armBuild(building: string, key: string): void {
@@ -450,6 +485,29 @@ export class Hud {
         this.seen.dead.add(p.id);
         this.pushFeed(`☠ ${name(p.id)} was eliminated`);
       }
+    }
+
+    // §29 readability SLA: any aggression against ME pings within a tick.
+    const me = this.g.playerId;
+    const w = s.world;
+    // incoming propaganda strike (10s warning window, §8)
+    for (const st of s.strikes) {
+      if (st.warningTicksLeft <= 0) continue;
+      const atMe = st.victim === me || (w.owner[st.target] === me && st.player !== me);
+      if (!atMe) continue;
+      const key = `strike:${st.player}:${st.type}:${st.target}`;
+      if (this.seen.threats.has(key)) continue;
+      this.seen.threats.add(key);
+      const label = st.type === "pamphlet_bomb" ? "PAMPHLET BOMB" : st.type === "prime_time_expose" ? "PRIME-TIME EXPOSÉ" : "MANIFESTO DROP";
+      this.pushFeed(`⚠ INCOMING ${label} from ${name(st.player)}!`, true);
+    }
+    // scandal evidence reaching the 50% notify threshold on me (§15.2)
+    for (const sc of s.scandals) {
+      if (sc.victim !== me || !sc.notified || sc.published) continue;
+      const key = `scandal:${sc.attacker}`;
+      if (this.seen.threats.has(key)) continue;
+      this.seen.threats.add(key);
+      this.pushFeed(`⚠ ${name(sc.attacker)} is digging up dirt on you…`, true);
     }
   }
 

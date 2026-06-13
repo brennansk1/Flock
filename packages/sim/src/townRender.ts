@@ -199,6 +199,13 @@ const C = {
   dirt: hexToRgb("#9a8164"),
   dirtEdge: hexToRgb("#86704f"),
   highwayLine: hexToRgb("#e0c34a"),
+  sand: hexToRgb("#d8c89a"),
+  waterGlint: hexToRgb("#9fc6e0"),
+  canopyDark: hexToRgb("#2e4a26"),
+  shoulder: hexToRgb("#8a8378"),
+  flowerY: hexToRgb("#e8d24a"),
+  flowerW: hexToRgb("#e8e4d8"),
+  fence: hexToRgb("#8a7a5c"),
 } as const;
 
 /** Town building styles: [body, roof, accent]. */
@@ -343,18 +350,27 @@ function drawTile(
         (ty < w.height - 1 && w.terrain[t + w.width] === Terrain.Road &&
           tx > 0 && w.terrain[t - 1] === Terrain.Road &&
           tx < w.width - 1 && w.terrain[t + 1] === Terrain.Road);
+      // sidewalks only where the street fronts town lots; gravel shoulders out
+      // in the country — the same road reads urban downtown and rural beyond
+      let fronted = false;
+      for (const n of [t - 1, t + 1, t - w.width, t + w.width]) {
+        if (n >= 0 && n < w.terrain.length && w.terrain[n] === Terrain.Citizen) fronted = true;
+      }
       for (let py = 0; py < TILE_PX; py++) {
         for (let px = 0; px < TILE_PX; px++) {
-          let c: RGB = highway ? shade(C.asphalt, 0.85) : C.asphalt;
+          let c: RGB = highway ? shade(C.asphalt, 0.88) : C.asphalt;
+          const gx = tx * TILE_PX + px;
+          const gy = ty * TILE_PX + py;
+          if (pixHash(gx, gy, 51) % 29 === 0) c = shade(c, 1.08); // worn patches
           const edge = vRoad ? px === 0 || px === TILE_PX - 1 : py === 0 || py === TILE_PX - 1;
-          if (edge) c = C.sidewalk;
+          if (edge) c = fronted ? C.sidewalk : highway ? C.shoulder : shade(C.asphalt, 0.96);
           if (highway) {
             // yellow centerline along the seam between the two lanes
             const seamBelow = ty < w.height - 1 && w.terrain[t + w.width] === Terrain.Road;
-            if (seamBelow && py === TILE_PX - 1 && (tx * TILE_PX + px) % 8 < 5) c = C.highwayLine;
-          } else if (vRoad && px === TILE_PX / 2 && (ty * TILE_PX + py) % 6 < 3) {
+            if (seamBelow && py === TILE_PX - 1 && gx % 8 < 5) c = C.highwayLine;
+          } else if (vRoad && px === TILE_PX / 2 && gy % 6 < 3) {
             c = C.asphaltDash;
-          } else if (!vRoad && py === TILE_PX / 2 && (tx * TILE_PX + px) % 6 < 3) {
+          } else if (!vRoad && py === TILE_PX / 2 && gx % 6 < 3) {
             c = C.asphaltDash;
           }
           put(x0 + px, y0 + py, c);
@@ -368,17 +384,37 @@ function drawTile(
           const gx = x0 + px;
           const gy = y0 + py;
           const h = pixHash(gx, gy, 5);
-          const c = h % 17 === 0 ? C.scrub : h % 7 === 0 ? C.meadowLight : C.meadow;
+          // soft meadow mottling via cell noise + rare wildflowers
+          const cell = pixHash(gx >> 3, gy >> 3, 13) % 3;
+          let c = cell === 0 ? C.meadowLight : C.meadow;
+          if (h % 19 === 0) c = C.scrub;
+          if (h % 211 === 0) c = C.flowerY;
+          else if (h % 223 === 0) c = C.flowerW;
           put(gx, gy, c);
         }
+      }
+      // the occasional lone country tree
+      if (pixHash(t, 3, 19) % 37 === 0) {
+        put(x0 + 3, y0 + 3, C.canopy);
+        put(x0 + 4, y0 + 3, C.canopyLight);
+        put(x0 + 3, y0 + 4, C.canopyDark);
+        put(x0 + 4, y0 + 4, C.canopy);
       }
       return;
     }
     case Terrain.Field: {
+      const fenceN = ty > 0 && w.terrain[t - w.width] !== Terrain.Field;
+      const fenceW = tx > 0 && w.terrain[t - 1] !== Terrain.Field;
       for (let py = 0; py < TILE_PX; py++) {
         for (let px = 0; px < TILE_PX; px++) {
-          const row = (ty * TILE_PX + py) % 3 === 0;
-          put(x0 + px, y0 + py, row ? C.cropRow : C.cropGold);
+          const gy = ty * TILE_PX + py;
+          const row = gy % 3 === 0;
+          let c = row ? C.cropRow : C.cropGold;
+          if (pixHash(tx * TILE_PX + px, gy, 41) % 31 === 0) c = shade(c, 1.12);
+          // fence posts along the field boundary
+          if ((fenceN && py === 0 && px % 3 === 0) || (fenceW && px === 0 && py % 3 === 0))
+            c = C.fence;
+          put(x0 + px, y0 + py, c);
         }
       }
       return;
@@ -395,10 +431,25 @@ function drawTile(
       return;
     }
     case Terrain.Lake: {
+      // shoreline: sand ring where water meets land
+      const shoreN = ty > 0 && w.terrain[t - w.width] !== Terrain.Lake;
+      const shoreS = ty < w.height - 1 && w.terrain[t + w.width] !== Terrain.Lake;
+      const shoreW = tx > 0 && w.terrain[t - 1] !== Terrain.Lake;
+      const shoreE = tx < w.width - 1 && w.terrain[t + 1] !== Terrain.Lake;
       for (let py = 0; py < TILE_PX; py++) {
         for (let px = 0; px < TILE_PX; px++) {
-          const ripple = (ty * TILE_PX + py + ((tx * TILE_PX + px) >> 2)) % 7 === 0;
-          put(x0 + px, y0 + py, ripple ? C.waterRipple : C.waterDeep);
+          const sand =
+            (shoreN && py === 0) || (shoreS && py === TILE_PX - 1) ||
+            (shoreW && px === 0) || (shoreE && px === TILE_PX - 1);
+          if (sand) {
+            put(x0 + px, y0 + py, C.sand);
+            continue;
+          }
+          const gx = tx * TILE_PX + px;
+          const gy = ty * TILE_PX + py;
+          const ripple = (gy + (gx >> 2)) % 7 === 0;
+          const glint = pixHash(gx, gy, 31) % 41 === 0;
+          put(x0 + px, y0 + py, glint ? C.waterGlint : ripple ? C.waterRipple : C.waterDeep);
         }
       }
       return;
@@ -409,11 +460,20 @@ function drawTile(
       // bonfires, Radiant raises domes, the Circle paves and posts billboards,
       // the Visitors press crop circles. Intensity scales with the cult's size.
       const claim = woodsClaim(sim, t, tx, ty);
+      const edgeN = ty > 0 && w.terrain[t - w.width] !== Terrain.Woods;
+      const edgeW = tx > 0 && w.terrain[t - 1] !== Terrain.Woods;
       for (let py = 0; py < TILE_PX; py++) {
         for (let px = 0; px < TILE_PX; px++) {
-          const h = pixHash(tx * TILE_PX + px, ty * TILE_PX + py);
-          let c = h % 7 === 0 ? C.canopyLight : h % 13 === 0 ? C.trunk : C.canopy;
-          if (claim && h % 5 < claim.stage) c = shade(C.canopyLight, 1.15); // clearing
+          const gx = tx * TILE_PX + px;
+          const gy = ty * TILE_PX + py;
+          const h = pixHash(gx, gy);
+          // clumpy canopy: cell-noise blobs of light/dark green + trunk gaps
+          const blob = pixHash(gx >> 2, gy >> 2, 77) % 5;
+          let c = blob < 2 ? C.canopy : blob < 4 ? C.canopyDark : C.canopyLight;
+          if (h % 23 === 0) c = C.trunk;
+          // sunlit fringe on north/west edges
+          if ((edgeN && py === 0) || (edgeW && px === 0)) c = C.canopyLight;
+          if (claim && h % 5 < claim.stage) c = shade(C.canopyLight, 1.18); // clearing
           put(x0 + px, y0 + py, c);
         }
       }

@@ -219,32 +219,57 @@ interface TownShape {
 
 /**
  * Roads come from a tensor field (tensorRoads.ts — adapted from
- * ProbableTrain/MapGenerator): the highway follows the global grain, the
- * county route crosses it, and the town's avenues/cross-streets are
- * major/minor streamlines of the field. The town then ZONES around the
- * streets: every grass tile near a road inside the town radius becomes a
- * lot, so blocks take the organic shapes the streamlines carve.
+ * ProbableTrain/MapGenerator). The TOWN SHAPE is organic, not a disc:
+ * twelve noisy boundary spokes are cosine-interpolated into a lumpy edge,
+ * the whole footprint stretches along the highway axis (towns grow along
+ * their artery), and zoning follows real small-town logic — a commercial
+ * strip hugging the highway through the center, quarters as lobes, trailers
+ * at the fringe. Lots only appear with street access, so blocks take the
+ * shapes the streamlines carve.
  */
 function layoutHighwaysAndTown(w: World, rng: RngState): TownShape {
   const { width, height } = w;
   const cx = (width >> 1) + nextRange(rng, 9) - 4;
   const cy = (height >> 1) + nextRange(rng, 9) - 4;
-  const r = Math.max(14, Math.floor(Math.min(width, height) * 0.24));
+  const r = Math.max(16, Math.floor(Math.min(width, height) * 0.27));
 
-  traceRoadNetwork(w, rng, { cx, cy, r });
+  // lumpy boundary: 12 spokes, radius 0.62r–1.05r, cosine-interpolated
+  const SPOKES = 12;
+  const spokeR: number[] = [];
+  for (let i = 0; i < SPOKES; i++) spokeR.push(r * (0.62 + nextRange(rng, 44) / 100));
+  const radiusAt = (angle: number): number => {
+    const a = ((angle / (2 * Math.PI)) * SPOKES + SPOKES) % SPOKES;
+    const i0 = Math.floor(a) % SPOKES;
+    const i1 = (i0 + 1) % SPOKES;
+    const f = a - Math.floor(a);
+    const smooth = (1 - Math.cos(f * Math.PI)) / 2;
+    return spokeR[i0]! * (1 - smooth) + spokeR[i1]! * smooth;
+  };
+  // towns stretch along their highway: squash the north–south axis
+  const inTown = (x: number, y: number): boolean => {
+    const dx = x - cx;
+    const dy = (y - cy) * 1.35;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    return d <= radiusAt(Math.atan2(dy, dx));
+  };
 
-  // zone the town: lots form around the streets (≤2 tiles from a road, in town)
-  const r2 = r * r;
-  for (let y = cy - r; y <= cy + r; y++) {
-    for (let x = cx - r; x <= cx + r; x++) {
+  traceRoadNetwork(w, rng, { cx, cy, r, inTown });
+
+  // quarter lobes get random compass directions
+  const quarterBase = nextRange(rng, 4); // 0..3 → which lobe is Old Town
+  const sectorOf = (dx: number, dy: number): number => {
+    const a = Math.atan2(dy, dx) + Math.PI; // 0..2π
+    return (Math.floor((a / (2 * Math.PI)) * 4) + quarterBase) % 4;
+  };
+
+  // zone lots: street access within 2 tiles, inside the organic boundary
+  const rMax = Math.ceil(r * 1.1);
+  for (let y = cy - rMax; y <= cy + rMax; y++) {
+    for (let x = cx - rMax; x <= cx + rMax; x++) {
       if (x < 0 || y < 0 || x >= width || y >= height) continue;
       const t = y * width + x;
       if (w.terrain[t] !== Terrain.Grass) continue;
-      const dx = x - cx;
-      const dy = y - cy;
-      const d2 = dx * dx + dy * dy;
-      if (d2 > r2) continue;
-      // a lot needs street access within 2 tiles — blocks hug the network
+      if (!inTown(x, y)) continue;
       let nearStreet = false;
       for (let oy = -2; oy <= 2 && !nearStreet; oy++) {
         for (let ox = -2; ox <= 2 && !nearStreet; ox++) {
@@ -256,16 +281,42 @@ function layoutHighwaysAndTown(w: World, rng: RngState): TownShape {
       }
       if (!nearStreet) continue;
       w.terrain[t] = Terrain.Citizen;
-      const dist = Math.sqrt(d2) / r;
-      if (dist < 0.32) w.district[t] = Districts.Downtown;
-      else if (dist > 0.82) w.district[t] = Districts.Trailer;
-      else if (dx < 0 && dy < 0) w.district[t] = Districts.OldTown; // NW quarter
-      else if (dx > 0 && dy < 0) w.district[t] = Districts.College; // NE quarter
-      else w.district[t] = Districts.Suburbs;
+
+      const dx = x - cx;
+      const dy = y - cy;
+      const d = Math.sqrt(dx * dx + dy * dy * 1.8);
+      const edge = d / radiusAt(Math.atan2(dy * 1.35, dx));
+      // Main Street: the strip along the highway through the center
+      let nearHighway = false;
+      for (let oy = -2; oy <= 2 && !nearHighway; oy++) {
+        const ny = y + oy;
+        if (ny < 0 || ny >= height) continue;
+        const nt = ny * width + x;
+        if (w.terrain[nt] === Terrain.Road && isHighwayTile(w, nt)) nearHighway = true;
+      }
+      if (nearHighway && Math.abs(dx) < r * 0.55) w.district[t] = Districts.Downtown;
+      else if (d < r * 0.26) w.district[t] = Districts.Downtown;
+      else if (edge > 0.84) w.district[t] = Districts.Trailer;
+      else {
+        const sector = sectorOf(dx, dy);
+        w.district[t] =
+          sector === 0 ? Districts.OldTown : sector === 1 ? Districts.College : Districts.Suburbs;
+      }
     }
   }
 
   return { cx, cy, r, highwayY: cy, highwayX: cx };
+}
+
+/** A road tile that's part of the 2-lane highway (has a parallel road row). */
+function isHighwayTile(w: World, t: number): boolean {
+  const x = t % w.width;
+  const y = (t / w.width) | 0;
+  const left = x > 0 && w.terrain[t - 1] === Terrain.Road;
+  const right = x < w.width - 1 && w.terrain[t + 1] === Terrain.Road;
+  const up = y > 0 && w.terrain[t - w.width] === Terrain.Road;
+  const down = y < w.height - 1 && w.terrain[t + w.width] === Terrain.Road;
+  return left && right && (up || down);
 }
 
 /** Farmsteads in the outskirts: a few houses, crop fields, a dirt lane to a road. */
@@ -358,33 +409,91 @@ export function nearestRoad(w: World, from: number, maxR: number): number {
 }
 
 /** Woods stands and the lake in the open country. */
-function placeNature(w: World, rng: RngState, town: TownShape): void {
+/**
+ * Stamp one organic blob: instead of a hard circle, the boundary radius is
+ * modulated per-angle by a few sine harmonics with random phases (a cheap
+ * 1-D value-noise rim), and each tile gets a small radial-noise wobble so the
+ * edge frays rather than reading as a clean arc. Forests grow denser toward
+ * the core (canopy), thinning to scattered scrub at the rim.
+ */
+function organicBlob(
+  w: World,
+  rng: RngState,
+  bx: number,
+  by: number,
+  r: number,
+  kind: Terrain,
+): void {
   const { width, height } = w;
-  const blobs = 7 + nextRange(rng, 5);
-  let lakePlaced = false;
-  for (let i = 0; i < blobs; i++) {
-    const bx = nextRange(rng, width);
-    const by = nextRange(rng, height);
-    const ddx = bx - town.cx;
-    const ddy = by - town.cy;
-    if (ddx * ddx + ddy * ddy < town.r * town.r) continue; // keep town clear
-    const r = 3 + nextRange(rng, Math.max(3, width >> 4));
-    const kind = !lakePlaced && i > 1 ? Terrain.Lake : Terrain.Woods;
-    if (kind === Terrain.Lake) lakePlaced = true;
-    for (let dy = -r; dy <= r; dy++) {
-      for (let dx = -r; dx <= r; dx++) {
-        if (dx * dx + dy * dy > r * r) continue;
-        const x = bx + dx;
-        const y = by + dy;
-        if (x < 0 || y < 0 || x >= width || y >= height) continue;
-        const t = y * width + x;
-        if (w.terrain[t] === Terrain.Grass || w.terrain[t] === Terrain.Field) {
-          w.terrain[t] = kind;
-          w.district[t] = Districts.None;
-        }
+  // three harmonics give a lumpy-but-coherent outline
+  const h1 = 0.18 + nextRange(rng, 18) / 100; // ±18–36%
+  const h2 = 0.1 + nextRange(rng, 12) / 100;
+  const h3 = 0.06 + nextRange(rng, 8) / 100;
+  const p1 = (nextRange(rng, 628) / 100);
+  const p2 = (nextRange(rng, 628) / 100);
+  const p3 = (nextRange(rng, 628) / 100);
+  const k1 = 2 + nextRange(rng, 2);
+  const k2 = 3 + nextRange(rng, 3);
+  const k3 = 5 + nextRange(rng, 4);
+  const reach = Math.ceil(r * 1.4);
+  for (let dy = -reach; dy <= reach; dy++) {
+    for (let dx = -reach; dx <= reach; dx++) {
+      const x = bx + dx;
+      const y = by + dy;
+      if (x < 1 || y < 1 || x >= width - 1 || y >= height - 1) continue;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 0.5) {
+        // always fill the very center
       }
+      const ang = Math.atan2(dy, dx);
+      const rim =
+        r *
+        (1 +
+          h1 * Math.sin(k1 * ang + p1) +
+          h2 * Math.sin(k2 * ang + p2) +
+          h3 * Math.sin(k3 * ang + p3));
+      // edge fray: tiles near the rim drop out probabilistically
+      const margin = rim - dist;
+      if (margin < 0) continue;
+      const t = y * width + x;
+      if (w.terrain[t] !== Terrain.Grass && w.terrain[t] !== Terrain.Field) continue;
+      if (kind === Terrain.Woods) {
+        // thinning canopy near the rim: chance scales with depth
+        const depth = margin / (r * 0.5);
+        if (depth < 1 && nextRange(rng, 100) > 30 + depth * 60) continue;
+      } else {
+        if (margin < 1.2 && nextRange(rng, 100) < 45) continue;
+      }
+      w.terrain[t] = kind;
+      w.district[t] = Districts.None;
     }
   }
+}
+
+function placeNature(w: World, rng: RngState, town: TownShape): void {
+  const { width, height } = w;
+  // a couple of generous forests, several smaller copses, one irregular lake
+  const forests = 2 + nextRange(rng, 2);
+  const copses = 5 + nextRange(rng, 4);
+  let lakePlaced = false;
+  const tryPlace = (r: number, kind: Terrain): void => {
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const bx = nextRange(rng, width);
+      const by = nextRange(rng, height);
+      const ddx = bx - town.cx;
+      const ddy = by - town.cy;
+      // keep a clear margin around the town so there's room to build
+      if (ddx * ddx + ddy * ddy < (town.r + r + 6) * (town.r + r + 6)) continue;
+      organicBlob(w, rng, bx, by, r, kind);
+      return;
+    }
+  };
+  // lake first so forests can hug it
+  tryPlace(6 + nextRange(rng, 5), Terrain.Lake);
+  lakePlaced = true;
+  for (let i = 0; i < forests; i++) tryPlace(8 + nextRange(rng, 6), Terrain.Woods);
+  for (let i = 0; i < copses; i++) tryPlace(3 + nextRange(rng, 3), Terrain.Woods);
+  void lakePlaced;
 }
 
 /** Residents per lot + susceptibility (§2). Street-front lots run denser. */

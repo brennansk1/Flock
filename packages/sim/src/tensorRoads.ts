@@ -73,6 +73,8 @@ export interface TraceOpts {
   boundR?: number;
   boundX?: number;
   boundY?: number;
+  /** arbitrary bound predicate (organic town edges) — overrides boundR */
+  bound?: (x: number, y: number) => boolean;
   /** paint a second lane perpendicular to travel (the highway) */
   twoLane?: boolean;
   /** per-step heading wobble in radians (seeded; the simplex-noise stand-in) */
@@ -122,7 +124,9 @@ export function traceStreamline(
       const tx = Math.round(x);
       const ty = Math.round(y);
       if (tx < 1 || ty < 1 || tx >= w.width - 1 || ty >= w.height - 1) break;
-      if (opts.boundR !== undefined) {
+      if (opts.bound) {
+        if (!opts.bound(tx, ty)) break;
+      } else if (opts.boundR !== undefined) {
         const bx = tx - (opts.boundX ?? 0);
         const by = ty - (opts.boundY ?? 0);
         if (bx * bx + by * by > opts.boundR * opts.boundR) break;
@@ -197,8 +201,15 @@ export function traceStreamline(
 export function traceRoadNetwork(
   w: World,
   rng: RngState,
-  town: { cx: number; cy: number; r: number },
+  town: { cx: number; cy: number; r: number; inTown?: (x: number, y: number) => boolean },
 ): void {
+  const inTown =
+    town.inTown ??
+    ((x: number, y: number): boolean => {
+      const dx = x - town.cx;
+      const dy = y - town.cy;
+      return dx * dx + dy * dy <= town.r * town.r;
+    });
   const townTheta = (nextRange(rng, 60) - 30) * (Math.PI / 180); // town grain ±30°
   const highwayTheta = (nextRange(rng, 30) - 15) * (Math.PI / 180); // near-horizontal
 
@@ -251,16 +262,12 @@ export function traceRoadNetwork(
       for (let gx = town.cx - town.r; gx <= town.cx + town.r; gx += dsep) {
         const sx = gx + nextRange(rng, 3) - 1;
         const sy = gy + nextRange(rng, 3) - 1;
-        const ddx = sx - town.cx;
-        const ddy = sy - town.cy;
-        if (ddx * ddx + ddy * ddy > town.r * town.r) continue;
+        if (!inTown(sx, sy)) continue;
         if (!isValidSample(sx, sy)) continue;
         const common = {
           dtest: 2,
           maxSteps: town.r * 3,
-          boundR: town.r + 1,
-          boundX: town.cx,
-          boundY: town.cy,
+          bound: inTown,
           wobble: 0.03,
           rng,
         };

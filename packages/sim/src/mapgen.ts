@@ -75,8 +75,8 @@ const YARD_CHANCE: Record<number, number> = {
  * the town is regrown a notch larger; the radius cap in layoutHighwaysAndTown
  * still guarantees open country around it.
  */
-const MIN_POPULATED_TILES = 700;
-const MIN_TOTAL_POP = 3200;
+const MIN_POPULATED_TILES = 640;
+const MIN_TOTAL_POP = 2900;
 
 export function generateWorld(seed: number, width: number, height: number): World {
   let w!: World;
@@ -95,6 +95,7 @@ export function generateWorld(seed: number, width: number, height: number): Worl
     layoutFarms(w, rng, town);
     placeNature(w, rng, town);
     placeTownBuildings(w, rng, town);
+    pruneRoadStubs(w);
     placeLandmarks(w, town);
     rollLots(w, rng);
 
@@ -317,8 +318,10 @@ function layoutHighwaysAndTown(w: World, rng: RngState, rScale = 1): TownShape {
   const cy = (height >> 1) + nextRange(rng, 9) - 4;
   // town radius scales up if a seed underpopulates (generateWorld retries),
   // but stays capped so the countryside around it never disappears.
-  const base = Math.min(width, height) * 0.27 * rScale;
-  const r = Math.max(16, Math.min(Math.floor(Math.min(width, height) * 0.36), Math.floor(base)));
+  // a smaller, denser footprint leaves a wide ring of open country around town
+  // — room for cults to place compounds and assets strategically.
+  const base = Math.min(width, height) * 0.24 * rScale;
+  const r = Math.max(15, Math.min(Math.floor(Math.min(width, height) * 0.3), Math.floor(base)));
 
   // lumpy boundary: 12 spokes, radius 0.62r–1.05r, cosine-interpolated
   const SPOKES = 12;
@@ -507,6 +510,51 @@ function layoutFarms(w: World, rng: RngState, town: TownShape): void {
     for (let f = 0; f < farmsHere; f++) {
       placeFarm(ax + nextRange(rng, 13) - 6, ay + nextRange(rng, 13) - 6);
     }
+  }
+}
+
+/**
+ * Remove paved "roads to nowhere": streamline tracing can leave a road
+ * dead-ending in an empty field or against a forest it couldn't cross. A real
+ * road always goes somewhere — it serves lots, joins another road, reaches a
+ * lane, or runs off the map. We iteratively erase any Road tile that is a
+ * dead-end (≤1 road neighbour) AND serves nothing: not on the map border, no
+ * adjacent house lot, and not touching a dirt lane. Eating these back to the
+ * last useful tile leaves only connected, purposeful streets. Cults don't rely
+ * on these — their compounds auto-carve their own dirt access lanes.
+ */
+function pruneRoadStubs(w: World): void {
+  const { width, height } = w;
+  const isRoad = (t: number): boolean => w.terrain[t] === Terrain.Road;
+  // enough passes to eat an entire dangling spur back to its junction
+  const maxPasses = width + height;
+  for (let pass = 0; pass < maxPasses; pass++) {
+    let removed = 0;
+    for (let y = 1; y < height - 1; y++) {
+      for (let x = 1; x < width - 1; x++) {
+        const t = y * width + x;
+        if (!isRoad(t)) continue;
+        // road-degree: orthogonal road neighbours
+        let deg = 0;
+        for (const n of [t - 1, t + 1, t - width, t + width]) if (isRoad(n)) deg++;
+        if (deg >= 2) continue; // through-tile or junction — keep
+        // a road running off the map edge is a legit through-route (highway,
+        // county road) — keep its approach.
+        if (x <= 1 || y <= 1 || x >= width - 2 || y >= height - 2) continue;
+        // does this endpoint serve anything?
+        let serves = false;
+        for (let dy = -1; dy <= 1 && !serves; dy++) {
+          for (let dx = -1; dx <= 1 && !serves; dx++) {
+            const n = (y + dy) * width + (x + dx);
+            if (w.terrain[n] === Terrain.Citizen || w.terrain[n] === Terrain.Dirt) serves = true;
+          }
+        }
+        if (serves) continue;
+        w.terrain[t] = Terrain.Grass; // pointless stub → back to country
+        removed++;
+      }
+    }
+    if (removed === 0) break;
   }
 }
 

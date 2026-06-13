@@ -207,8 +207,8 @@ const C = {
   flowerY: hexToRgb("#e8d24a"),
   flowerW: hexToRgb("#e8e4d8"),
   fence: hexToRgb("#8a7a5c"),
-  grassHigh: hexToRgb("#bcc28a"),
-  grassLow: hexToRgb("#8f9a68"),
+  grassHigh: hexToRgb("#b6bd84"),
+  grassLow: hexToRgb("#9aa372"),
   rock: hexToRgb("#9c968a"),
   rockShade: hexToRgb("#7c766c"),
   bush: hexToRgb("#5a7340"),
@@ -525,20 +525,24 @@ function drawTile(
       // gentle rolling elevation: a low-frequency noise field tints grass from
       // shaded valleys (grassLow) up to sunlit rises (grassHigh), and its slope
       // (the east-west gradient) shades west-facing banks for a hilly read.
-      const eC = valueNoise(x0, y0, 40, 71);
-      const eE = valueNoise(x0 + TILE_PX, y0, 40, 71);
+      // two octaves: a broad rolling field (cell 40) broken up by finer mottle
+      // (cell 12) so the country reads as continuous meadow, not hard blobs.
+      const elevAt = (gx: number, gy: number): number =>
+        0.62 * valueNoise(gx, gy, 40, 71) + 0.38 * valueNoise(gx, gy, 12, 77);
+      const eC = elevAt(x0, y0);
+      const eE = elevAt(x0 + TILE_PX, y0);
       const slope = eE - eC; // >0 means rising to the east → west face in shade
       for (let py = 0; py < TILE_PX; py++) {
         for (let px = 0; px < TILE_PX; px++) {
           const gx = x0 + px;
           const gy = y0 + py;
           const h = pixHash(gx, gy, 5);
-          const elev = valueNoise(gx, gy, 40, 71);
+          const elev = elevAt(gx, gy);
           const cell = pixHash(gx >> 3, gy >> 3, 13) % 3;
           let c = cell === 0 ? C.meadowLight : C.meadow;
-          if (elev > 0.66) c = C.grassHigh; // hilltops catch the light
-          else if (elev < 0.36) c = C.grassLow; // hollows sit in shade
-          if (slope > 0.06 && px < 2) c = shade(c, 0.92); // west-facing bank
+          if (elev > 0.7) c = C.grassHigh; // hilltops catch the light
+          else if (elev < 0.3) c = C.grassLow; // hollows sit in shade
+          if (slope > 0.06 && px < 2) c = shade(c, 0.94); // west-facing bank
           if (h % 19 === 0) c = C.scrub;
           if (h % 211 === 0) c = C.flowerY;
           else if (h % 223 === 0) c = C.flowerW;

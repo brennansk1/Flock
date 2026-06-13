@@ -95,8 +95,10 @@ export function generateWorld(seed: number, width: number, height: number): Worl
     layoutFarms(w, rng, town);
     placeNature(w, rng, town);
     placeTownBuildings(w, rng, town);
-    pruneRoadStubs(w);
     placeLandmarks(w, town);
+    orthogonalizePaths(w); // bridge any corner-only road/lane diagonals
+    connectRoadComponents(w); // stitch orphan road islands into the main grid
+    pruneRoadStubs(w); // erase whatever still leads nowhere
     rollLots(w, rng);
 
     if (countPopulated(w) >= MIN_POPULATED_TILES && countTotalPop(w) >= MIN_TOTAL_POP) break;
@@ -514,6 +516,155 @@ function layoutFarms(w: World, rng: RngState, town: TownShape): void {
 }
 
 /**
+ * Bridge corner-only diagonals across the whole path network (roads AND dirt
+ * lanes together). Two path tiles that touch only at a corner don't read or
+ * walk as connected; we fill one of the two open corner tiles so every
+ * diagonal becomes a proper side-by-side elbow. Runs after all roads and lanes
+ * are placed, so it also stitches dirt lanes into the paved grid. The bridge
+ * tile takes the humbler class (Dirt unless both neighbours are paved Road).
+ */
+function orthogonalizePaths(w: World): void {
+  const { width, height } = w;
+  const isPath = (t: number): boolean =>
+    w.terrain[t] === Terrain.Road || w.terrain[t] === Terrain.Dirt;
+  const passable = (t: number): boolean =>
+    w.terrain[t] === Terrain.Grass || w.terrain[t] === Terrain.Field;
+  const fill = (t: number, a: number, b: number): void => {
+    w.terrain[t] =
+      w.terrain[a] === Terrain.Road && w.terrain[b] === Terrain.Road
+        ? Terrain.Road
+        : Terrain.Dirt;
+  };
+  for (let y = 0; y < height - 1; y++) {
+    for (let x = 0; x < width - 1; x++) {
+      const a = y * width + x;
+      const b = a + 1;
+      const c = a + width;
+      const d = c + 1;
+      // ↘ : a & d are path, b & c open → bridge through one corner
+      if (isPath(a) && isPath(d) && !isPath(b) && !isPath(c)) {
+        if (passable(b)) fill(b, a, d);
+        else if (passable(c)) fill(c, a, d);
+      }
+      // ↙ : b & c are path, a & d open
+      if (isPath(b) && isPath(c) && !isPath(a) && !isPath(d)) {
+        if (passable(a)) fill(a, b, c);
+        else if (passable(d)) fill(d, b, c);
+      }
+    }
+  }
+}
+
+/** Label every 4-connected road/dirt tile by component; returns labels + sizes. */
+function roadComponents(w: World): { label: Int32Array; sizes: number[] } {
+  const { width, height } = w;
+  const label = new Int32Array(width * height).fill(-1);
+  const isPath = (t: number): boolean =>
+    w.terrain[t] === Terrain.Road || w.terrain[t] === Terrain.Dirt;
+  const sizes: number[] = [];
+  for (let t = 0; t < label.length; t++) {
+    if (!isPath(t) || label[t]! >= 0) continue;
+    const id = sizes.length;
+    const stack = [t];
+    label[t] = id;
+    let n = 0;
+    while (stack.length) {
+      const c = stack.pop()!;
+      n++;
+      const x = c % width;
+      const y = (c / width) | 0;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as [number, number][]) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+        const nt = ny * width + nx;
+        if (isPath(nt) && label[nt]! < 0) {
+          label[nt] = id;
+          stack.push(nt);
+        }
+      }
+    }
+    sizes.push(n);
+  }
+  return { label, sizes };
+}
+
+/**
+ * Stitch orphan road islands into the network. Streamline tracing and farm
+ * lanes can leave a whole segment (a farm road, a stranded street, a length of
+ * highway cut off by a gap) that never touches the main grid — it reads as a
+ * road floating in a field. We find the largest component (the real network)
+ * and, for every other one, carve the SHORTEST corridor back to it via a BFS
+ * that routes around houses (so we never bulldoze a home) through open
+ * country, painting Dirt over land and a Road bridge over water. Pathfinding
+ * guarantees a connection wherever any clear route exists, so every road
+ * actually goes somewhere.
+ */
+function connectRoadComponents(w: World): void {
+  const { width, height } = w;
+  const n = width * height;
+  for (let guard = 0; guard < 16; guard++) {
+    const { label, sizes } = roadComponents(w);
+    if (sizes.length <= 1) return;
+    let main = 0;
+    for (let i = 1; i < sizes.length; i++) if (sizes[i]! > sizes[main]!) main = i;
+
+    // multi-source BFS outward from the main network across every tile a road
+    // could be carved through (anything but a house lot).
+    const dist = new Int32Array(n).fill(-1);
+    const parent = new Int32Array(n).fill(-1);
+    const queue = new Int32Array(n);
+    let head = 0;
+    let tail = 0;
+    for (let t = 0; t < n; t++) {
+      if (label[t] === main) {
+        dist[t] = 0;
+        queue[tail++] = t;
+      }
+    }
+    while (head < tail) {
+      const c = queue[head++]!;
+      const x = c % width;
+      const y = (c / width) | 0;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as [number, number][]) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+        const nt = ny * width + nx;
+        if (dist[nt]! >= 0) continue;
+        if (w.terrain[nt] === Terrain.Citizen) continue; // never route through a home
+        dist[nt] = dist[c]! + 1;
+        parent[nt] = c;
+        queue[tail++] = nt;
+      }
+    }
+
+    // the orphan road tile reachable in the fewest steps from the network
+    let bestT = -1;
+    let bestD = Infinity;
+    for (let t = 0; t < n; t++) {
+      const id = label[t]!;
+      if (id < 0 || id === main || dist[t]! < 0) continue;
+      if (dist[t]! < bestD) {
+        bestD = dist[t]!;
+        bestT = t;
+      }
+    }
+    if (bestT < 0) return; // remaining orphans are walled off; prune handles them
+
+    // backtrack to the network, paving the land tiles of the corridor
+    let c = parent[bestT]!;
+    while (c >= 0 && dist[c]! > 0) {
+      const tr = w.terrain[c];
+      if (tr === Terrain.Grass || tr === Terrain.Field || tr === Terrain.Woods)
+        w.terrain[c] = Terrain.Dirt;
+      else if (tr === Terrain.Lake) w.terrain[c] = Terrain.Road; // bridge water
+      c = parent[c]!;
+    }
+  }
+}
+
+/**
  * Remove paved "roads to nowhere": streamline tracing can leave a road
  * dead-ending in an empty field or against a forest it couldn't cross. A real
  * road always goes somewhere — it serves lots, joins another road, reaches a
@@ -558,7 +709,13 @@ function pruneRoadStubs(w: World): void {
   }
 }
 
-/** Bresenham a dirt lane from `from` to the nearest road tile, painting grass only. */
+/**
+ * Carve a dirt lane from `from` to the nearest road tile. We step ONE axis at
+ * a time (never diagonally) so the lane is 4-connected — a diagonal Bresenham
+ * line leaves tiles touching only at their corners, which reads (and routes)
+ * as a dotted, disconnected track. Painting the intermediate orthogonal tile
+ * on every diagonal step keeps the lane a continuous, walkable road.
+ */
 export function carveDirtLane(w: World, from: number): void {
   const target = nearestRoad(w, from, 40);
   if (target < 0) return;
@@ -571,20 +728,28 @@ export function carveDirtLane(w: World, from: number): void {
   const sx = x0 < x1 ? 1 : -1;
   const sy = y0 < y1 ? 1 : -1;
   let err = dx + dy;
+  const paint = (x: number, y: number): void => {
+    const t = y * w.width + x;
+    if (w.terrain[t] === Terrain.Grass || w.terrain[t] === Terrain.Field) {
+      w.terrain[t] = Terrain.Dirt;
+    }
+  };
   while (x0 !== x1 || y0 !== y1) {
     const e2 = 2 * err;
+    let movedX = false;
     if (e2 >= dy) {
       err += dy;
       x0 += sx;
+      movedX = true;
     }
     if (e2 <= dx) {
       err += dx;
       y0 += sy;
+      // a diagonal step: bridge through the orthogonal corner so the lane
+      // stays side-by-side connected, not corner-to-corner.
+      if (movedX) paint(x0 - sx, y0);
     }
-    const t = y0 * w.width + x0;
-    if (w.terrain[t] === Terrain.Grass || w.terrain[t] === Terrain.Field) {
-      w.terrain[t] = Terrain.Dirt;
-    }
+    paint(x0, y0);
   }
 }
 

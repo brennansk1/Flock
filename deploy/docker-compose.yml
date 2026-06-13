@@ -1,0 +1,21 @@
+# Local production-shaped stack: match server + static client behind nginx.
+#   docker compose -f deploy/docker-compose.yml up --build
+services:
+  server:
+    build: { context: .., dockerfile: Dockerfile }
+    environment:
+      FLOCK_SECRET: ${FLOCK_SECRET:-dev-secret-change-me-please}
+      FLOCK_DATA: /data
+      WORLD: ${WORLD:-96}
+      BOTS: ${BOTS:-6}
+      CHURCHES: ${CHURCHES:-1}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - flock-data:/data
+    expose: ["8787"]
+  client:
+    build: { context: .., dockerfile: deploy/Dockerfile.client }
+    ports: ["8080:80"]
+    depends_on: [server]
+volumes:
+  flock-data: {}

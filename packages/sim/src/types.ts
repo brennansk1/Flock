@@ -103,6 +103,8 @@ export const Lot = {
   Factory: 17,
   Motel: 18,
   Parking: 19,
+  Cemetery: 20,
+  BallField: 21,
 } as const;
 export type Lot = (typeof Lot)[keyof typeof Lot];
 

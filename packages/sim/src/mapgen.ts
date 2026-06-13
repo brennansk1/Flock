@@ -90,6 +90,7 @@ export function generateWorld(seed: number, width: number, height: number): Worl
     w.terrain.fill(Terrain.Grass); // the whole map starts as open country
 
     const town = layoutHighwaysAndTown(w, rng, rScale);
+    carveRiver(w, rng, town);
     scatterExurbs(w, rng, town);
     layoutFarms(w, rng, town);
     placeNature(w, rng, town);
@@ -172,14 +173,18 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
   stamp(Lot.Diner, 1, 1, D.Downtown, 6);
   stamp(Lot.Sheriff, 1, 1, D.Downtown, 5);
   for (let i = 0; i < 6; i++) stamp(Lot.Shop, 1, 1, D.Downtown, 4 + nextRange(rng, 3));
+  // the town green: a civic square in the heart of downtown
+  stamp(Lot.Park, 2, 2, D.Downtown, 1, 90);
   // College quarter
   stamp(Lot.School, 2, 2, D.College, 14);
   stamp(Lot.Library, 1, 1, D.College, 5);
   stamp(Lot.Shop, 1, 1, D.College, 4);
+  stamp(Lot.BallField, 2, 2, D.College, 1, 70); // the school ballpark
   // Old Town: the steepled church (a town's spiritual landmark) + diner
   stamp(Lot.Church, 1, 2, D.OldTown, 6);
   stamp(Lot.Chapel, 1, 1, D.OldTown, 4);
   stamp(Lot.Diner, 1, 1, D.OldTown, 5);
+  stamp(Lot.Cemetery, 2, 2, D.OldTown, 1, 70); // the old churchyard
   // Suburbs: corner shops, a church, parks
   stamp(Lot.Shop, 1, 1, D.Suburbs, 4);
   stamp(Lot.Shop, 1, 1, D.Suburbs, 4);
@@ -551,6 +556,51 @@ export function nearestRoad(w: World, from: number, maxR: number): number {
     }
   }
   return -1;
+}
+
+/**
+ * A meandering river down one side of the valley. Real towns sit on water —
+ * we route a creek across the full map at a fixed offset to one side of the
+ * town centre (so it never floods the streets), letting it wander with a few
+ * sine harmonics, 1–2 tiles wide. Where it crosses an existing road we leave
+ * the road intact: that gap reads as a BRIDGE. Banks meet land as sand
+ * shoreline in the renderer, so the creek reads as flowing water, not a pond.
+ */
+function carveRiver(w: World, rng: RngState, town: TownShape): void {
+  const { width, height } = w;
+  // run roughly vertically (crossing the horizontal highway) down whichever
+  // side has more room, offset well clear of the town footprint.
+  const jitter = nextRange(rng, 8);
+  // run the channel down whichever side of town has more open country, far
+  // enough out to clear the streets but clamped to stay on the map.
+  const rightRoom = width - town.cx;
+  const leftRoom = town.cx;
+  const side = rightRoom >= leftRoom ? 1 : -1;
+  const room = side === 1 ? rightRoom : leftRoom;
+  if (room < town.r + 8) return; // town fills this side: no room for a river
+  const off = Math.min(town.r + 6 + jitter, room - 6);
+  if (off <= town.r + 2) return; // would cut through the streets
+  const baseX = town.cx + side * off;
+  if (baseX < 4 || baseX > width - 5) return;
+  const a1 = 4 + nextRange(rng, 5); // meander amplitudes
+  const a2 = 2 + nextRange(rng, 3);
+  const k1 = 0.05 + nextRange(rng, 4) / 100;
+  const k2 = 0.13 + nextRange(rng, 6) / 100;
+  const p1 = nextRange(rng, 628) / 100;
+  const drift = (nextRange(rng, 21) - 10) / 100; // slow lateral lean
+  for (let y = 0; y < height; y++) {
+    const cxF = baseX + a1 * Math.sin(k1 * y + p1) + a2 * Math.sin(k2 * y) + drift * (y - height / 2);
+    const cx = Math.round(cxF);
+    const hw = 1; // 3-tile-wide channel
+    for (let dx = -hw; dx <= hw; dx++) {
+      const x = cx + dx;
+      if (x < 1 || x >= width - 1) continue;
+      const t = y * width + x;
+      const tr = w.terrain[t];
+      // never destroy roads (bridge), town lots, or existing nature
+      if (tr === Terrain.Grass || tr === Terrain.Field) w.terrain[t] = Terrain.Lake;
+    }
+  }
 }
 
 /** Woods stands and the lake in the open country. */

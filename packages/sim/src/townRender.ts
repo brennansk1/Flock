@@ -570,6 +570,24 @@ function drawTile(
         put(x0 + 3, y0 + 4, C.canopyDark);
         put(x0 + 4, y0 + 4, C.canopy);
       }
+      // utility poles marching along a rural road: a grass verge beside a road
+      // gets a telephone pole every few tiles, lining up like real power lines.
+      {
+        const roadN = ty > 0 && w.terrain[t - w.width] === Terrain.Road;
+        const roadS = ty < w.height - 1 && w.terrain[t + w.width] === Terrain.Road;
+        const roadE = tx < w.width - 1 && w.terrain[t + 1] === Terrain.Road;
+        const roadW = tx > 0 && w.terrain[t - 1] === Terrain.Road;
+        const along = (roadN || roadS) && tx % 3 === 0 ? "h" : (roadE || roadW) && ty % 3 === 0 ? "v" : "";
+        if (along) {
+          const cxp = x0 + 4;
+          const cyp = y0 + 4;
+          for (let py = 1; py <= 6; py++) put(cxp, y0 + py, C.trunk); // pole
+          put(cxp - 1, y0 + 2, C.trunk); // crossarm
+          put(cxp + 1, y0 + 2, C.trunk);
+          put(cxp + 2, y0 + 7, C.shadow); // foot shadow
+          void cyp;
+        }
+      }
       return;
     }
     case Terrain.Field: {
@@ -708,6 +726,7 @@ function drawTile(
   } else if (pop >= 8 && district === 3) {
     drawBlock(x0, y0, t, put); // downtown apartment block
   } else if (pop >= 3) {
+    drawVerge(w, t, tx, ty, x0, y0, district, put); // driveway + street tree
     drawHouse(x0, y0, district, t, put, detail);
   } else if (pop >= 1) {
     // garden: a few flowers
@@ -760,6 +779,38 @@ function drawLotBuilding(
     }
     put(x0 + 4, y0 + 6, C.dirt);
     put(x0 + 5, y0 + 6, C.dirt);
+    return;
+  }
+  if (lot === Lot.Cemetery) {
+    // mown grass with neat rows of little headstones + a shade tree
+    for (let py = 0; py < TILE_PX; py++) {
+      for (let px = 0; px < TILE_PX; px++) {
+        put(x0 + px, y0 + py, (px + py) % 2 === 0 ? C.meadow : shade(C.meadow, 0.95));
+      }
+    }
+    for (let ry = 1; ry <= 6; ry += 2) {
+      for (let rx = 1; rx <= 6; rx += 2) {
+        const c = pixHash(t, rx * 8 + ry, 61) % 4 === 0 ? C.rockShade : C.rock;
+        put(x0 + rx, y0 + ry, c); // headstone
+        put(x0 + rx, y0 + ry + 1, C.shadow); // its little shadow
+      }
+    }
+    return;
+  }
+  if (lot === Lot.BallField) {
+    // a green outfield with the brown infield diamond + base paths
+    for (let py = 0; py < TILE_PX; py++) {
+      for (let px = 0; px < TILE_PX; px++) {
+        put(x0 + px, y0 + py, (px + py) % 2 === 0 ? C.meadowLight : C.meadow);
+      }
+    }
+    // diamond of skinned dirt in the lower-left corner (home plate)
+    for (let py = 3; py <= 6; py++) {
+      for (let px = 1; px <= 4; px++) {
+        if (Math.abs(px - 1) + Math.abs(py - 6) <= 3) put(x0 + px, y0 + py, C.dirt);
+      }
+    }
+    put(x0 + 1, y0 + 6, C.wall); // home plate
     return;
   }
 
@@ -1008,6 +1059,53 @@ function castShadow(x0: number, y0: number, put: Put, w = 6): void {
   for (let py = 3; py <= TILE_PX - 1; py++) put(x0 + TILE_PX - 1, y0 + py, C.shadow);
 }
 
+/**
+ * The verge between a house and the street it fronts: a short driveway leading
+ * to the curb and, on about half the lots, a street tree planted on the
+ * grass strip. Lined-up street trees and driveways are what make a residential
+ * block read as a neighbourhood rather than scattered boxes. Drawn under the
+ * house body so the house always sits on top.
+ */
+function drawVerge(
+  w: World,
+  t: number,
+  tx: number,
+  ty: number,
+  x0: number,
+  y0: number,
+  district: number,
+  put: Put,
+): void {
+  const isRoad = (n: number): boolean =>
+    n >= 0 && n < w.terrain.length && w.terrain[n] === Terrain.Road;
+  const south = isRoad(t + w.width);
+  const north = ty > 0 && isRoad(t - w.width);
+  const east = tx < w.width - 1 && isRoad(t + 1);
+  const west = tx > 0 && isRoad(t - 1);
+  // paved (downtown/college) vs gravel (rural) driveways
+  const drive = district === 3 || district === 2 ? C.asphalt : C.dirt;
+  if (south) {
+    put(x0 + 5, y0 + 7, drive);
+    put(x0 + 4, y0 + 7, drive);
+  } else if (north) {
+    put(x0 + 5, y0, drive);
+    put(x0 + 4, y0, drive);
+  } else if (east) {
+    put(x0 + 7, y0 + 5, drive);
+    put(x0 + 7, y0 + 4, drive);
+  } else if (west) {
+    put(x0, y0 + 5, drive);
+    put(x0, y0 + 4, drive);
+  }
+  // a street tree on the verge of about half the road-fronting lots
+  if ((south || north || east || west) && pixHash(t, 9, 67) % 2 === 0) {
+    const typ = south ? y0 + 7 : north ? y0 : y0 + 4;
+    const txp = east ? x0 + 7 : west ? x0 : x0 + 1;
+    put(txp, typ, C.canopyDark);
+    put(txp, typ - 1 < y0 ? y0 : typ - 1, C.canopy);
+  }
+}
+
 /** family house: roof, wall, door — roof color by district. */
 function drawHouse(
   x0: number,
@@ -1033,9 +1131,19 @@ function drawHouse(
       put(x0 + px, y0 + py, py === 4 ? C.wallShade : C.wall);
     }
   }
+  // a brick chimney pokes above the ridge on the side away from the door
+  const chimX = flip ? 5 : 2;
+  put(x0 + chimX, y0, shade(roof, 0.6));
+  put(x0 + chimX, y0 + 1, shade(roof, 0.6));
   const doorX = flip ? 2 : 5;
   put(x0 + doorX, y0 + 5, C.door);
   put(x0 + doorX, y0 + 6, C.door);
+  // a covered porch over the door on some homes (suburbs/old town reads cosy)
+  if (pixHash(t, 5, 53) % 2 === 0) {
+    put(x0 + doorX - 1, y0 + 4, C.wallShade);
+    put(x0 + doorX, y0 + 4, C.wallShade);
+    put(x0 + (flip ? doorX + 1 : doorX - 1), y0 + 6, C.door); // porch post
+  }
   const winX = flip ? 4 : 2;
   put(x0 + winX, y0 + 5, C.windowDark);
 

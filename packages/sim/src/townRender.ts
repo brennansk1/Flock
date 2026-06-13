@@ -27,6 +27,7 @@ import {
   type Building,
   type World,
 } from "./types.js";
+import { toFloat } from "./fixed.js";
 import {
   hexToRgb,
   shade,
@@ -1341,27 +1342,48 @@ function pickAttractor(
 
 function drawUnits(sim: SimState, viewer: number, fog: Uint8Array | null, put: Put): void {
   const w = sim.world;
-  const mark = (t: number, rgb: RGB, big = false): void => {
-    const x = (t % w.width) * TILE_PX + 3;
-    const y = ((t / w.width) | 0) * TILE_PX + 3;
-    put(x, y, rgb);
-    put(x + 1, y, rgb);
-    put(x, y + 1, rgb);
-    put(x + 1, y + 1, rgb);
+  /** Paint a 2×2 marker centred on a pixel position (with an optional halo). */
+  const markPx = (x: number, y: number, rgb: RGB, big = false): void => {
+    const ix = Math.round(x);
+    const iy = Math.round(y);
+    put(ix, iy, rgb);
+    put(ix + 1, iy, rgb);
+    put(ix, iy + 1, rgb);
+    put(ix + 1, iy + 1, rgb);
     if (big) {
-      put(x - 1, y, shade(rgb, 0.7));
-      put(x + 2, y, shade(rgb, 0.7));
-      put(x, y - 1, shade(rgb, 0.7));
-      put(x, y + 2, shade(rgb, 0.7));
+      put(ix - 1, iy, shade(rgb, 0.7));
+      put(ix + 2, iy, shade(rgb, 0.7));
+      put(ix, iy - 1, shade(rgb, 0.7));
+      put(ix, iy + 2, shade(rgb, 0.7));
     }
+  };
+  const tilePx = (t: number): [number, number] => [(t % w.width) * TILE_PX + 3, ((t / w.width) | 0) * TILE_PX + 3];
+  const mark = (t: number, rgb: RGB, big = false): void => {
+    const [x, y] = tilePx(t);
+    markPx(x, y, rgb, big);
   };
   const visible = (t: number): boolean => !fog || fog[t] === 1;
 
-  for (const c of sim.couriers) {
-    const t = c.path[c.idx]!;
-    if (visible(t)) mark(t, hexToRgb("#ffd700"));
-  }
-  for (const v of sim.vans) if (visible(v.tile)) mark(v.tile, hexToRgb("#f8f8ff"), true);
+  /**
+   * Glide a path-follower along its route by its fractional moveProgress so it
+   * walks/drives smoothly between tiles instead of snapping (matters up close).
+   * Leaves a faint trailing dot for a sense of heading.
+   */
+  const drawMover = (path: number[], idx: number, progress: number, fallback: number, rgb: RGB, big: boolean): void => {
+    const from = path[idx] ?? fallback;
+    if (!visible(from)) return;
+    const to = path[Math.min(idx + 1, path.length - 1)] ?? from;
+    const f = Math.max(0, Math.min(1, toFloat(progress)));
+    const [fx, fy] = tilePx(from);
+    const [tx, ty] = tilePx(to);
+    const x = fx + (tx - fx) * f;
+    const y = fy + (ty - fy) * f;
+    if (f > 0.15 && f < 0.9) markPx(fx + (tx - fx) * (f - 0.15), fy + (ty - fy) * (f - 0.15), shade(rgb, 0.55)); // trail
+    markPx(x, y, rgb, big);
+  };
+
+  for (const c of sim.couriers) drawMover(c.path, c.idx, c.moveProgress, c.path[c.idx] ?? 0, hexToRgb("#ffd700"), false);
+  for (const v of sim.vans) drawMover(v.path, v.idx, v.moveProgress, v.tile, hexToRgb("#f8f8ff"), true);
   for (const py of sim.pylons) if (visible(py.tile)) mark(py.tile, hexToRgb("#ff5555"), true);
   for (const pk of sim.pickets) if (visible(pk.tile)) mark(pk.tile, hexToRgb("#ff66ff"), true);
   for (const a of sim.agents) {

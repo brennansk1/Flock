@@ -59,21 +59,21 @@ const SIG_LABEL: Record<string, string> = {
 };
 
 const RITUALS = [
-  { id: "sermon", key: "Q", label: "Sermon", targeted: false },
-  { id: "midnight_festival", key: "W", label: "Festival", targeted: true },
-  { id: "the_offering", key: "E", label: "Offering", targeted: true },
-  { id: "day_of_atonement", key: "R", label: "Atonement", targeted: false },
+  { id: "sermon", key: "Q", label: "Sermon", targeted: false, desc: "Spend Faith for a town-wide +5% conversion buff." },
+  { id: "midnight_festival", key: "W", label: "Festival", targeted: true, desc: "Place a 2× neutral-conversion aura. Click a tile to anchor it." },
+  { id: "the_offering", key: "E", label: "Offering", targeted: true, desc: "Sacrifice followers in a district for a Faith surge. Click to choose." },
+  { id: "day_of_atonement", key: "R", label: "Atonement", targeted: false, desc: "Freeze your fronts; purge dissent ×4 for a while." },
 ] as const;
 
 const BUILDS = [
-  { id: "compound", key: "B", label: "Compound" },
-  { id: "watchtower", key: "T", label: "Watchtower" },
-  { id: "collection_plate", key: "C", label: "Plate" },
-  { id: "broadcast_tower", key: "Y", label: "Broadcast" },
-  { id: "hotline_center", key: "U", label: "Hotline" },
-  { id: "print_shop", key: "H", label: "Print Shop" },
-  { id: "garage", key: "J", label: "Garage" },
-  { id: "supplement_lab", key: "L", label: "Lab" },
+  { id: "compound", key: "B", label: "Compound", desc: "Your HQ. Raises the follower cap and anchors territory." },
+  { id: "watchtower", key: "T", label: "Watchtower", desc: "5× fort defense + reveals enemy agents nearby." },
+  { id: "collection_plate", key: "C", label: "Plate", desc: "Tithe node. Couriers carry its income — and can be robbed." },
+  { id: "broadcast_tower", key: "Y", label: "Broadcast", desc: "Required for Propaganda Strikes (K)." },
+  { id: "hotline_center", key: "U", label: "Hotline", desc: "75% chance to intercept incoming strikes." },
+  { id: "print_shop", key: "H", label: "Print Shop", desc: "Cheaper pamphlets — boosts conversion pressure." },
+  { id: "garage", key: "J", label: "Garage", desc: "Raises your Recruitment Van capacity." },
+  { id: "supplement_lab", key: "L", label: "Lab", desc: "Converts Faith into steady income (Radiant)." },
 ] as const;
 
 const STANCES = [
@@ -280,6 +280,7 @@ export class Hud {
         r.targeted ? this.arm({ mode: "ritual", ritual: r.id }) : this.send({ t: "RITUAL", ritual: r.id as never }),
       );
       b.dataset.cd = r.id;
+      b.title = `${r.label} — ${r.desc}`;
       ritualG.appendChild(b);
     }
     this.el.ritualGroup = ritualG;
@@ -302,6 +303,7 @@ export class Hud {
     for (const bd of BUILDS) {
       const b = this.btn(bd.label, bd.key, () => this.armBuild(bd.id, bd.key));
       b.dataset.build = bd.id;
+      b.title = `${bd.label} — ${bd.desc} (click, then click a tile to place)`;
       builds.appendChild(b);
     }
     this.el.builds = builds;
@@ -449,10 +451,13 @@ export class Hud {
       b.classList.toggle("cd", cd > 0);
     });
 
-    // powers labels
+    // powers labels + tooltips (your archetype's signature kit)
     (this.el.actD as HTMLElement).querySelector("span")!.textContent = ACTIVE_D[me.archetype]!.label;
     (this.el.actF as HTMLElement).querySelector("span")!.textContent = ACTIVE_F[me.archetype]!.label;
     (this.el.actG as HTMLElement).querySelector("span")!.textContent = SIG_LABEL[me.archetype]!;
+    (this.el.actD as HTMLElement).title = `${ACTIVE_D[me.archetype]!.label} (D) — archetype power; some target a tile`;
+    (this.el.actF as HTMLElement).title = `${ACTIVE_F[me.archetype]!.label} (F) — archetype power; some target a tile`;
+    (this.el.actG as HTMLElement).title = `${SIG_LABEL[me.archetype]!} (G) — your signature, the big play`;
     for (const [id, ab] of [["actD", ACTIVE_D[me.archetype]!.id], ["actF", ACTIVE_F[me.archetype]!.id]] as const) {
       (this.el[id] as HTMLElement).classList.toggle("cd", (me.cooldowns[ab] ?? 0) > 0);
     }

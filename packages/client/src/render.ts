@@ -118,6 +118,25 @@ export class MapRenderer {
     return ((f.y | 0) * this.mapW + (f.x | 0)) | 0;
   }
 
+  /**
+   * Screen-space rect for a tile (the inverse of tileAtF), or null if the tile
+   * is outside the current view window. Used to paint overlays (spawn hints,
+   * pings) aligned to the rendered map.
+   */
+  tileToScreen(tile: number): { x: number; y: number; size: number } | null {
+    const v = this.view;
+    if (v.w === 0) return null;
+    const tx = tile % this.mapW;
+    const ty = (tile / this.mapW) | 0;
+    if (tx < v.x || ty < v.y || tx >= v.x + v.w || ty >= v.y + v.h) return null;
+    const size = v.screenScale * v.lod * TILE_PX;
+    return {
+      x: this.sprite.x + (tx - v.x) * size,
+      y: this.sprite.y + (ty - v.y) * size,
+      size,
+    };
+  }
+
   /** Fog of war (§14): owned tiles + radius 6, units radius 4, allied vision. */
   private updateFog(sim: SimState): void {
     if (sim.tick - this.fogTick < 5 && this.fog !== undefined) return;

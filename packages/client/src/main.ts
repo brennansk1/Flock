@@ -19,6 +19,7 @@ import {
   MatchStatus,
   NEUTRAL,
   TileState,
+  Terrain,
   colorForPlayer,
   renderRecapCard,
   type Archetype,
@@ -69,11 +70,18 @@ async function boot(): Promise<void> {
 
     wireInput(app, map, g);
 
+    // FOUNDING spawn-pick overlay (§18/§26): pulsing rings on recommended
+    // spawns until the player clicks one.
+    const foundingHints = new Graphics();
+    app.stage.addChild(foundingHints);
+    const recommended = recommendedSpawns(g);
+
     let lastBarTick = -1;
     let cardShown = false;
     app.ticker.add(() => {
       map.draw(g.sim);
       hud.text = hudText(g);
+      drawFoundingHints(map, foundingHints, g, recommended, app.ticker.lastTime);
       if (g.sim.tick - lastBarTick >= 5) {
         lastBarTick = g.sim.tick;
         drawConversionBar(app, bar, barLabel, g);
@@ -349,6 +357,59 @@ function hudText(g: GameSession): string {
   );
   if (!me.alive) lines.unshift("☠ ELIMINATED — spectating");
   return lines.join("\n");
+}
+
+/**
+ * Pick a handful of recommended spawn tiles (§26 FTUE guidance): unowned
+ * Citizen tiles with the highest susceptibility, spread out so they don't
+ * cluster. Computed once — the world is static for the match.
+ */
+function recommendedSpawns(g: GameSession): number[] {
+  const w = g.sim.world;
+  const candidates: { tile: number; s: number }[] = [];
+  const stride = Math.max(1, Math.floor(w.width / 48));
+  for (let y = 2; y < w.height - 2; y += stride) {
+    for (let x = 2; x < w.width - 2; x += stride) {
+      const t = y * w.width + x;
+      if (w.terrain[t] !== Terrain.Citizen || w.owner[t] !== NEUTRAL) continue;
+      candidates.push({ tile: t, s: w.susceptibility[t]! });
+    }
+  }
+  candidates.sort((a, b) => b.s - a.s);
+  const picked: number[] = [];
+  const minDist = Math.max(6, Math.floor(w.width / 8));
+  for (const c of candidates) {
+    const cx = c.tile % w.width;
+    const cy = (c.tile / w.width) | 0;
+    if (picked.every((p) => Math.abs((p % w.width) - cx) + Math.abs(((p / w.width) | 0) - cy) >= minDist)) {
+      picked.push(c.tile);
+    }
+    if (picked.length >= 8) break;
+  }
+  return picked;
+}
+
+/** Draw the founding spawn hints (pulsing rings); no-op once spawned/live. */
+function drawFoundingHints(
+  map: MapRenderer,
+  gfx: Graphics,
+  g: GameSession,
+  recommended: number[],
+  timeMs: number,
+): void {
+  gfx.clear();
+  const me = g.sim.players.find((p) => p.id === g.playerId);
+  if (!me || me.spawned || g.sim.foundingTicksLeft <= 0) return;
+  const pulse = 0.5 + 0.5 * Math.sin(timeMs / 250);
+  for (const tile of recommended) {
+    const r = map.tileToScreen(tile);
+    if (!r) continue;
+    const cx = r.x + r.size / 2;
+    const cy = r.y + r.size / 2;
+    const rad = r.size * (2.2 + pulse * 1.2);
+    gfx.circle(cx, cy, rad).stroke({ width: 2, color: 0xc89858, alpha: 0.5 + 0.4 * pulse });
+    gfx.circle(cx, cy, r.size * 0.7).fill({ color: 0xc89858, alpha: 0.25 });
+  }
 }
 
 /**

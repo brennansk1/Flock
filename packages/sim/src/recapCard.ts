@@ -108,6 +108,13 @@ function textWidth(str: string, scale: number): number {
   return str.length * 6 * scale;
 }
 
+/** Largest integer scale ≤ maxScale that fits `str` within `maxW` (≥1). */
+function fitScale(str: string, maxScale: number, maxW: number): number {
+  let s = maxScale;
+  while (s > 1 && textWidth(str, s) > maxW) s--;
+  return s;
+}
+
 function centered(frame: CardFrame, str: string, y: number, scale: number, c: RGB): void {
   text(frame, str, (frame.width - textWidth(str, scale)) / 2, y, scale, c);
 }
@@ -162,8 +169,10 @@ function sigil(frame: CardFrame, cx: number, cy: number, r: number, arch: Archet
       for (let ring = r; ring > 0; ring -= 6)
         for (let a = 0; a < 360; a += 3) px(frame, cx + Math.round(Math.cos((a * Math.PI) / 180) * ring), cy + Math.round(Math.sin((a * Math.PI) / 180) * ring), c);
       break;
-    case "circle": // dollar ring
-      for (let a = 0; a < 360; a += 2) px(frame, cx + Math.round(Math.cos((a * Math.PI) / 180) * r), cy + Math.round(Math.sin((a * Math.PI) / 180) * r), c);
+    case "circle": // dollar ring (3px thick so it reads as a solid coin edge)
+      for (let a = 0; a < 360; a += 1)
+        for (let dr = -1; dr <= 1; dr++)
+          px(frame, cx + Math.round(Math.cos((a * Math.PI) / 180) * (r + dr)), cy + Math.round(Math.sin((a * Math.PI) / 180) * (r + dr)), c);
       text(frame, "$", cx - 9, cy - 21, 6, c);
       break;
     case "visitors": // saucer
@@ -208,8 +217,9 @@ export function renderRecapCard(recap: MatchRecap, names: Record<number, string>
 
   // sigil + winner name + archetype
   sigil(frame, CARD_W / 2, 320, 90, winArch, base);
-  const name = (names[winId] ?? `SECT #${winId}`).slice(0, 24);
-  centered(frame, name, 450, 7, ink);
+  const name = names[winId] ?? `SECT #${winId}`;
+  // auto-fit the title so long cult names never truncate mid-word
+  centered(frame, name, 450, fitScale(name, 7, CARD_W - 90), ink);
   centered(frame, ARCHETYPE_LABEL[winArch], 540, 4, dim);
 
   // auto-headline (priority grammar already baked into recap.players[].headline)
@@ -247,8 +257,9 @@ export function renderRecapCard(recap: MatchRecap, names: Record<number, string>
   ranked.slice(0, 6).forEach((pr: PlayerRecap, i) => {
     const swatch = hexToRgb(PLAYER_COLORS[(pr.player - 1) % PLAYER_COLORS.length]!);
     rect(frame, 130, ry, 28, 28, swatch);
-    const label = `${i + 1}  ${(names[pr.player] ?? `SECT #${pr.player}`).slice(0, 22)}`;
-    text(frame, label, 175, ry, 3, pr.won ? ink : dim);
+    const label = `${i + 1}  ${names[pr.player] ?? `SECT #${pr.player}`}`;
+    // fit each row to the available width so names never clip the card edge
+    text(frame, label, 175, ry, fitScale(label, 3, CARD_W - 205), pr.won ? ink : dim);
     ry += 48;
   });
 

@@ -210,6 +210,8 @@ const C = {
   fence: hexToRgb("#8a7a5c"),
   grassHigh: hexToRgb("#b6bd84"),
   grassLow: hexToRgb("#9aa372"),
+  unitGlass: hexToRgb("#2a3550"),
+  unitShadow: hexToRgb("#33302a"),
   rock: hexToRgb("#9c968a"),
   rockShade: hexToRgb("#7c766c"),
   bush: hexToRgb("#5a7340"),
@@ -1340,53 +1342,82 @@ function pickAttractor(
 
 // ---------------------------------------------------------------- units
 
+/**
+ * Tiny unit sprites (legend: '.' clear · 'o' body · '#' dark outline · '*'
+ * light accent · 'w' glass · 's' soft shadow). Drawn centred on the unit's
+ * (possibly sub-tile) position so they read as little objects, not dots.
+ */
+const UNIT_SPRITES = {
+  // Tithe Courier — a walker with a money satchel
+  courier: ["..#...", ".#o#..", ".#o#.*", "##oo#*", ".#o#..", ".#.#.."],
+  // Recruitment Van — a boxy minibus, side view, with glass + wheels
+  van: ["s####s", "#wwww#", "oooooo", "oooooo", "s#ss#s", "..ss.."],
+  // Agent — a hooded figure (own-side only; invisible to others)
+  agent: ["..##..", ".#oo#.", ".#oo#.", ".#oo#.", ".s##s.", "......"],
+  // Street Prophet pylon — a speaker on a post, radiating
+  pylon: ["*#oo#*", "#oooo#", "*#oo#*", "..##..", "..##..", ".s##s."],
+  // CPA picket — a protester holding a sign
+  picket: ["####..", "#oo#.o", "####.o", "...#oo", "...oo.", "..s.s."],
+} as const;
+
 function drawUnits(sim: SimState, viewer: number, fog: Uint8Array | null, put: Put): void {
   const w = sim.world;
-  /** Paint a 2×2 marker centred on a pixel position (with an optional halo). */
-  const markPx = (x: number, y: number, rgb: RGB, big = false): void => {
-    const ix = Math.round(x);
-    const iy = Math.round(y);
-    put(ix, iy, rgb);
-    put(ix + 1, iy, rgb);
-    put(ix, iy + 1, rgb);
-    put(ix + 1, iy + 1, rgb);
-    if (big) {
-      put(ix - 1, iy, shade(rgb, 0.7));
-      put(ix + 2, iy, shade(rgb, 0.7));
-      put(ix, iy - 1, shade(rgb, 0.7));
-      put(ix, iy + 2, shade(rgb, 0.7));
+  const visible = (t: number): boolean => !fog || fog[t] === 1;
+  const tilePx = (t: number): [number, number] => [(t % w.width) * TILE_PX, ((t / w.width) | 0) * TILE_PX];
+
+  /** Paint a centred sprite at integer pixel (cx,cy) in the body colour. */
+  const sprite = (cx: number, cy: number, bmp: readonly string[], body: RGB): void => {
+    const bw = bmp[0]!.length;
+    const ox = Math.round(cx) - (bw >> 1);
+    const oy = Math.round(cy) - (bmp.length >> 1);
+    const dark = shade(body, 0.32);
+    const light = shade(body, 1.4);
+    for (let py = 0; py < bmp.length; py++) {
+      const row = bmp[py]!;
+      for (let px = 0; px < bw; px++) {
+        const ch = row[px];
+        if (ch === "." || ch === undefined) continue;
+        const c =
+          ch === "o" ? body : ch === "#" ? dark : ch === "*" ? light : ch === "w" ? C.unitGlass : C.unitShadow;
+        put(ox + px, oy + py, c);
+      }
     }
   };
-  const tilePx = (t: number): [number, number] => [(t % w.width) * TILE_PX + 3, ((t / w.width) | 0) * TILE_PX + 3];
-  const mark = (t: number, rgb: RGB, big = false): void => {
-    const [x, y] = tilePx(t);
-    markPx(x, y, rgb, big);
-  };
-  const visible = (t: number): boolean => !fog || fog[t] === 1;
 
   /**
    * Glide a path-follower along its route by its fractional moveProgress so it
-   * walks/drives smoothly between tiles instead of snapping (matters up close).
-   * Leaves a faint trailing dot for a sense of heading.
+   * walks/drives smoothly between tiles instead of snapping. A faint trail dot
+   * gives a sense of heading.
    */
-  const drawMover = (path: number[], idx: number, progress: number, fallback: number, rgb: RGB, big: boolean): void => {
+  const drawMover = (path: number[], idx: number, progress: number, fallback: number, bmp: readonly string[], rgb: RGB): void => {
     const from = path[idx] ?? fallback;
     if (!visible(from)) return;
     const to = path[Math.min(idx + 1, path.length - 1)] ?? from;
     const f = Math.max(0, Math.min(1, toFloat(progress)));
     const [fx, fy] = tilePx(from);
     const [tx, ty] = tilePx(to);
-    const x = fx + (tx - fx) * f;
-    const y = fy + (ty - fy) * f;
-    if (f > 0.15 && f < 0.9) markPx(fx + (tx - fx) * (f - 0.15), fy + (ty - fy) * (f - 0.15), shade(rgb, 0.55)); // trail
-    markPx(x, y, rgb, big);
+    const cx = fx + 4 + (tx - fx) * f;
+    const cy = fy + 4 + (ty - fy) * f;
+    if (f > 0.2 && f < 0.85) put(Math.round(fx + 4 + (tx - fx) * (f - 0.2)), Math.round(fy + 4 + (ty - fy) * (f - 0.2)), shade(rgb, 0.5));
+    sprite(cx, cy, bmp, rgb);
   };
 
-  for (const c of sim.couriers) drawMover(c.path, c.idx, c.moveProgress, c.path[c.idx] ?? 0, hexToRgb("#ffd700"), false);
-  for (const v of sim.vans) drawMover(v.path, v.idx, v.moveProgress, v.tile, hexToRgb("#f8f8ff"), true);
-  for (const py of sim.pylons) if (visible(py.tile)) mark(py.tile, hexToRgb("#ff5555"), true);
-  for (const pk of sim.pickets) if (visible(pk.tile)) mark(pk.tile, hexToRgb("#ff66ff"), true);
+  for (const c of sim.couriers) drawMover(c.path, c.idx, c.moveProgress, c.path[c.idx] ?? 0, UNIT_SPRITES.courier, hexToRgb("#ffd24a"));
+  for (const v of sim.vans) drawMover(v.path, v.idx, v.moveProgress, v.tile, UNIT_SPRITES.van, hexToRgb("#eef0ff"));
+  for (const py of sim.pylons) {
+    if (!visible(py.tile)) continue;
+    const [x, y] = tilePx(py.tile);
+    sprite(x + 4, y + 4, UNIT_SPRITES.pylon, hexToRgb("#ff5555"));
+  }
+  for (const pk of sim.pickets) {
+    if (!visible(pk.tile)) continue;
+    const [x, y] = tilePx(pk.tile);
+    sprite(x + 4, y + 4, UNIT_SPRITES.picket, hexToRgb("#ff66ff"));
+  }
   for (const a of sim.agents) {
-    if (a.player === viewer && a.phase !== "travel") mark(a.tile, hexToRgb("#222233"));
+    if (a.player === viewer && a.phase !== "travel") {
+      const [x, y] = tilePx(a.tile);
+      sprite(x + 4, y + 4, UNIT_SPRITES.agent, hexToRgb("#33354d"));
+    }
   }
 }

@@ -63,7 +63,14 @@ async function boot(): Promise<void> {
       const bar = new Graphics();
       const barLabel = new Text({
         text: "",
-        style: { fill: "#1a1410", fontSize: 12, fontFamily: "monospace", fontWeight: "bold" },
+        // light text + dark stroke stays readable over ANY cult's bar color
+        style: {
+          fill: "#f0e6d0",
+          fontSize: 12,
+          fontFamily: "monospace",
+          fontWeight: "bold",
+          stroke: { color: "#1a1410", width: 3 },
+        },
       });
       barLabel.position.set(8, 4);
       app.stage.addChild(bar);
@@ -550,7 +557,7 @@ function maybeShowFtue(): void {
   let i = 0;
   const tip = document.createElement("div");
   tip.style.cssText =
-    "position:absolute;bottom:120px;left:50%;transform:translateX(-50%);z-index:55;max-width:460px;" +
+    "position:absolute;bottom:150px;left:14px;z-index:55;max-width:300px;" +
     "background:rgba(20,16,12,.95);border:1px solid #c89858;border-radius:8px;padding:14px 20px;" +
     "font-family:'Segoe UI',sans-serif;color:#f0e6d0;font-size:15px;text-align:center;cursor:pointer;box-shadow:0 6px 24px #000";
   const paint = (): void => {

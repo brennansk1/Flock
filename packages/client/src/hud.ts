@@ -225,15 +225,15 @@ const HUD_CSS = `
 .fk-btn.cant .cost{color:#e08a6a;opacity:1}
 .fk-btn .cd-t{font-size:9px;color:#e6be8a;margin-left:5px}
 .fk-bottom{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);display:flex;gap:10px;align-items:flex-end}
-.fk-builds{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;background:rgba(20,16,12,.78);
-  border:1px solid #5a4a30;border-radius:8px;padding:8px;width:336px}
+.fk-builds{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;background:rgba(20,16,12,.78);
+  border:1px solid #5a4a30;border-radius:8px;padding:8px;width:420px}
 .fk-doc{position:relative;background:#241c14;border:1px solid #5a4a30;border-radius:8px;color:#f0e6d0;
   padding:10px 14px;font-size:12px;align-self:stretch}
 .fk-doc .badge{position:absolute;top:-6px;right:-6px;background:#ffcf4a;color:#1a1410;border-radius:50%;
   width:18px;height:18px;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center}
 .fk-mini{background:rgba(20,16,12,.78);border:1px solid #5a4a30;border-radius:8px;padding:6px;line-height:0}
 .fk-mini canvas{image-rendering:pixelated;border-radius:3px}
-.fk-right{position:absolute;right:10px;top:60px;width:210px;display:flex;flex-direction:column;gap:10px;max-height:80vh}
+.fk-right{position:absolute;right:10px;top:60px;width:236px;display:flex;flex-direction:column;gap:10px;max-height:80vh}
 .fk-players{background:rgba(20,16,12,.78);border:1px solid #5a4a30;border-radius:8px;padding:7px;overflow:auto}
 .fk-prow{display:flex;align-items:center;gap:6px;font-size:12px;padding:3px 2px;border-radius:4px}
 .fk-prow .sw{width:11px;height:11px;border-radius:2px;flex:none}
@@ -250,7 +250,7 @@ const HUD_CSS = `
 @keyframes fkdrop{from{transform:translate(-50%,-12px);opacity:0}to{transform:translate(-50%,0);opacity:1}}
 .fk-heat.hot .v{animation:fkpulse 1s infinite}
 @keyframes fkpulse{50%{text-shadow:0 0 10px #ff5a2a}}
-@media(max-width:900px){.fk-rail{width:96px}.fk-right{width:150px}.fk-builds{width:200px}}
+@media(max-width:900px){.fk-rail{width:96px}.fk-right{width:150px}.fk-builds{width:240px}}
 .fk-hoverchip{position:absolute;left:10px;bottom:12px;background:rgba(20,16,12,.85);border:1px solid #5a4a30;
   border-radius:6px;padding:5px 10px;font-size:11px;line-height:1.5;max-width:220px;pointer-events:none}
 .fk-hoverchip .pl{font-weight:700;font-size:12px}
@@ -258,7 +258,7 @@ const HUD_CSS = `
 .fk-chatin{pointer-events:auto;width:100%;box-sizing:border-box;background:#241c14;color:#f0e6d0;
   border:1px solid #4a3c28;border-radius:4px;padding:5px 7px;font-size:12px;font-family:inherit}
 .fk-chatin:focus{outline:none;border-color:#c89858;background:#2a2118}
-.fk-chatin::placeholder{color:#f0e6d0;opacity:.35}
+.fk-chatin::placeholder{color:#f0e6d0;opacity:.55}
 /* accessibility (§28): reduced motion kills pulses/animations; mute hides chat */
 .fk-reduced-motion .fk-heat.hot .v{animation:none}
 .fk-reduced-motion .fk-feed .e{animation:none;opacity:1}
@@ -863,11 +863,11 @@ export class Hud {
         const nm = esc(this.g.players.find((q) => q.id === p.id)?.name ?? `Cult #${p.id}`);
         const me = p.id === this.g.playerId;
         const tags = `${p.traitor ? "🗡" : ""}${allies.has(p.id) ? "🤝" : ""}${!p.alive ? "☠" : ""}`;
-        const acts = me || !p.alive ? "" : `<span class="act" data-ally="${p.id}">${allies.has(p.id) ? "✕" : "ally"}</span>`;
+        const acts = me || !p.alive ? "" : `<span class="act" data-ally="${p.id}" title="${allies.has(p.id) ? "break the alliance" : "propose an alliance"}">${allies.has(p.id) ? "✕" : "ally"}</span>`;
         return `<div class="fk-prow" style="${me ? "background:rgba(200,152,88,.18)" : ""}">
           <span class="sw" style="background:${colorForPlayer(p.id)}"></span>
-          <span class="nm">${nm} ${tags}</span>
-          <span style="opacity:.6;font-size:11px">${p.ownedTiles}</span>${acts}</div>`;
+          <span class="nm" title="${nm}">${nm} ${tags}</span>
+          <span style="opacity:.6;font-size:11px" title="households held">${p.ownedTiles}</span>${acts}</div>`;
       })
       .join("");
     if (this.el.players.dataset.h !== html) {

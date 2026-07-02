@@ -641,6 +641,12 @@ function drawTile(
             put(x0 + px, y0 + py, c);
           }
         }
+        // the deck casts onto the water below (depth cue)
+        if (horiz && waterAt(t + w.width)) {
+          for (let px = 0; px < TILE_PX; px += 2) put(x0 + px, y0 + TILE_PX, shade(C.waterDeep, 0.7));
+        } else if (!horiz && waterAt(t + 1)) {
+          for (let py = 0; py < TILE_PX; py += 2) put(x0 + TILE_PX, y0 + py, shade(C.waterDeep, 0.7));
+        }
         return;
       }
 
@@ -795,6 +801,13 @@ function drawTile(
       return;
     }
     case Terrain.Grass: {
+      // desert borders dither into the green (no hard biome line)
+      const desertBeside =
+        w.biome[t] !== 1 &&
+        ((tx > 0 && w.biome[t - 1] === 1) ||
+          (tx < w.width - 1 && w.biome[t + 1] === 1) ||
+          (ty > 0 && w.biome[t - w.width] === 1) ||
+          (ty < w.height - 1 && w.biome[t + w.width] === 1));
       // DESERT biome: the same rolling land, reskinned as sand and scrub
       if (w.biome[t] === 1 /* Biome.Desert */) {
         for (let py = 0; py < TILE_PX; py++) {
@@ -837,6 +850,7 @@ function drawTile(
           if (h % 19 === 0) c = C.scrub;
           if (h % 211 === 0) c = C.flowerY;
           else if (h % 223 === 0) c = C.flowerW;
+          if (desertBeside && h % 3 === 0) c = C.sandBg; // dithered biome edge
           // woods/lake spill a ragged sub-tile edge into this grass pixel
           const bleed = naturalEdgeBleed(w, tx, ty, px, py);
           if (bleed) c = bleed;
@@ -931,10 +945,12 @@ function drawTile(
         parcel === 0 ? C.cropGold : parcel === 1 ? hexToRgb("#8aa54e") : parcel === 2 ? hexToRgb("#d8c88e") : hexToRgb("#a08458");
       const cropB =
         parcel === 0 ? C.cropRow : parcel === 1 ? hexToRgb("#71893c") : parcel === 2 ? hexToRgb("#c2b076") : hexToRgb("#8a7048");
+      const vertRows = pixHash((tx / 6) | 0, (ty / 6) | 0, 99) % 2 === 0; // rotation
       for (let py = 0; py < TILE_PX; py++) {
         for (let px = 0; px < TILE_PX; px++) {
           const gy = ty * TILE_PX + py;
-          const row = gy % 3 === 0;
+          const gx2 = tx * TILE_PX + px;
+          const row = (vertRows ? gx2 : gy) % 3 === 0;
           let c = row ? cropB : cropA;
           if (pixHash(tx * TILE_PX + px, gy, 41) % 31 === 0) c = shade(c, 1.12);
           // fence posts along the field boundary
@@ -1130,10 +1146,12 @@ function drawTile(
       n >= 0 && n < w.terrain.length && w.terrain[n] === Terrain.Road;
     if (ty > 0 && roadSide(t - w.width)) {
       for (let px = 0; px < TILE_PX; px++) {
-        put(x0 + px, y0, C.sidewalk);
+        const worn = pixHash(x0 + px, y0, 43) % 13 === 0;
+        put(x0 + px, y0, worn ? shade(C.sidewalk, 0.85) : C.sidewalk);
         put(x0 + px, y0 + 1, px % 4 === 0 ? shade(C.sidewalk, 0.9) : C.sidewalk);
       }
       if (lit && tx % 4 === 1) {
+        put(x0 + 2, y0 + 2, C.shadow); // lamp shadow (13)
         put(x0 + 1, y0 + 1, C.iconDark); // lamp post
         put(x0 + 1, y0, C.windowLit); // warm head
       }

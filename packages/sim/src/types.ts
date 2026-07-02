@@ -5,6 +5,7 @@
 
 import type { Fixed } from "./fixed.js";
 import type { RngState } from "./rng.js";
+import type { Street } from "./names.js";
 
 export type PlayerId = number; // 0 = neutral / no owner
 export type TileId = number; // index into the flat tile arrays
@@ -105,6 +106,10 @@ export const Lot = {
   Parking: 19,
   Cemetery: 20,
   BallField: 21,
+  Cinema: 22,
+  Playground: 23,
+  Dock: 24,
+  Greenhouse: 25,
 } as const;
 export type Lot = (typeof Lot)[keyof typeof Lot];
 
@@ -147,6 +152,10 @@ export interface World {
   holdTicks: Uint16Array;
   /** TileFlag bits per tile. */
   flags: Uint8Array;
+  /** Fresh fake town name for this seed (faker corpus via names.ts). */
+  townName: string;
+  /** Named axis-aligned street segments (grid roads only, §2). */
+  streets: Street[];
 }
 
 /**

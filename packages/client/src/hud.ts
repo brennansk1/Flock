@@ -22,10 +22,16 @@ import {
   mul,
   Stance,
   MatchStatus,
+  Terrain,
+  Lot,
+  Landmark,
   doctrinePointsAvailable,
   loveBombCostMult,
   colorForPlayer,
   buildingCost,
+  streetAt,
+  householdName,
+  memberName,
   KIT,
   type SimState,
   type PlayerState,
@@ -122,6 +128,49 @@ const STANCES = [
   { id: Stance.Crusade, key: "3", label: "CRUSADE", hint: "max pressure, +Heat" },
 ] as const;
 
+/** Human labels for the hover chip (place identity, §2). */
+const LOT_NAMES: Record<number, string> = {
+  [Lot.Shop]: "corner store",
+  [Lot.Supermarket]: "supermarket",
+  [Lot.Diner]: "diner",
+  [Lot.School]: "the school",
+  [Lot.Library]: "the library",
+  [Lot.Chapel]: "the chapel",
+  [Lot.GasStation]: "gas station",
+  [Lot.Sheriff]: "sheriff's office",
+  [Lot.Office]: "office block",
+  [Lot.Barn]: "barn",
+  [Lot.Silo]: "grain silo",
+  [Lot.Park]: "the park",
+  [Lot.Church]: "the church",
+  [Lot.Bank]: "the bank",
+  [Lot.PostOffice]: "post office",
+  [Lot.FireStation]: "fire station",
+  [Lot.Factory]: "the factory",
+  [Lot.Motel]: "the motel",
+  [Lot.Parking]: "parking lot",
+  [Lot.Cemetery]: "the cemetery",
+  [Lot.BallField]: "the ballfield",
+  [Lot.Cinema]: "the picture house",
+  [Lot.Playground]: "the playground",
+  [Lot.Dock]: "the boat dock",
+  [Lot.Greenhouse]: "greenhouse",
+};
+const LANDMARK_NAMES: Record<number, string> = {
+  [Landmark.RadioTower]: "the radio tower",
+  [Landmark.Megachurch]: "the megachurch",
+  [Landmark.TownHall]: "town hall",
+  [Landmark.Fairground]: "the fairground",
+  [Landmark.WaterTower]: "the water tower",
+};
+const TERRAIN_NAMES: Record<number, string> = {
+  [Terrain.Woods]: "the woods",
+  [Terrain.Lake]: "open water",
+  [Terrain.Grass]: "open country",
+  [Terrain.Field]: "crop fields",
+  [Terrain.Dirt]: "a dirt lane",
+};
+
 /** Escape user-supplied text before it touches innerHTML (XSS guard). */
 function esc(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
@@ -191,6 +240,10 @@ const HUD_CSS = `
 .fk-heat.hot .v{animation:fkpulse 1s infinite}
 @keyframes fkpulse{50%{text-shadow:0 0 10px #ff5a2a}}
 @media(max-width:900px){.fk-rail{width:96px}.fk-right{width:150px}.fk-builds{width:200px}}
+.fk-hoverchip{position:absolute;left:10px;bottom:12px;background:rgba(20,16,12,.85);border:1px solid #5a4a30;
+  border-radius:6px;padding:5px 10px;font-size:11px;line-height:1.5;max-width:220px;pointer-events:none}
+.fk-hoverchip .pl{font-weight:700;font-size:12px}
+.fk-hoverchip .st{opacity:.65}
 .fk-chatin{pointer-events:auto;width:100%;box-sizing:border-box;background:#241c14;color:#f0e6d0;
   border:1px solid #4a3c28;border-radius:4px;padding:5px 7px;font-size:12px;font-family:inherit}
 .fk-chatin:focus{outline:none;border-color:#c89858;background:#2a2118}
@@ -244,6 +297,10 @@ export class Hud {
   private lastMiniTick = -999;
   private miniImg: ImageData | null = null;
   private chatIn!: HTMLInputElement;
+  private hoverChip!: HTMLDivElement;
+  private hoverPlace!: HTMLElement;
+  private hoverStreet!: HTMLElement;
+  private lastHover = -2;
   /** Global Enter → focus the chat box (unless already typing somewhere). */
   private readonly focusChatKey = (ev: KeyboardEvent): void => {
     if (ev.key !== "Enter") return;
@@ -294,6 +351,45 @@ export class Hud {
   /** Arm a targeted action; the next map click resolves it (main.ts). */
   arm(p: PlacementKind | null): void {
     this.ui.placement = p;
+  }
+
+  /**
+   * Place-identity chip (§2 flavor): whose house, which street, what lot the
+   * cursor rests on. Names are static seed data (names.ts) — nothing here
+   * leaks live game state through the fog.
+   */
+  setHover(tile: number): void {
+    if (tile === this.lastHover) return;
+    this.lastHover = tile;
+    const w = this.g.sim.world;
+    if (tile < 0 || tile >= w.terrain.length) {
+      this.hoverChip.style.display = "none";
+      return;
+    }
+    const terrain = w.terrain[tile]!;
+    let place = "";
+    if (w.landmark[tile] !== 0) {
+      place = LANDMARK_NAMES[w.landmark[tile]!] ?? "a landmark";
+    } else if (terrain === Terrain.Citizen) {
+      const lot = w.lot[tile]!;
+      const pop = w.pop[tile]!;
+      if (lot !== 0) place = LOT_NAMES[lot] ?? "a lot";
+      else if (pop >= 3) place = `the ${householdName(tile)} place · ${pop} souls`;
+      else if (pop >= 1) place = `${memberName(tile, 0)}'s garden`;
+      else place = "an empty lot";
+    } else {
+      place = TERRAIN_NAMES[terrain] ?? "";
+    }
+    const street = streetAt(w.streets, w.width, tile);
+    if (!place && !street) {
+      this.hoverChip.style.display = "none";
+      return;
+    }
+    this.hoverPlace.textContent = place;
+    this.hoverPlace.style.display = place ? "block" : "none";
+    this.hoverStreet.textContent = street ?? "";
+    this.hoverStreet.style.display = street ? "block" : "none";
+    this.hoverChip.style.display = "block";
   }
 
   private btn(label: string, key: string | null, onClick: () => void): HTMLButtonElement {
@@ -444,6 +540,21 @@ export class Hud {
 
     right.append(players, feed, chatIn);
     this.root.appendChild(right);
+
+    // place-identity chip (bottom-left): what & where the cursor is over.
+    // textContent only — names come from the corpus but stay XSS-inert anyway.
+    const chip = document.createElement("div");
+    chip.className = "fk-hoverchip";
+    chip.style.display = "none";
+    const pl = document.createElement("div");
+    pl.className = "pl";
+    const st = document.createElement("div");
+    st.className = "st";
+    chip.append(pl, st);
+    this.hoverPlace = pl;
+    this.hoverStreet = st;
+    this.hoverChip = chip;
+    this.root.appendChild(chip);
 
     // help button (top-right) → controls reference
     const help = document.createElement("button");

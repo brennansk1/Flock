@@ -182,7 +182,9 @@ function drawConversionBar(app: Application, bar: Graphics, label: Text, g: Game
 
   const pct = ((converted / total) * 100).toFixed(1);
   const mine = ((popByOwner.get(g.playerId) ?? 0) / total) * 100;
-  label.text = `MUNDANE FALLS — ${pct}% converted   (you: ${mine.toFixed(1)}% of ${total} souls)`;
+  // every match is a fresh fake town (names.ts / faker corpus)
+  const townName = (g.sim.world.townName || "Mundane Falls").toUpperCase();
+  label.text = `${townName} — ${pct}% converted   (you: ${mine.toFixed(1)}% of ${total} souls)`;
 }
 
 /** Per-archetype D/F actives (left rail, §27). */
@@ -212,6 +214,7 @@ function wireInput(app: Application, map: MapRenderer, g: GameSession, hud: Hud)
   }, { passive: false });
   app.canvas.addEventListener("pointermove", (ev) => {
     hover = map.tileAt(g.sim, ev.offsetX, ev.offsetY);
+    hud.setHover(hover); // place-identity chip: street + household names
     if (dragging) {
       const dx = ev.offsetX - lastX;
       const dy = ev.offsetY - lastY;

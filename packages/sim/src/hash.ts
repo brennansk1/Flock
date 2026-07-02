@@ -76,6 +76,15 @@ export function hashState(s: SimState): string {
   f.bytes(w.landmark);
   for (let i = 0; i < w.holdTicks.length; i++) f.u32(w.holdTicks[i]!);
   f.bytes(w.flags);
+  f.str(w.townName);
+  f.u32(w.streets.length);
+  for (const st of w.streets) {
+    f.str(st.name);
+    f.byte(st.axis);
+    f.u32(st.at);
+    f.u32(st.from);
+    f.u32(st.to);
+  }
 
   for (const p of s.players) {
     f.u32(p.id);

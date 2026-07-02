@@ -54,8 +54,9 @@ DESIGN.md  DEPLOY.md  README.md  HANDOFF.md(this)  balance.json(tuning, hot-patc
 | `conversion.ts` | The combat system (§4): fronts, pressure, flips, attrition |
 | `hash.ts` | `hashState` — the lockstep StateHash (the CI gate) |
 | `snapshot.ts` | `toSnapshot`/`fromSnapshot` — join/resync codec |
-| `mapgen.ts` | Seeded map: districts, roads (tensor-field), river, farms, landmarks |
-| `tensorRoads.ts` | Tensor-field road network generation |
+| `mapgen.ts` | Seeded map: districts, grid roads, river, farms, landmarks, naming |
+| `gridRoads.ts` | Axis-aligned street-grid road network (blocks, named streets) |
+| `names.ts` `nameData.ts` | World naming: faker-generated corpora + seeded/pure pickers |
 | `buildings.ts` `doctrine.ts` `diplomacy.ts` `entities.ts` `player.ts` | M1 systems (§6/§10/§16/§7) |
 | `bots.ts` | 3 bot tiers (Drifter/Sect/Established Church) — pure, unit-tested |
 | `recap.ts` `recapCard.ts` | Match recap data + the 1080×1350 share-card renderer (§25) |
@@ -132,6 +133,7 @@ Per-package: `npm run build -w @flock/sim` / `-w @flock/server` / `-w @flock/cli
 | `soak.mjs [clients] [seconds] [url]` | Load/desync soak vs a running server (asserts desync SLA) |
 | `units.mjs` | Preview the procedural unit sprites + auras |
 | `spritesheet.mjs` | Render every building/landmark/lot icon in a grid for art QA |
+| `gen_names.py` | Python faker → regenerates `packages/sim/src/nameData.ts` corpora |
 
 ## 6. Conventions & gotchas
 

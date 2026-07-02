@@ -237,6 +237,12 @@ const C = {
   rockShade: hexToRgb("#7c766c"),
   bush: hexToRgb("#5a7340"),
   shadow: hexToRgb("#6f7a52"),
+  plank: hexToRgb("#8a6f4d"),
+  plankDark: hexToRgb("#745a3c"),
+  rail: hexToRgb("#5d4a33"),
+  crosswalk: hexToRgb("#d8d4c8"),
+  glass: hexToRgb("#cfe8e2"),
+  glassFrame: hexToRgb("#8fb0a8"),
 } as const;
 
 /** Town building styles: [body, roof, accent]. */
@@ -258,6 +264,8 @@ const LOT_STYLE: Record<number, [RGB, RGB, RGB]> = {
   [Lot.FireStation]: [hexToRgb("#b03a30"), hexToRgb("#8c2c24"), hexToRgb("#e8e4d8")],
   [Lot.Factory]: [hexToRgb("#9a9088"), hexToRgb("#736a62"), hexToRgb("#5a5450")],
   [Lot.Motel]: [hexToRgb("#cabf9c"), hexToRgb("#7a6f58"), hexToRgb("#3fa0bf")],
+  [Lot.Cinema]: [hexToRgb("#3a3f52"), hexToRgb("#2c3040"), hexToRgb("#ffd76a")],
+  [Lot.Greenhouse]: [hexToRgb("#cfe8e2"), hexToRgb("#8fb0a8"), hexToRgb("#efe9da")],
 };
 
 /** roof palettes by district */
@@ -402,6 +410,27 @@ export function renderTown(sim: SimState, opts: RenderOpts = {}): RenderedFrame 
           ? hexToRgb("#9a9a9a")
           : hexToRgb(colorForPlayer(bd.player));
     drawIcon(ICONS[bd.type], bd.tile, w.width, ownerRgb, put);
+    // compounds EXPAND as their cult grows: a perimeter fence appears once the
+    // flock is established, then banners fly over a true headquarters (§30)
+    if (bd.type === "compound" && bd.buildTicksLeft === 0) {
+      const p = sim.players.find((pl) => pl.id === bd.player);
+      const permille = p && sim.populated > 0 ? (p.ownedTiles * 1000) / sim.populated : 0;
+      const stage = permille >= 150 ? 3 : permille >= 70 ? 2 : 1;
+      const bx = (bd.tile % w.width) * TILE_PX;
+      const by = ((bd.tile / w.width) | 0) * TILE_PX;
+      if (stage >= 2) {
+        const post = shade(ownerRgb, 0.55);
+        for (const [fx, fy] of [[0, 0], [7, 0], [0, 7], [7, 7], [0, 3], [7, 3]] as const) {
+          put(bx + fx, by + fy, post); // the compound fence going up
+        }
+      }
+      if (stage >= 3) {
+        put(bx + 1, by - 1, ownerRgb); // banners over the headquarters
+        put(bx + 6, by - 1, ownerRgb);
+        put(bx + 1, by - 2, C.iconAccent);
+        put(bx + 6, by - 2, C.iconAccent);
+      }
+    }
   }
 
   // ---- pass 2.5: area effects (auras) under the people ----
@@ -509,24 +538,51 @@ function drawTile(
 
   switch (w.terrain[t]) {
     case Terrain.Road: {
-      const vRoad = ty > 0 && w.terrain[t - w.width] === Terrain.Road && ty < w.height - 1;
+      const roadAt = (n: number): boolean =>
+        n >= 0 && n < w.terrain.length && w.terrain[n] === Terrain.Road;
+      const roadN = ty > 0 && roadAt(t - w.width);
+      const roadS = ty < w.height - 1 && roadAt(t + w.width);
+      const roadE = tx < w.width - 1 && roadAt(t + 1);
+      const roadW = tx > 0 && roadAt(t - 1);
+      const waterAt = (n: number): boolean =>
+        n >= 0 && n < w.terrain.length && w.terrain[n] === Terrain.Lake;
+
+      // BRIDGE: a road tile crossing water gets a plank deck + railings, so
+      // river crossings read as built structures, not asphalt floating on water
+      const waterBeside =
+        (ty > 0 && waterAt(t - w.width)) ||
+        (ty < w.height - 1 && waterAt(t + w.width)) ||
+        (tx > 0 && waterAt(t - 1)) ||
+        (tx < w.width - 1 && waterAt(t + 1));
+      if (waterBeside) {
+        const horiz = roadE || roadW; // direction of travel
+        for (let py = 0; py < TILE_PX; py++) {
+          for (let px = 0; px < TILE_PX; px++) {
+            const along = horiz ? px : py; // plank seams run across travel
+            let c: RGB = along % 2 === 0 ? C.plank : C.plankDark;
+            const railBand = horiz ? py === 0 || py === TILE_PX - 1 : px === 0 || px === TILE_PX - 1;
+            if (railBand) c = (horiz ? px : py) % 2 === 0 ? C.rail : C.plankDark; // posts
+            put(x0 + px, y0 + py, c);
+          }
+        }
+        return;
+      }
+
       // a road tile beside another horizontal road row = the 2-lane HIGHWAY
-      const highway =
-        (ty > 0 && w.terrain[t - w.width] === Terrain.Road &&
-          tx > 0 && w.terrain[t - 1] === Terrain.Road &&
-          tx < w.width - 1 && w.terrain[t + 1] === Terrain.Road) ||
-        (ty < w.height - 1 && w.terrain[t + w.width] === Terrain.Road &&
-          tx > 0 && w.terrain[t - 1] === Terrain.Road &&
-          tx < w.width - 1 && w.terrain[t + 1] === Terrain.Road);
+      const highway = (roadN || roadS) && roadW && roadE;
+      const highwayTopLane = highway && roadS && !roadN;
       // sidewalks only where the street fronts town lots; gravel shoulders out
       // in the country — the same road reads urban downtown and rural beyond
       let fronted = false;
+      let downtownFront = false;
       for (const n of [t - 1, t + 1, t - w.width, t + w.width]) {
-        if (n >= 0 && n < w.terrain.length && w.terrain[n] === Terrain.Citizen) fronted = true;
+        if (n >= 0 && n < w.terrain.length && w.terrain[n] === Terrain.Citizen) {
+          fronted = true;
+          if (w.district[n] === 3) downtownFront = true; // Districts.Downtown
+        }
       }
-      void vRoad;
-      // plain gray roadway: subtle worn mottling, sidewalk where it fronts
-      // town lots and a gravel shoulder out in the country — no painted lines.
+      // CROSSWALKS: zebra dashes where two downtown streets meet
+      const intersection = downtownFront && (roadN || roadS) && (roadE || roadW);
       for (let py = 0; py < TILE_PX; py++) {
         for (let px = 0; px < TILE_PX; px++) {
           let c: RGB = highway ? shade(C.asphalt, 0.92) : C.asphalt;
@@ -537,12 +593,16 @@ function drawTile(
           // only skirt edges that don't abut another road tile, so the surface
           // stays continuous through intersections
           if (onEdge && fronted) {
-            const skirtN = py === 0 && !(ty > 0 && w.terrain[t - w.width] === Terrain.Road);
-            const skirtS = py === TILE_PX - 1 && !(ty < w.height - 1 && w.terrain[t + w.width] === Terrain.Road);
-            const skirtW = px === 0 && !(tx > 0 && w.terrain[t - 1] === Terrain.Road);
-            const skirtE = px === TILE_PX - 1 && !(tx < w.width - 1 && w.terrain[t + 1] === Terrain.Road);
+            const skirtN = py === 0 && !roadN;
+            const skirtS = py === TILE_PX - 1 && !roadS;
+            const skirtW = px === 0 && !roadW;
+            const skirtE = px === TILE_PX - 1 && !roadE;
             if (skirtN || skirtS || skirtW || skirtE) c = C.sidewalk;
           }
+          // highway center line: yellow dashes along the seam between lanes
+          if (highwayTopLane && py === TILE_PX - 1 && gx % 6 < 3) c = C.highwayLine;
+          // crosswalk bars across the entries of a downtown intersection
+          if (intersection && px % 2 === 1 && (py === 1 || py === TILE_PX - 2)) c = C.crosswalk;
           put(x0 + px, y0 + py, c);
         }
       }
@@ -617,6 +677,14 @@ function drawTile(
           put(cxp + 1, y0 + 2, C.trunk);
           put(cxp + 2, y0 + 7, C.shadow); // foot shadow
           void cyp;
+        }
+      }
+      // an established cult spills camp assets onto the open ground around its
+      // territory — sparser than the woods takeover, but the land reads claimed
+      {
+        const claim = woodsClaim(sim, t, tx, ty);
+        if (claim && claim.stage >= 2 && pixHash(t, 5, 99) % 3 === 0) {
+          drawCompoundAssets(sim, claim, t, x0, y0, put);
         }
       }
       return;
@@ -758,7 +826,8 @@ function drawTile(
     drawBlock(x0, y0, t, put); // downtown apartment block
   } else if (pop >= 3) {
     drawVerge(w, t, tx, ty, x0, y0, district, put); // driveway + street tree
-    drawHouse(x0, y0, district, t, put, detail);
+    if (district === 5) drawTrailerHome(x0, y0, t, put); // trailer fringe (§2)
+    else drawHouse(x0, y0, district, t, put, detail);
   } else if (pop >= 1) {
     // garden: a few flowers
     for (let i = 0; i < 3; i++) {
@@ -774,7 +843,7 @@ function drawTile(
  * walls so a 2×2 school reads as one building.
  */
 function drawLotBuilding(
-  w: { width: number; height: number; lot: Uint8Array },
+  w: World,
   t: number,
   tx: number,
   ty: number,
@@ -783,6 +852,56 @@ function drawLotBuilding(
   lot: number,
   put: Put,
 ): void {
+  if (lot === Lot.Playground) {
+    // a mown play lot: swing frame, slide, sandbox
+    for (let py = 0; py < TILE_PX; py++) {
+      for (let px = 0; px < TILE_PX; px++) {
+        put(x0 + px, y0 + py, (px + py) % 2 === 0 ? C.meadowLight : C.meadow);
+      }
+    }
+    put(x0 + 1, y0 + 2, C.trunk); // swing frame
+    put(x0 + 1, y0 + 3, C.trunk);
+    put(x0 + 3, y0 + 2, C.trunk);
+    put(x0 + 3, y0 + 3, C.trunk);
+    put(x0 + 2, y0 + 1, C.trunk); // crossbar
+    put(x0 + 2, y0 + 3, hexToRgb("#c8554a")); // the swing seat
+    put(x0 + 5, y0 + 2, hexToRgb("#3f7fbf")); // slide
+    put(x0 + 6, y0 + 3, hexToRgb("#3f7fbf"));
+    put(x0 + 5, y0 + 5, C.sand); // sandbox
+    put(x0 + 6, y0 + 5, C.sand);
+    return;
+  }
+  if (lot === Lot.Dock) {
+    // a plank walkway reaching into the water, rowboat moored at its end
+    for (let py = 0; py < TILE_PX; py++) {
+      for (let px = 0; px < TILE_PX; px++) {
+        put(x0 + px, y0 + py, (px * 7 + py * 13) % 11 === 0 ? shade(C.meadow, 0.94) : C.meadow);
+      }
+    }
+    const waterE = tx < w.width - 1 && w.terrain[t + 1] === Terrain.Lake;
+    const waterW = tx > 0 && w.terrain[t - 1] === Terrain.Lake;
+    const waterN = ty > 0 && w.terrain[t - w.width] === Terrain.Lake;
+    if (waterE || waterW) {
+      const dir = waterE ? 1 : -1;
+      const sx = waterE ? 2 : 5;
+      for (let i = 0; i < 6; i++) {
+        put(x0 + sx + dir * i, y0 + 3, i % 2 === 0 ? C.plank : C.plankDark);
+        put(x0 + sx + dir * i, y0 + 4, i % 2 === 0 ? C.plankDark : C.plank);
+      }
+      put(x0 + sx + dir * 5, y0 + 6, C.wall); // the rowboat
+      put(x0 + sx + dir * 4, y0 + 6, C.wall);
+    } else {
+      const dir = waterN ? -1 : 1;
+      const sy = waterN ? 5 : 2;
+      for (let i = 0; i < 6; i++) {
+        put(x0 + 3, y0 + sy + dir * i, i % 2 === 0 ? C.plank : C.plankDark);
+        put(x0 + 4, y0 + sy + dir * i, i % 2 === 0 ? C.plankDark : C.plank);
+      }
+      put(x0 + 6, y0 + sy + dir * 5, C.wall);
+      put(x0 + 6, y0 + sy + dir * 4, C.wall);
+    }
+    return;
+  }
   if (lot === Lot.Parking) {
     // asphalt apron with painted bays + a parked car or two
     for (let py = 0; py < TILE_PX; py++) {
@@ -975,6 +1094,33 @@ function drawLotBuilding(
           put(x0 + wx, y0 + wy, pixHash(t, wx + wy) % 2 ? accent : C.windowDark);
         }
       }
+      break;
+    case Lot.Cinema:
+      // the marquee: a lit strip over the entrance with a star bill
+      if (!sameLeft) {
+        put(x0 + 1, y0 + 2, accent);
+        put(x0 + 2, y0 + 2, accent);
+        put(x0 + 3, y0 + 2, accent);
+        put(x0 + 4, y0 + 2, accent);
+        put(x0 + 5, y0 + 2, accent);
+        put(x0 + 2, y0 + 3, C.crosswalk); // the poster bill
+        put(x0 + 3, y0 + 5, C.door);
+        put(x0 + 4, y0 + 5, C.door);
+      } else {
+        put(x0 + 2, y0 + 2, accent);
+        put(x0 + 4, y0 + 2, accent);
+        put(x0 + 3, y0 + 4, C.windowDark);
+      }
+      break;
+    case Lot.Greenhouse:
+      // glass panes with frame ribs + a sun glint
+      for (let gy2 = 2; gy2 <= 5; gy2++) {
+        for (let gx2 = 2; gx2 <= 5; gx2++) {
+          put(x0 + gx2, y0 + gy2, gx2 % 2 === 0 ? C.glassFrame : C.glass);
+        }
+      }
+      put(x0 + 3, y0 + 3, C.crosswalk); // glint
+      put(x0 + 3, y0 + 6, C.door);
       break;
     default: {
       // shops: awning stripe over the door
@@ -1202,6 +1348,32 @@ function drawHouse(
     // door knob
     f((x0 + doorX) * S + (flip ? S - 2 : 1), (y0 + 5) * S + Math.floor(S / 2), C.iconAccent);
   }
+}
+
+/**
+ * Trailer-fringe home: a long low mobile home — tin roof strip, a hitch
+ * tongue at one end, a little propane tank — instead of the gabled family
+ * house. Gives the outskirts their own visual identity (§2 districts).
+ */
+function drawTrailerHome(x0: number, y0: number, t: number, put: Put): void {
+  castShadow(x0, y0, put);
+  const flip = pixHash(t, 2) & 1; // hitch end left/right
+  const tin = hexToRgb("#c4c8cc");
+  const tinShade = hexToRgb("#9b9fa3");
+  const skirtC = hexToRgb("#8a8378");
+  for (let px = 1; px <= 6; px++) {
+    put(x0 + px, y0 + 3, tinShade); // roof strip
+    put(x0 + px, y0 + 4, tin); // body
+    put(x0 + px, y0 + 5, tin);
+    put(x0 + px, y0 + 6, skirtC); // skirting
+  }
+  const hitchX = flip ? 0 : 7;
+  put(x0 + hitchX, y0 + 5, C.iconDark); // the tow hitch
+  const doorX = flip ? 5 : 2;
+  put(x0 + doorX, y0 + 5, C.door);
+  const winX = flip ? 2 : 5;
+  put(x0 + winX, y0 + 4, C.windowDark);
+  put(x0 + (flip ? 7 : 0), y0 + 6, C.rock); // propane tank by the hitch end
 }
 
 /** downtown block: tall footprint with lit windows. */

@@ -19,7 +19,8 @@
 import { fromInt, fromFloat } from "./fixed.js";
 import { seedRng, nextRange, type RngState } from "./rng.js";
 import { Terrain, Landmark, Lot, type World, type DistrictCoeffs } from "./types.js";
-import { traceRoadNetwork } from "./tensorRoads.js";
+import { traceGridRoads } from "./gridRoads.js";
+import { pickTownName, type Street } from "./names.js";
 import { createWorld } from "./sim.js";
 
 /** District ids (index into districtCoeffs). 0 = unzoned (terrain). */
@@ -84,10 +85,14 @@ export function generateWorld(seed: number, width: number, height: number): Worl
   // seed — same input always walks the same retry sequence).
   for (let attempt = 0; attempt < 5; attempt++) {
     const rScale = 1 + attempt * 0.12;
-    const rng = seedRng((seed ^ 0x6d61_7067) + attempt); // "mapg" + retry salt
+    // golden-ratio stride keeps every (seed, attempt) rng stream distinct —
+    // a plain `+ attempt` salt collides across adjacent seeds and, with the
+    // radius cap flattening rScale, can produce bit-identical towns.
+    const rng = seedRng(seed ^ ((0x6d61_7067 + Math.imul(attempt, 0x9e37_79b9)) | 0));
     w = createWorld(width, height);
     w.districtCoeffs = districtCoeffTable();
     w.terrain.fill(Terrain.Grass); // the whole map starts as open country
+    w.townName = pickTownName(rng); // a fresh fake town, every seed
 
     const town = layoutHighwaysAndTown(w, rng, rScale);
     carveRiver(w, rng, town);
@@ -95,11 +100,13 @@ export function generateWorld(seed: number, width: number, height: number): Worl
     layoutFarms(w, rng, town);
     placeNature(w, rng, town);
     placeTownBuildings(w, rng, town);
+    placeDocks(w, rng, town);
     placeLandmarks(w, town);
-    orthogonalizePaths(w); // bridge any corner-only road/lane diagonals
+    orthogonalizePaths(w); // safety net: bridge any corner-only path contact
     connectRoadComponents(w); // stitch orphan road islands into the main grid
     pruneRoadStubs(w); // erase whatever still leads nowhere
     rollLots(w, rng);
+    infillToFloor(w, rng); // yards become modest homes until the pop floor holds
 
     if (countPopulated(w) >= MIN_POPULATED_TILES && countTotalPop(w) >= MIN_TOTAL_POP) break;
   }
@@ -175,6 +182,7 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
   stamp(Lot.FireStation, 2, 1, D.Downtown, 6);
   stamp(Lot.Diner, 1, 1, D.Downtown, 6);
   stamp(Lot.Sheriff, 1, 1, D.Downtown, 5);
+  stamp(Lot.Cinema, 2, 1, D.Downtown, 8); // the marquee on Main Street
   for (let i = 0; i < 6; i++) stamp(Lot.Shop, 1, 1, D.Downtown, 4 + nextRange(rng, 3));
   // the town green: a civic square in the heart of downtown
   stamp(Lot.Park, 2, 2, D.Downtown, 1, 90);
@@ -188,11 +196,12 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
   stamp(Lot.Chapel, 1, 1, D.OldTown, 4);
   stamp(Lot.Diner, 1, 1, D.OldTown, 5);
   stamp(Lot.Cemetery, 2, 2, D.OldTown, 1, 70); // the old churchyard
-  // Suburbs: corner shops, a church, parks
+  // Suburbs: corner shops, a church, parks, the playground
   stamp(Lot.Shop, 1, 1, D.Suburbs, 4);
   stamp(Lot.Shop, 1, 1, D.Suburbs, 4);
   stamp(Lot.Church, 1, 2, D.Suburbs, 5);
   stamp(Lot.Park, 2, 2, D.Suburbs, 1, 80);
+  stamp(Lot.Playground, 1, 1, D.Suburbs, 1, 70);
   stamp(Lot.Park, 1, 1, D.College, 1);
   // Trailer fringe: gas, and an industrial lot (the town's one factory)
   stamp(Lot.GasStation, 1, 1, D.Trailer, 3);
@@ -272,7 +281,7 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
     }
   }
 
-  // barns + silos at farmsteads (next to existing farm houses)
+  // barns + silos + the odd greenhouse at farmsteads (next to farm houses)
   for (let t = 0; t < w.terrain.length; t++) {
     if (w.terrain[t] !== Terrain.Citizen || w.district[t] !== Districts.Trailer) continue;
     const x = t % width;
@@ -281,18 +290,50 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
     const ddy = y - town.cy;
     if (ddx * ddx + ddy * ddy < (town.r + 4) * (town.r + 4)) continue; // farms only
     if (nextRange(rng, 4) !== 0) continue;
-    // try to grow a barn (and maybe silo) on adjacent grass
+    // try to grow a barn (or silo, or greenhouse) on adjacent grass
     const spots = [t + 1, t - 1, t + width, t - width];
     for (const n of spots) {
       if (n < 0 || n >= w.terrain.length) continue;
       if (w.terrain[n] === Terrain.Grass && w.lot[n] === 0) {
         w.terrain[n] = Terrain.Citizen;
         w.district[n] = Districts.Trailer;
-        w.lot[n] = nextRange(rng, 3) === 0 ? Lot.Silo : Lot.Barn;
+        const roll = nextRange(rng, 6);
+        w.lot[n] = roll === 0 ? Lot.Silo : roll === 1 ? Lot.Greenhouse : Lot.Barn;
         w.pop[n] = 1 + nextRange(rng, 2);
         break;
       }
     }
+  }
+}
+
+/**
+ * Waterfront docks: where the lake or river shore comes near a road, a wooden
+ * dock reaches into the water — a fishing spot, a boat launch. Small pop, big
+ * flavor: the shoreline reads lived-in instead of untouched.
+ */
+function placeDocks(w: World, rng: RngState, town: TownShape): void {
+  void town;
+  const { width, height } = w;
+  let placed = 0;
+  for (let attempt = 0; attempt < 400 && placed < 3; attempt++) {
+    const x = 2 + nextRange(rng, width - 4);
+    const y = 2 + nextRange(rng, height - 4);
+    const t = y * width + x;
+    if (w.terrain[t] !== Terrain.Grass || w.lot[t] !== 0) continue;
+    // must touch water on exactly one side and have a road/lane within reach
+    const water =
+      (w.terrain[t + 1] === Terrain.Lake ? 1 : 0) +
+      (w.terrain[t - 1] === Terrain.Lake ? 1 : 0) +
+      (w.terrain[t + width] === Terrain.Lake ? 1 : 0) +
+      (w.terrain[t - width] === Terrain.Lake ? 1 : 0);
+    if (water === 0 || water > 2) continue;
+    if (nearestRoad(w, t, 10) < 0) continue;
+    w.terrain[t] = Terrain.Citizen;
+    w.district[t] = Districts.Trailer; // rural-fringe coefficients
+    w.lot[t] = Lot.Dock;
+    w.pop[t] = 2;
+    carveDirtLane(w, t);
+    placed++;
   }
 }
 
@@ -305,14 +346,13 @@ interface TownShape {
 }
 
 /**
- * Roads come from a tensor field (tensorRoads.ts — adapted from
- * ProbableTrain/MapGenerator). The TOWN SHAPE is organic, not a disc:
- * twelve noisy boundary spokes are cosine-interpolated into a lumpy edge,
- * the whole footprint stretches along the highway axis (towns grow along
- * their artery), and zoning follows real small-town logic — a commercial
- * strip hugging the highway through the center, quarters as lobes, trailers
- * at the fringe. Lots only appear with street access, so blocks take the
- * shapes the streamlines carve.
+ * The TOWN: an organic footprint (twelve noisy boundary spokes, cosine-
+ * interpolated into a lumpy edge, stretched along the highway) PLATTED with a
+ * strictly axis-aligned street grid (gridRoads.ts) — real city blocks, no
+ * diagonals. Zoning follows small-town logic: a commercial strip hugging Main
+ * Street through the center, quarters as lobes, trailers at the fringe. Every
+ * street is named. Lots only appear with street access, so blocks fill in
+ * along the grid the way a county plat map reads.
  */
 function layoutHighwaysAndTown(w: World, rng: RngState, rScale = 1): TownShape {
   const { width, height } = w;
@@ -322,7 +362,7 @@ function layoutHighwaysAndTown(w: World, rng: RngState, rScale = 1): TownShape {
   // but stays capped so the countryside around it never disappears.
   // a smaller, denser footprint leaves a wide ring of open country around town
   // — room for cults to place compounds and assets strategically.
-  const base = Math.min(width, height) * 0.24 * rScale;
+  const base = Math.min(width, height) * 0.26 * rScale;
   const r = Math.max(15, Math.min(Math.floor(Math.min(width, height) * 0.3), Math.floor(base)));
 
   // lumpy boundary: 12 spokes, radius 0.62r–1.05r, cosine-interpolated
@@ -345,7 +385,10 @@ function layoutHighwaysAndTown(w: World, rng: RngState, rScale = 1): TownShape {
     return d <= radiusAt(Math.atan2(dy, dx));
   };
 
-  traceRoadNetwork(w, rng, { cx, cy, r, inTown });
+  const highwayY = cy + nextRange(rng, 5) - 2;
+  const highwayX = cx + nextRange(rng, 5) - 2;
+  const streets: Street[] = traceGridRoads(w, rng, { cx, cy, r, highwayY, highwayX, inTown });
+  w.streets = streets;
 
   // quarter lobes get random compass directions
   const quarterBase = nextRange(rng, 4); // 0..3 → which lobe is Old Town
@@ -363,8 +406,8 @@ function layoutHighwaysAndTown(w: World, rng: RngState, rScale = 1): TownShape {
       if (w.terrain[t] !== Terrain.Grass) continue;
       if (!inTown(x, y)) continue;
       let nearStreet = false;
-      for (let oy = -2; oy <= 2 && !nearStreet; oy++) {
-        for (let ox = -2; ox <= 2 && !nearStreet; ox++) {
+      for (let oy = -3; oy <= 3 && !nearStreet; oy++) {
+        for (let ox = -3; ox <= 3 && !nearStreet; ox++) {
           const nx = x + ox;
           const ny = y + oy;
           if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
@@ -397,7 +440,7 @@ function layoutHighwaysAndTown(w: World, rng: RngState, rScale = 1): TownShape {
     }
   }
 
-  return { cx, cy, r, highwayY: cy, highwayX: cx };
+  return { cx, cy, r, highwayY, highwayX };
 }
 
 /** A road tile that's part of the 2-lane highway (has a parallel road row). */
@@ -710,46 +753,33 @@ function pruneRoadStubs(w: World): void {
 }
 
 /**
- * Carve a dirt lane from `from` to the nearest road tile. We step ONE axis at
- * a time (never diagonally) so the lane is 4-connected — a diagonal Bresenham
- * line leaves tiles touching only at their corners, which reads (and routes)
- * as a dotted, disconnected track. Painting the intermediate orthogonal tile
- * on every diagonal step keeps the lane a continuous, walkable road.
+ * Carve a dirt lane from `from` to the nearest road tile as an L-PATH: one
+ * straight run per axis with a single 90° elbow, exactly how a real farm
+ * driveway meets a section road. No diagonals anywhere — the lane is two
+ * axis-aligned runs, 4-connected by construction. Elbow orientation (x-first
+ * vs y-first) is a pure hash of the endpoints, so it's deterministic and
+ * varies lane to lane.
  */
 export function carveDirtLane(w: World, from: number): void {
   const target = nearestRoad(w, from, 40);
   if (target < 0) return;
-  let x0 = from % w.width;
-  let y0 = (from / w.width) | 0;
+  const x0 = from % w.width;
+  const y0 = (from / w.width) | 0;
   const x1 = target % w.width;
   const y1 = (target / w.width) | 0;
-  const dx = Math.abs(x1 - x0);
-  const dy = -Math.abs(y1 - y0);
-  const sx = x0 < x1 ? 1 : -1;
-  const sy = y0 < y1 ? 1 : -1;
-  let err = dx + dy;
   const paint = (x: number, y: number): void => {
     const t = y * w.width + x;
     if (w.terrain[t] === Terrain.Grass || w.terrain[t] === Terrain.Field) {
       w.terrain[t] = Terrain.Dirt;
     }
   };
-  while (x0 !== x1 || y0 !== y1) {
-    const e2 = 2 * err;
-    let movedX = false;
-    if (e2 >= dy) {
-      err += dy;
-      x0 += sx;
-      movedX = true;
-    }
-    if (e2 <= dx) {
-      err += dx;
-      y0 += sy;
-      // a diagonal step: bridge through the orthogonal corner so the lane
-      // stays side-by-side connected, not corner-to-corner.
-      if (movedX) paint(x0 - sx, y0);
-    }
-    paint(x0, y0);
+  const xFirst = ((from * 2654435761) >>> 0) % 2 === 0;
+  if (xFirst) {
+    for (let x = x0; x !== x1; x += Math.sign(x1 - x0)) paint(x, y0);
+    for (let y = y0; y !== y1; y += Math.sign(y1 - y0)) paint(x1, y);
+  } else {
+    for (let y = y0; y !== y1; y += Math.sign(y1 - y0)) paint(x0, y);
+    for (let x = x0; x !== x1; x += Math.sign(x1 - x0)) paint(x, y1);
   }
 }
 
@@ -998,6 +1028,27 @@ function nearestOf(w: World, from: number, terrain: number): number {
     }
   }
   return -1;
+}
+
+/**
+ * Infill housing: if a seed's town comes up short of the population floor,
+ * convert yard/garden lots (pop below their district's household minimum)
+ * into modest homes, in raster order, until the floor holds. Real towns do
+ * exactly this — empty parcels fill in as the town needs the housing — and
+ * it keeps map generation from ballooning the footprint on unlucky seeds.
+ */
+function infillToFloor(w: World, rng: RngState): void {
+  let pop = countTotalPop(w);
+  for (let t = 0; t < w.terrain.length && pop < MIN_TOTAL_POP; t++) {
+    if (w.terrain[t] !== Terrain.Citizen || w.lot[t] !== 0) continue;
+    const d = w.district[t]!;
+    const [lo, hi] = POP_RANGE[d] ?? [2, 4];
+    if (lo > 0 && w.pop[t]! < lo) {
+      const target = Math.min(15, lo + nextRange(rng, Math.max(1, hi - lo)));
+      pop += target - w.pop[t]!;
+      w.pop[t] = target;
+    }
+  }
 }
 
 /** Count conversion-eligible citizen tiles — the balance unit (§1). */

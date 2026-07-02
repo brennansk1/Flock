@@ -32,8 +32,9 @@ import type {
   Picket,
   RecapEvents,
 } from "./types.js";
+import type { Street } from "./names.js";
 
-export const SNAPSHOT_VERSION = 6;
+export const SNAPSHOT_VERSION = 7;
 
 export interface Snapshot {
   v: number;
@@ -55,6 +56,8 @@ export interface Snapshot {
     landmark: number[];
     holdTicks: number[];
     flags: number[];
+    townName: string;
+    streets: Street[];
   };
   players: PlayerState[];
   fronts: Front[];
@@ -115,6 +118,8 @@ export function toSnapshot(s: SimState): Snapshot {
       landmark: [...w.landmark],
       holdTicks: [...w.holdTicks],
       flags: [...w.flags],
+      townName: w.townName,
+      streets: w.streets.map((s) => ({ ...s })),
     },
     players: s.players.map((p) => ({ ...p, cooldowns: { ...p.cooldowns }, doctrine: [...p.doctrine] })),
     fronts: s.fronts.map((f) => ({ ...f, tiles: [...f.tiles] })),
@@ -179,6 +184,8 @@ export function fromSnapshot(snap: Snapshot): SimState {
     landmark: Uint8Array.from(sw.landmark),
     holdTicks: Uint16Array.from(sw.holdTicks),
     flags: Uint8Array.from(sw.flags),
+    townName: sw.townName,
+    streets: sw.streets.map((s) => ({ ...s })),
   };
   return {
     tick: snap.tick,

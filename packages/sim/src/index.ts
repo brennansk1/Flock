@@ -30,4 +30,5 @@ export * from "./daily.js";
 export * from "./economy.js";
 export * from "./palette.js";
 export * from "./townRender.js";
-export * from "./tensorRoads.js";
+export * from "./gridRoads.js";
+export * from "./names.js";

@@ -280,13 +280,19 @@ function wireInput(app: Application, map: MapRenderer, g: GameSession, hud: Hud)
     g.sendIntent({ t: IntentType.OPEN_FRONT, tiles });
   });
 
+  // Typing in any input (the chat box) must never trigger game keybinds.
+  const typing = (ev: KeyboardEvent): boolean =>
+    ev.target instanceof HTMLInputElement || ev.target instanceof HTMLTextAreaElement;
+
   // Escape clears an armed placement.
   window.addEventListener("keydown", (ev) => {
+    if (typing(ev)) return;
     if (ev.key === "Escape") hud.arm(null);
     if (ev.key === "?") hud.toggleHelp();
   });
 
   window.addEventListener("keydown", (ev) => {
+    if (typing(ev)) return;
     const me = g.sim.players.find((pl) => pl.id === g.playerId);
     if (!me) return;
     const hoverDistrict = hover >= 0 ? g.sim.world.district[hover]! : 0;

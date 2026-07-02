@@ -61,12 +61,12 @@ B4  🔨 CLIENT — frontend spine (@flock/client, Vite + PixiJS)
 ├── B4.1 ✔️ main.ts — boot, app shell, input wiring, FTUE coachmark, recap overlay
 ├── B4.2 ✔️ net.ts — prediction + reconciliation, resync, session resume (§33)
 ├── B4.3 ✔️ render.ts — camera zoom→LOD/pan, fog of war (§14), minimap camera
-├── B4.4 🔨 hud.ts — in-match HUD (§27/§28)
+├── B4.4 ✔️ hud.ts — in-match HUD (§27/§28)
 │   ├── B4.4.1 ✔️ Core HUD — top bar, rails, build palette, doctrine grid,
 │   │            minimap, player list, drama feed, help overlay, threat pings
-│   ├── B4.4.2 ⬜ Live ability costs — D/F/G actives show cost/affordability
+│   ├── B4.4.2 ✔️ Live ability costs — D/F/G actives show cost/affordability
 │   │            like builds/rituals already do (HANDOFF §9.6)
-│   └── B4.4.3 ⬜ In-match chat input — UI box + keybind-focus isolation;
+│   └── B4.4.3 ✔️ In-match chat input — UI box + keybind-focus isolation;
 │                server sendChat + relay already exist (HANDOFF §9.5)
 ├── B4.5 ✔️ menu.ts — lobby, leaderboard/store/clans/profile via REST API (§28)
 └── B4.6 ✔️ settings.ts — reduced-motion / mute / colorblind, persisted (§28)

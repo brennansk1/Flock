@@ -18,9 +18,12 @@
 import {
   toInt,
   toFloat,
+  fromInt,
+  mul,
   Stance,
   MatchStatus,
   doctrinePointsAvailable,
+  loveBombCostMult,
   colorForPlayer,
   buildingCost,
   KIT,
@@ -48,23 +51,43 @@ export interface UiState {
   placement: PlacementKind | null;
 }
 
-const ACTIVE_D: Record<string, { id: string; label: string }> = {
-  dawn: { id: "street_prophet", label: "Street Prophet" },
-  radiant: { id: "juice_cleanse", label: "Juice Cleanse" },
-  circle: { id: "seminar_blitz", label: "Seminar Blitz" },
-  visitors: { id: "crop_circle", label: "Crop Circle" },
+/**
+ * Archetype power metadata. `cd` is the key the sim uses in `me.cooldowns`
+ * (it can differ from the ability id — Retreat Weekend cools down as
+ * "retreat"). `cost` is the live resource price the sim will charge, so the
+ * rail can show cost + affordability exactly the way builds/rituals do.
+ */
+interface PowerDef {
+  id: string;
+  label: string;
+  cd: string;
+  cost?: (me: PlayerState) => { usd?: number; faith?: number };
+  /** Signature lands passively with the kit (Radiant Labs / Circle Ledger). */
+  passive?: boolean;
+}
+
+const ACTIVE_D: Record<string, PowerDef> = {
+  dawn: { id: "street_prophet", label: "Street Prophet", cd: "street_prophet", cost: () => ({ usd: KIT.streetProphet.cost }) },
+  radiant: { id: "juice_cleanse", label: "Juice Cleanse", cd: "juice_cleanse", cost: () => ({ usd: KIT.juiceCleanse.cost }) },
+  circle: { id: "seminar_blitz", label: "Seminar Blitz", cd: "seminar_blitz", cost: () => ({ usd: KIT.seminarBlitz.cost }) },
+  visitors: { id: "crop_circle", label: "Crop Circle", cd: "crop_circle", cost: () => ({ usd: KIT.cropCircle.cost }) },
 };
-const ACTIVE_F: Record<string, { id: string; label: string }> = {
-  dawn: { id: "stockpile_sermon", label: "Stockpile Sermon" },
-  radiant: { id: "free_retreat_weekend", label: "Retreat Weekend" },
-  circle: { id: "hostile_acquisition", label: "Hostile Takeover" },
-  visitors: { id: "radio_static", label: "Radio Static" },
+const ACTIVE_F: Record<string, PowerDef> = {
+  dawn: { id: "stockpile_sermon", label: "Stockpile Sermon", cd: "stockpile_sermon", cost: () => ({ faith: KIT.stockpileSermon.cost }) },
+  radiant: {
+    id: "free_retreat_weekend",
+    label: "Retreat Weekend",
+    cd: "retreat",
+    cost: (me) => ({ usd: toInt(mul(fromInt(KIT.retreat.cost), loveBombCostMult(me))) }),
+  },
+  circle: { id: "hostile_acquisition", label: "Hostile Takeover", cd: "hostile_acquisition", cost: () => ({ usd: KIT.hostileAcquisition.cost }) },
+  visitors: { id: "radio_static", label: "Radio Static", cd: "radio_static", cost: () => ({ faith: KIT.radioStatic.faithCost }) },
 };
-const SIG_LABEL: Record<string, string> = {
-  dawn: "Prophecy Countdown",
-  radiant: "Mass Cleanse",
-  circle: "The Downline",
-  visitors: "Saucer Landing",
+const SIGNATURE: Record<string, PowerDef> = {
+  dawn: { id: "prophecy", label: "Prophecy Countdown", cd: "" },
+  radiant: { id: "labs", label: "Mass Cleanse", cd: "", passive: true },
+  circle: { id: "ledger", label: "The Downline", cd: "", passive: true },
+  visitors: { id: "saucer_landing", label: "Saucer Landing", cd: "saucer_landing", cost: () => ({ usd: KIT.saucerLanding.cost }) },
 };
 
 const RITUALS = [
@@ -168,11 +191,16 @@ const HUD_CSS = `
 .fk-heat.hot .v{animation:fkpulse 1s infinite}
 @keyframes fkpulse{50%{text-shadow:0 0 10px #ff5a2a}}
 @media(max-width:900px){.fk-rail{width:96px}.fk-right{width:150px}.fk-builds{width:200px}}
+.fk-chatin{pointer-events:auto;width:100%;box-sizing:border-box;background:#241c14;color:#f0e6d0;
+  border:1px solid #4a3c28;border-radius:4px;padding:5px 7px;font-size:12px;font-family:inherit}
+.fk-chatin:focus{outline:none;border-color:#c89858;background:#2a2118}
+.fk-chatin::placeholder{color:#f0e6d0;opacity:.35}
 /* accessibility (§28): reduced motion kills pulses/animations; mute hides chat */
 .fk-reduced-motion .fk-heat.hot .v{animation:none}
 .fk-reduced-motion .fk-feed .e{animation:none;opacity:1}
 .fk-reduced-motion .fk-banner{animation:none}
 .fk-mute-chat .fk-chat{display:none}
+.fk-mute-chat .fk-chatin{display:none}
 `;
 
 /**
@@ -215,6 +243,14 @@ export class Hud {
   private banner: { text: string; until: number } | null = null;
   private lastMiniTick = -999;
   private miniImg: ImageData | null = null;
+  private chatIn!: HTMLInputElement;
+  /** Global Enter → focus the chat box (unless already typing somewhere). */
+  private readonly focusChatKey = (ev: KeyboardEvent): void => {
+    if (ev.key !== "Enter") return;
+    if (ev.target instanceof HTMLInputElement || ev.target instanceof HTMLTextAreaElement) return;
+    ev.preventDefault();
+    this.chatIn.focus();
+  };
 
   constructor(
     private readonly g: GameSession,
@@ -330,6 +366,11 @@ export class Hud {
     this.el.actD = this.btn("—", "D", () => this.fireActive("D"));
     this.el.actF = this.btn("—", "F", () => this.fireActive("F"));
     this.el.actG = this.btn("—", "G", () => this.fireSignature());
+    for (const el of [this.el.actD, this.el.actF, this.el.actG]) {
+      const cost = document.createElement("span");
+      cost.className = "cost";
+      el.appendChild(cost);
+    }
     actG.append(this.el.actD, this.el.actF, this.el.actG);
 
     rail.append(stanceG, ritualG, actG);
@@ -377,7 +418,31 @@ export class Hud {
     feed.className = "fk-feed";
     feed.innerHTML = `<div style="opacity:.5;font-size:9px;letter-spacing:1px">DRAMA FEED</div>`;
     this.el.feed = feed;
-    right.append(players, feed);
+
+    // chat input (§27/§30): Enter focuses (global listener), Enter sends,
+    // Esc cancels. Keystrokes never reach the game keybinds while typing —
+    // the input swallows propagation and main.ts ignores typing targets.
+    const chatIn = document.createElement("input");
+    chatIn.className = "fk-chatin";
+    chatIn.maxLength = 200;
+    chatIn.placeholder = "Enter to chat…";
+    chatIn.setAttribute("aria-label", "match chat");
+    chatIn.onkeydown = (ev) => {
+      ev.stopPropagation();
+      if (ev.key === "Enter") {
+        const text = chatIn.value.trim();
+        if (text) this.g.sendChat(text); // server moderates + relays (§30)
+        chatIn.value = "";
+        chatIn.blur();
+      } else if (ev.key === "Escape") {
+        chatIn.value = "";
+        chatIn.blur();
+      }
+    };
+    this.chatIn = chatIn;
+    window.addEventListener("keydown", this.focusChatKey);
+
+    right.append(players, feed, chatIn);
     this.root.appendChild(right);
 
     // help button (top-right) → controls reference
@@ -559,19 +624,42 @@ export class Hud {
       if (costEl) costEl.textContent = cd > 0 ? `${Math.ceil(cd / 10)}s` : fc ? `${fc}✛` : "";
     });
 
-    // powers labels + tooltips (your archetype's signature kit)
-    (this.el.actD as HTMLElement).querySelector("span")!.textContent = ACTIVE_D[me.archetype]!.label;
-    (this.el.actF as HTMLElement).querySelector("span")!.textContent = ACTIVE_F[me.archetype]!.label;
-    (this.el.actG as HTMLElement).querySelector("span")!.textContent = SIG_LABEL[me.archetype]!;
-    (this.el.actD as HTMLElement).title = `${ACTIVE_D[me.archetype]!.label} (D) — archetype power; some target a tile`;
-    (this.el.actF as HTMLElement).title = `${ACTIVE_F[me.archetype]!.label} (F) — archetype power; some target a tile`;
-    (this.el.actG as HTMLElement).title = `${SIG_LABEL[me.archetype]!} (G) — your signature, the big play`;
-    for (const [id, ab] of [["actD", ACTIVE_D[me.archetype]!.id], ["actF", ACTIVE_F[me.archetype]!.id]] as const) {
-      (this.el[id] as HTMLElement).classList.toggle("cd", (me.cooldowns[ab] ?? 0) > 0);
+    // powers: labels, live costs, affordability greying, cooldown countdowns —
+    // the same treatment builds/rituals get (§27)
+    const usd = toInt(me.usd);
+    const powers = [
+      { el: this.el.actD, def: ACTIVE_D[me.archetype]!, key: "D", role: "archetype power; some target a tile" },
+      { el: this.el.actF, def: ACTIVE_F[me.archetype]!, key: "F", role: "archetype power; some target a tile" },
+      { el: this.el.actG, def: SIGNATURE[me.archetype]!, key: "G", role: "your signature, the big play" },
+    ] as const;
+    for (const { el, def, key, role } of powers) {
+      el.querySelector("span")!.textContent = def.label;
+      const cd = def.cd ? (me.cooldowns[def.cd] ?? 0) : 0;
+      const c = def.cost?.(me);
+      const needUsd = c?.usd ?? 0;
+      const needFaith = c?.faith ?? 0;
+      let cant = cd <= 0 && ((needUsd > 0 && usd < needUsd) || (needFaith > 0 && faith < needFaith));
+      let costText = needUsd ? fmtMoney(needUsd) : needFaith ? `${needFaith}✛` : "";
+      let hint = needUsd ? ` (costs ${fmtMoney(needUsd)})` : needFaith ? ` (costs ${needFaith} Faith)` : "";
+      if (def.id === "prophecy") {
+        // Prophecy is gated by territory + once-per-match, not resources (§11.1)
+        const minTiles = Math.min(KIT.prophecy.minTiles, Math.max(1, Math.floor(s.populated * KIT.prophecy.minShareOfPopulated)));
+        cant = me.prophecyUsed || me.ownedTiles < minTiles;
+        costText = me.prophecyUsed ? "used" : `${me.ownedTiles}/${minTiles}⬢`;
+        hint = ` — needs ${minTiles} tiles, once per match`;
+      } else if (def.passive) {
+        costText = "passive";
+        cant = false;
+        hint = " — lands passively with your kit";
+      }
+      el.classList.toggle("cd", cd > 0);
+      el.classList.toggle("cant", cant);
+      const costEl = el.querySelector<HTMLElement>(".cost");
+      if (costEl) costEl.textContent = cd > 0 ? `${Math.ceil(cd / 10)}s` : costText;
+      el.title = `${def.label} (${key}) — ${role}${hint}`;
     }
 
     // build palette: live cost, affordability greying, armed highlight
-    const usd = toInt(me.usd);
     this.el.builds.querySelectorAll<HTMLElement>("[data-build]").forEach((b) => {
       const type = b.dataset.build as BuildingType;
       const cost = toInt(buildingCost(s, me.id, type));
@@ -719,6 +807,7 @@ export class Hud {
   }
 
   destroy(): void {
+    window.removeEventListener("keydown", this.focusChatKey);
     this.root.remove();
   }
 }

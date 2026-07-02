@@ -11,7 +11,7 @@ implementation step. Tree view: [BUILD_TREE.md](./BUILD_TREE.md)._
 
 ## Progress summary
 
-**42/51 leaves VERIFIED · 3 NOT_STARTED · 6 BLOCKED (external infra/content) · 0 STUBBED · 0 BLOCKED_BY_POLICY**
+**44/51 leaves VERIFIED · 1 NOT_STARTED · 6 BLOCKED (external infra/content) · 0 STUBBED · 0 BLOCKED_BY_POLICY**
 
 Next recommended action: **B4.4.2 + B4.4.3** (HUD close-out cluster: live
 ability costs + in-match chat input) — the only pure-code, self-verifiable
@@ -86,8 +86,8 @@ the top-listed risk in HANDOFF §10.
 | B4.2 | B4/net | Prediction + reconciliation (§33) | Confirmed sim + predicted sim w/ in-flight intents; self-heal ≤1 turn; resync; session resume | T.5, B3.9 | ✔️ | lockstep.smoke.ts; 0-desync soak evidence |
 | B4.3 | B4/render | Map renderer + fog (§14) | Camera zoom→LOD/pan, owned+unit+allied vision, minimap camera API | B5.2 | ✔️ | build clean; screenshots.mjs renders QA'd |
 | B4.4.1 | B4/hud/core | Core in-match HUD (§27/§28) | Top bar, rails w/ costs+cooldowns, build palette, doctrine grid, minimap, player list, drama feed, help overlay, threat pings | B4.2 | ✔️ | build clean; prior live verification; XSS-escaped user text |
-| B4.4.2 | B4/hud/abilitycosts | Live ability costs | D/F/G archetype actives + signature show live cost & affordability exactly as builds/rituals do | B4.4.1 | ⬜ | HANDOFF §9.6; pure client change (cosmetic boundary) |
-| B4.4.3 | B4/hud/chat | In-match chat input | Chat box: Enter focuses, Esc blurs, send via existing `sendChat`; game keybinds fully suppressed while focused; rendered text `esc()`-escaped | B4.4.1, B3.9 | ⬜ | HANDOFF §9.5 — server relay exists, UI consumer is the one missing spine-parity leaf |
+| B4.4.2 | B4/hud/abilitycosts | Live ability costs | D/F/G archetype actives + signature show live cost & affordability exactly as builds/rituals do | B4.4.1 | ✔️ | Playwright vision check 2026-07-02: "$20.0k"/"$35.0k"/"passive" render on the Powers rail, unaffordable greys (`cant`), cooldown countdown wired; also fixed the pre-existing Retreat cooldown key mismatch (`retreat` vs ability id) |
+| B4.4.3 | B4/hud/chat | In-match chat input | Chat box: Enter focuses, Esc blurs, send via existing `sendChat`; game keybinds fully suppressed while focused; rendered text `esc()`-escaped | B4.4.1, B3.9 | ✔️ | Playwright e2e 2026-07-02: Enter→focus, typed "1" did NOT switch stance (isolation proven), send → server-moderated relay → "💬 Prophet: …" rendered in feed, Esc clears draft; respects mute-by-default (§28) |
 | B4.5 | B4/menu | Lobby + meta screens | Play/leaderboard/store/clans/profile/settings consuming REST API | B3.1 | ✔️ | build clean; services.test.ts covers API side |
 | B4.6 | B4/settings | Accessibility settings | Reduced-motion / mute / colorblind, persisted locally | — | ✔️ | build clean; prior live verification |
 

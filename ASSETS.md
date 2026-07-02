@@ -33,16 +33,16 @@ flagged for a later art pass (tracked as B5.3.1 in the Build Manifest).
 | Rock outcrops | 3-px cluster on high ground | — | 🧩 lichen texture |
 | Brush pockets | clustered bush pixels + cast shadow | — | — |
 | Lone country trees | 2×2 canopy + shadow | — | 🧩 species variety |
-| Utility poles | pole + crossarm marching every 3 tiles along rural roads | — | 🧩 sagging wire spans between poles |
+| Utility poles | pole + crossarm marching every 3 tiles along rural roads; suppressed on dead-end verges | LOD 2+: sagging wire spans connecting poles | — |
 | Woods | clumped light/dark canopy, trunk gaps, sunlit N/W fringe | sub-tile edge bleed onto neighbors (`naturalEdgeBleed`) | 🧩 per-tree canopies at LOD 4 |
-| Lake / river | deep water, drifting ripple rows, glints, sand shoreline ring | ragged sub-tile shore bleed | 🧩 animated flow direction on the river |
-| Crop fields | gold crop with row striping, fence posts on boundaries | — | 🧩 crop growth stages by match clock |
+| Lake / river | deep water, drifting ripple rows, glints, sand shore (desert) or grey gravel/stone shores (temperate/forest) | ragged sub-tile shore bleed; Weeping Willow gallery trees along non-desert banks | 🧩 animated flow direction on the river |
+| Crop fields | gold crop with row striping, fence posts or roadside drainage ditches (mud + water glints), conifer shelterbelts | — | 🧩 crop growth stages by match clock |
 | Dirt lanes | mottled two-tone dirt | — | — |
 | Footpath (Terrain.Path) | stone walk (legacy support; mapgen no longer emits them — homes front roads) | — | — |
-| Orchard | mown rows with tree lines + shadows | — | 🧩 blossom/fruit seasons |
-| Pasture | fenced worn meadow, grazing cattle (white/brown) | — | 🧩 cow walk cycle |
-| Biome: desert | sand with dune crests, dry scrub, saguaro stands | — | 🧩 heat shimmer |
-| Biome: forest | darker forest-floor grass, denser stands | — | — |
+| Orchard | mown rows with tree lines + shadows | LOD 2+: red apples and pink blossoms on canopies | 🧩 blossom/fruit seasons |
+| Pasture | fenced worn meadow, grazing cattle (white/brown) | LOD 2+: galvanized steel watering troughs | 🧩 cow walk cycle |
+| Biome: desert | sand with dune crests, dry scrub, saguaro stands | LOD 2+: tumbleweeds, bleached animal skulls, and green oasis margins with date palms near riverbanks | 🧩 heat shimmer |
+| Biome: forest | darker forest-floor grass, denser stands | LOD 2+: red mushrooms, mossy fallen logs, and fern clusters | — |
 | Asphalt road | worn asphalt, sidewalk skirts where lots front it, gravel shoulders in country | — | 🧩 tire tracks / patch cracks |
 | Lane markings | 4-lane highway: yellow center seam + white lane dashes; 2-lane streets: faint center dashes | — | — |
 | Traffic | deterministic cars (hash of position × tick) — two directions, denser on the highway; parked cars in lots | — | 🧩 turning traffic at intersections |
@@ -63,10 +63,12 @@ flagged for a later art pass (tracked as B5.3.1 in the Build Manifest).
 
 | Asset | LOD 1 silhouette | Dressing | High-detail deferred |
 |-------|------------------|----------|----------------------|
-| House (per district) | gabled roof (district palette: terracotta/brick/slate/shake/tin), wall, door, chimney, porch (some) | LOD 2+: shingle courses, window mullions + glint, door knob | 🧩 per-district facade sets |
-| **Trailer home** (trailer fringe) | long tin mobile home, hitch tongue, skirting, propane tank | — | 🧩 awning + junk-yard dressing |
+| House (per district) | classic/two-story/L-plan shapes, district roof palette, wall, door, chimney, porch | LOD 2+: shingle courses, window mullions + glint, door knob | 🧩 per-district facade sets |
+| **Trailer home** (trailer fringe) | long tin mobile home, hitch tongue, skirting, propane tank | LOD 2+: colorful plastic awning + tire/junk pile | — |
 | Downtown block | tall footprint, lit/dark window grid | — | 🧩 storefront signage |
-| Shop | awning stripe + door | — | 🧩 painted sign glyphs |
+| Shop | awning patterns (red/blue/green), flat-parapet variants, corner entrance doors | — | 🧩 painted sign glyphs |
+| **Low dam/weir** | concrete weir wall crossing the river | static textured spillway cascades | — |
+| **Water Tower (in-town)** | metal tank on steel truss legs | — | — |
 | Supermarket | wide box, blue accent, dark glass | — | — |
 | Diner | chrome body + red neon strip | — | 🧩 blinking neon at LOD 3 |
 | School | brick body, flagpole on corner | — | — |

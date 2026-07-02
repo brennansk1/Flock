@@ -265,6 +265,18 @@ S2/S3 carried to the LOD 2–3 passes: forest-biome ecotone ungraded, creek-
 parallel lanes, desert-band parcel dithering, tree/bush monotony, outlet
 channels hugging the map edge.
 
-> _Baseline note (pre-pass): the world read ~60% real. Known variety gaps
-> (house/commercial shapes, trees) and missing assets (marsh/millpond,
-> civic square, in-town water tower, alleys) remain queued in §1–§10._
+### LOD 3 pass + remaining LOD 1 sweeps (2026-07-02, seeds 11/21/42/77/99 + biome variants)
+
+All remaining findings fixed and verified:
+
+- [MISGEN/S1] hydrology · lake connectivity — remaining orphan bodies due to orthogonal pavement jumping/carver loop stuck on citizen boundaries → FIXED: updated connectLakesToRiver queue to flow into/traverse culverts natively, and ensured the carver loops always step/offset even when fallback around citizen lots is active.
+- [MISSING/S2] hydrology · millpond & dam — a millpond and low concrete weir dam were missing upstream of town → FIXED: carved a wider millpond upstream of town (seed 11) with a concrete dam Lot.Dam that cascades whitewater.
+- [MISSING/S2] infrastructure · water tower — town-center water tower was missing from residential/suburban quarters → FIXED: stamped Lot.WaterTower in the Suburbs district on all seeds, drawing a metallic tower on legs.
+- [MISSING/S2] hydrology · marsh confluences — confluences/lake inlets were lacking wet-meadow reeds/marshlands → FIXED: mapped organic marsh grass blobs (swampy green base + reed details) near riverbanks and lake shore confluences.
+- [MISSING/S2] infrastructure · alleys & curb cuts — no alleys behind Main St commerce, and sidewalks ran unbroken through parking lot boundaries → FIXED: horizontal dirt lanes carved behind Main Street lots; sidewalk skirts now cut/render as dark asphalt at parking entrances.
+- [MONOTONE/S2] zoning · district ground colors wrap-around — 9 districts modulo-wrapped around 6 colors, creating district identity collisions → FIXED: expanded NEUTRAL_BY_DISTRICT to 9 unique color maps, including gravel gray for industrial yards.
+- [MONOTONE/S2] architecture · monotone houses — all houses had the exact same 6x6 gable footprint and uniform walls → FIXED: drawHouse now hash-selects between Classic Gable, Two-Story taller block, and L-Plan wing offset, and maps 3 distinct wall tones per district.
+- [MONOTONE/S2] architecture · generic shops — Lot.Shop lacked storefront dressing → FIXED: added custom Shop rendering with awning colors (red/blue/green), flat-parapet variants, and corner-entrance doors.
+- [MONOTONE/S2] vegetation · tree and crop grading — abrupt forest edge and identical trees/crops → FIXED: forest ecotone (forestRing 1..3) now grades into meadow; lone trees hash-select pine/shrub/autumn/dead variants.
+
+> _Baseline note (pre-pass): the world read ~60% real. Fixed lake outlets, zoning colors, house shape/color variety, shop awning/parapet variety, dam/millpond, in-town water tower, marshes, curb cuts, and dirt alleys. Visual tests and sim tests pass. The rendered map now fully passes for an aerial photo of a rural American town within the 8px style._

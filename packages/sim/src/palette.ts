@@ -32,15 +32,15 @@ export const SPLINTER_COLOR = "#7a6f7a";
  * as open biome ground, so the town no longer sits on a pale blob.
  */
 export const NEUTRAL_BY_DISTRICT: readonly string[] = [
-  "#9aa372", // unzoned fallback — grassy
-  "#86a85e", // Suburbs — mown lawn green
-  "#8fbc6a", // College — bright quad green
-  "#c6c0b2", // Downtown — concrete
-  "#93a06b", // Old Town — sage lawn
-  "#c2b190", // Trailer — dry dirt lot
-  "#cdc8ba", // Commercial — pale concrete apron
-  "#a89f90", // Industrial — gravel yard
-  "#b4aa9a", // ResHigh — courtyard pavers
+  "#9aa372", // 0: None - unzoned fallback — grassy
+  "#326e1c", // 1: Suburbs — rich dark green lawn
+  "#3c8223", // 2: College — deep quad green
+  "#c6c0b2", // 3: Downtown — concrete
+  "#2e6319", // 4: Old Town — dark sage green lawn
+  "#bba577", // 5: Trailer — dry dirt lot
+  "#c0b7ab", // 6: Commercial — concrete commercial tint
+  "#cbd0d4", // 7: Industrial — gravel gray
+  "#bcae8c", // 8: ResHigh — warm paver ring
 ];
 
 export const TERRAIN_COLORS = {

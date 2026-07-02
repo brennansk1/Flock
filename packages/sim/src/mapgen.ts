@@ -97,7 +97,7 @@ const MIN_POPULATED_TILES = 640;
 const MIN_TOTAL_POP = 2900;
 
 /** Biome names accepted by `MapOpts.biomes` (order-independent, deduped). */
-export type BiomeName = "desert" | "forest";
+export type BiomeName = "desert" | "forest" | "autumn";
 
 /** Map-generation options — the user-configurable knobs (§2 rev. 3). */
 export interface MapOpts {
@@ -125,7 +125,7 @@ export function generateWorld(seed: number, width: number, height: number, opts:
 
     const town = layoutHighwaysAndTown(w, rng, rScale);
     layoutRail(w, rng, town); // the railroad the town was built on (§2 rev. 5)
-    paintBiomes(w, rng, town, opts.biomes ?? ["desert", "forest"]);
+    paintBiomes(w, rng, town, opts.biomes ?? ["desert", "forest", "autumn"]);
     const riverPath = carveRiver(w, rng, town);
     scatterExurbs(w, rng, town);
     // nature FIRST, then farming: forests must never chew through planted
@@ -136,8 +136,25 @@ export function generateWorld(seed: number, width: number, height: number, opts:
     fillFarmBelt(w, rng, town); // contiguous working farmland, not islands
     placeTownBuildings(w, rng, town);
     placeDocks(w, rng, town);
+    // Alleys behind Main Street commerce: Horizontal dirt/gravel lanes at hy-2 and hy+3 (#1)
+    {
+      const hy = town.highwayY;
+      const startX = town.cx - town.r;
+      const endX = town.cx + town.r;
+      for (const y of [hy - 2, hy + 3]) {
+        if (y > 1 && y < w.height - 2) {
+          for (let x = startX + 4; x <= endX - 4; x++) {
+            const t = y * w.width + x;
+            if (w.terrain[t] === Terrain.Grass || w.terrain[t] === Terrain.Field) {
+              w.terrain[t] = Terrain.Dirt;
+            }
+          }
+        }
+      }
+    }
     placeLandmarks(w, town);
     orthogonalizePaths(w); // safety net: bridge any corner-only path contact
+    extendEdgeRoads(w);
     connectRoadComponents(w); // stitch orphan road islands into the main grid
     pruneRoadStubs(w); // erase whatever still leads nowhere
     pruneAllDeadEnds(w); // …including dirt lanes and orphaned spurs
@@ -241,7 +258,7 @@ function paintBiomes(w: World, rng: RngState, town: TownShape, biomes: BiomeName
   const { width, height } = w;
   // fixed processing order keeps the rng stream deterministic per config
   const wanted = [...new Set(biomes)].sort();
-  const id = (b: BiomeName): number => (b === "desert" ? Biome.Desert : Biome.Forest);
+  const id = (b: BiomeName): number => (b === "desert" ? Biome.Desert : b === "forest" ? Biome.Forest : Biome.Autumn);
   for (const name of wanted) {
     const blobs = 1 + nextRange(rng, 2);
     for (let i = 0; i < blobs; i++) {
@@ -423,6 +440,7 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
   keystone(Lot.Warehouse, 3, 1, [D.Industrial, D.Trailer, D.Commercial], 6);
   stamp(Lot.Warehouse, 2, 1, D.Industrial, 6);
   stamp(Lot.GasStation, 1, 1, D.Industrial, 3);
+  stamp(Lot.Substation, 1, 1, D.Industrial, 1);
   // College quarter
   stamp(Lot.Library, 1, 1, D.College, 5);
   stamp(Lot.Shop, 1, 1, D.College, 4);
@@ -438,6 +456,7 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
   stamp(Lot.Playground, 1, 1, D.Suburbs, 1, 70);
   stamp(Lot.Playground, 1, 1, D.ResHigh, 1, 70);
   stamp(Lot.Park, 1, 1, D.College, 1);
+  stamp(Lot.WaterTower, 1, 1, D.Suburbs, 2);
 
   // a roadside motel out on the highway, beside the gas stations
   let placedMotel = false;
@@ -492,6 +511,11 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
     Lot.Cinema,
     Lot.Warehouse,
     Lot.Motel,
+    Lot.Church,
+    Lot.Chapel,
+    Lot.Library,
+    Lot.Diner,
+    Lot.Depot,
   ]);
   const parkCount = new Map<number, number>();
   for (let t = 0; t < w.terrain.length; t++) {
@@ -893,7 +917,12 @@ function layoutFarms(w: World, rng: RngState, town: TownShape): void {
             if (x < 1 || y < 1 || x >= width - 1 || y >= height - 1) continue;
             const t = y * width + x;
             if (w.terrain[t] === Terrain.Grass && w.biome[t] !== Biome.Desert) {
-              w.terrain[t] = kind;
+              const isBackEdge = d === deep - 1;
+              if (isBackEdge && nextRange(rng, 2) === 0) {
+                w.terrain[t] = Terrain.Woods; // field shelterbelt row!
+              } else {
+                w.terrain[t] = kind;
+              }
             }
           }
         }
@@ -1280,6 +1309,27 @@ function carveRiver(w: World, rng: RngState, town: TownShape): number[] | null {
     }
   }
 
+  // MILLPOND & DAM (#5): Place a low dam/weir upstream of town with a millpond
+  const y_dam = Math.max(12, Math.floor(town.cy - town.r - 5));
+  for (let y = y_dam - 4; y < y_dam; y++) {
+    const cx = cxs[y]!;
+    for (let dx = -2; dx <= 2; dx++) {
+      const x = cx + dx;
+      if (x > 0 && x < width - 1) {
+        w.terrain[y * width + x] = Terrain.Lake;
+      }
+    }
+  }
+  const cx_dam = cxs[y_dam]!;
+  for (let dx = -2; dx <= 2; dx++) {
+    const x = cx_dam + dx;
+    if (x > 0 && x < width - 1) {
+      const t = y_dam * width + x;
+      w.terrain[t] = Terrain.Lake;
+      w.lot[t] = Lot.Dam;
+    }
+  }
+
   // TRIBUTARIES (#5): creeks rise in the open country on the RIVER'S side of
   // the map — never across the town — and wander down to their confluence.
   // A creek that cannot reach the river erases itself (QA S1-A: no stubs).
@@ -1387,6 +1437,7 @@ function connectLakesToRiver(w: World, cxs: number[]): void {
     const c = queue.pop()!;
     const x = c % width;
     const y = (c / width) | 0;
+    const isPavement = w.terrain[c] === Terrain.Road || w.terrain[c] === Terrain.Rail;
     for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
       const nx = x + dx;
       const ny = y + dy;
@@ -1395,16 +1446,10 @@ function connectLakesToRiver(w: World, cxs: number[]): void {
       if (w.terrain[t] === Terrain.Lake && !reached[t]) {
         reached[t] = 1;
         queue.push(t);
-      } else if (w.terrain[t] === Terrain.Road || w.terrain[t] === Terrain.Rail) {
+      } else if (!isPavement && (w.terrain[t] === Terrain.Road || w.terrain[t] === Terrain.Rail) && !reached[t]) {
         // water flows under bridges/culverts: jump the pavement
-        const bx = nx + dx;
-        const by = ny + dy;
-        if (bx < 0 || by < 0 || bx >= width || by >= height) continue;
-        const bt = by * width + bx;
-        if (w.terrain[bt] === Terrain.Lake && !reached[bt]) {
-          reached[bt] = 1;
-          queue.push(bt);
-        }
+        reached[t] = 1;
+        queue.push(t);
       }
     }
   }
@@ -1463,6 +1508,8 @@ function connectLakesToRiver(w: World, cxs: number[]): void {
             dtr === Terrain.Woods
           )
             w.terrain[dt] = Terrain.Lake;
+        } else {
+          x += targetX > x ? 1 : -1;
         }
         continue;
       }
@@ -1531,6 +1578,7 @@ function organicBlob(
       if (margin < 0) continue;
       const t = y * width + x;
       if (w.terrain[t] !== Terrain.Grass && w.terrain[t] !== Terrain.Field) continue;
+      if (kind === Terrain.Woods && w.biome[t] === Biome.Desert) continue;
       if (kind === Terrain.Woods) {
         // thinning canopy near the rim: chance scales with depth
         const depth = margin / (r * 0.5);
@@ -1595,6 +1643,17 @@ function placeNature(w: World, rng: RngState, town: TownShape, riverPath: number
   }
   if (hasForestBiome) {
     for (let i = 0; i < 3; i++) tryPlace(6 + nextRange(rng, 5), Terrain.Woods, Biome.Forest);
+  }
+  // AUTUMN biome dense stands
+  let hasAutumnBiome = false;
+  for (let t = 0; t < w.biome.length; t += 7) {
+    if (w.biome[t] === Biome.Autumn) {
+      hasAutumnBiome = true;
+      break;
+    }
+  }
+  if (hasAutumnBiome) {
+    for (let i = 0; i < 3; i++) tryPlace(6 + nextRange(rng, 5), Terrain.Woods, Biome.Autumn);
   }
   // DESERT gets sparse cactus stands (rendered as cacti, not canopy)
   let hasDesert = false;
@@ -1819,4 +1878,83 @@ export function countTotalPop(w: World): number {
   let n = 0;
   for (let t = 0; t < w.pop.length; t++) n += w.pop[t]!;
   return n;
+}
+
+/**
+ * Realism pass: any street run ending near the map boundary (within 8 tiles)
+ * is extended off the edge to connect the town grid to the outside world.
+ */
+function extendEdgeRoads(w: World): void {
+  const { width, height } = w;
+  const THRESHOLD = 8;
+
+  // Extend horizontal roads to left/right boundaries
+  for (let y = 1; y < height - 1; y++) {
+    // left edge
+    let xFirst = -1;
+    for (let x = 0; x < width; x++) {
+      if (w.terrain[y * width + x] === Terrain.Road) {
+        xFirst = x;
+        break;
+      }
+    }
+    if (xFirst > 0 && xFirst <= THRESHOLD) {
+      if (w.terrain[y * width + xFirst + 1] === Terrain.Road) {
+        for (let x = 0; x < xFirst; x++) {
+          w.terrain[y * width + x] = Terrain.Road;
+        }
+      }
+    }
+
+    // right edge
+    let xLast = -1;
+    for (let x = width - 1; x >= 0; x--) {
+      if (w.terrain[y * width + x] === Terrain.Road) {
+        xLast = x;
+        break;
+      }
+    }
+    if (xLast >= 0 && xLast < width - 1 && (width - 1 - xLast) <= THRESHOLD) {
+      if (w.terrain[y * width + xLast - 1] === Terrain.Road) {
+        for (let x = xLast + 1; x < width; x++) {
+          w.terrain[y * width + x] = Terrain.Road;
+        }
+      }
+    }
+  }
+
+  // Extend vertical roads to top/bottom boundaries
+  for (let x = 1; x < width - 1; x++) {
+    // top edge
+    let yFirst = -1;
+    for (let y = 0; y < height; y++) {
+      if (w.terrain[y * width + x] === Terrain.Road) {
+        yFirst = y;
+        break;
+      }
+    }
+    if (yFirst > 0 && yFirst <= THRESHOLD) {
+      if (w.terrain[(yFirst + 1) * width + x] === Terrain.Road) {
+        for (let y = 0; y < yFirst; y++) {
+          w.terrain[y * width + x] = Terrain.Road;
+        }
+      }
+    }
+
+    // bottom edge
+    let yLast = -1;
+    for (let y = height - 1; y >= 0; y--) {
+      if (w.terrain[y * width + x] === Terrain.Road) {
+        yLast = y;
+        break;
+      }
+    }
+    if (yLast >= 0 && yLast < height - 1 && (height - 1 - yLast) <= THRESHOLD) {
+      if (w.terrain[(yLast - 1) * width + x] === Terrain.Road) {
+        for (let y = yLast + 1; y < height; y++) {
+          w.terrain[y * width + x] = Terrain.Road;
+        }
+      }
+    }
+  }
 }

@@ -59,6 +59,7 @@ export const Biome = {
   Temperate: 0,
   Desert: 1,
   Forest: 2,
+  Autumn: 3,
 } as const;
 export type Biome = (typeof Biome)[keyof typeof Biome];
 
@@ -130,6 +131,9 @@ export const Lot = {
   Warehouse: 27,
   GrainElevator: 28,
   Depot: 29,
+  Dam: 30,
+  WaterTower: 31,
+  Substation: 32,
 } as const;
 export type Lot = (typeof Lot)[keyof typeof Lot];
 

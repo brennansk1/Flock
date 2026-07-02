@@ -25,13 +25,22 @@ export const PLAYER_COLORS: readonly string[] = [
 /** Splinter Sects render as desaturated parents (§16); ids ≥ 900. */
 export const SPLINTER_COLOR = "#7a6f7a";
 
+/**
+ * Ground color under a BUILT lot, by district — the zoning read (§2 rev. 3).
+ * Residential districts get proper lawn greens; the core/commercial strip is
+ * concrete; industrial is gravel. Empty yards do NOT use these — they render
+ * as open biome ground, so the town no longer sits on a pale blob.
+ */
 export const NEUTRAL_BY_DISTRICT: readonly string[] = [
-  "#d8c8a8", // unzoned
-  "#ddd2b0", // Suburbs — warm lawn beige
-  "#cdd8a4", // College — quad green
-  "#d9bd9c", // Downtown/Strip — brick
-  "#c8b49e", // Old Town — weathered stone
-  "#d8c9b8", // Trailer/Outskirts — dust
+  "#9aa372", // unzoned fallback — grassy
+  "#86a85e", // Suburbs — mown lawn green
+  "#8fbc6a", // College — bright quad green
+  "#c6c0b2", // Downtown — concrete
+  "#93a06b", // Old Town — sage lawn
+  "#c2b190", // Trailer — dry dirt lot
+  "#cdc8ba", // Commercial — pale concrete apron
+  "#a89f90", // Industrial — gravel yard
+  "#b4aa9a", // ResHigh — courtyard pavers
 ];
 
 export const TERRAIN_COLORS = {

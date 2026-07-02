@@ -33,7 +33,17 @@ B1  ✔️ SIM — deterministic gameplay core (@flock/sim, runs bit-identically
 │   │            faker-generated corpus, deterministic per seed
 │   ├── B1.4.4 ✔️ Zoning/farms/nature/landmarks re-fit onto the block grid,
 │   │            population floor preserved (64/96 worlds)
-│   └── B1.4.5 ✔️ Contract: World {townName, streets}, snapshot v7, hashed
+│   ├── B1.4.5 ✔️ Contract: World {townName, streets}, snapshot v7, hashed
+│   ├── B1.4.6 ⬜ Zoning v2 — 8 districts: ResLow/ResHigh/Commercial/
+│   │            Industrial + Downtown/OldTown/College/Trailer, w/ coeffs
+│   ├── B1.4.7 ⬜ Keystone civics guaranteed every town: elementary + high
+│   │            school, sheriff, grocery, church, fire station, gas
+│   ├── B1.4.8 ⬜ Block interiors — footpaths so every home has access;
+│   │            cul-de-sacs ("X Court") in residential zones
+│   ├── B1.4.9 ⬜ Farming v2 — road-aligned field parcels, orchards,
+│   │            fenced pastures, farmstead clusters at lanes
+│   └── B1.4.10 ⬜ Biomes — configurable blob biomes (desert/forest),
+│                World.biome layer, snapshot v8, hashed
 ├── B1.5  ✔️ buildings.ts — full §6 table (Compounds…Supplement Labs)
 ├── B1.6  ✔️ entities.ts — Couriers, Vans, invisible Agents (§7)
 ├── B1.7  ✔️ PvP trio — raids / scandal→publish / court defection (§13/§15)
@@ -44,7 +54,15 @@ B1  ✔️ SIM — deterministic gameplay core (@flock/sim, runs bit-identically
 ├── B1.12 ✔️ CPA — pickets @Heat60, Deprogrammer Bus @85, Town Hall immunity (§17)
 ├── B1.13 ✔️ Match flow — founding, victory paths, elimination, RECAP freeze (§18)
 ├── B1.14 ✔️ bots.ts — Drifter / Sect / Established Church tiers via Intent API (§21)
-└── B1.15 ✔️ Input hardening — length-capped array intents (MAX_FRONT/PATH_TILES)
+├── B1.15 ✔️ Input hardening — length-capped array intents (MAX_FRONT/PATH_TILES)
+├── B1.16 ⬜ Tree felling — building/parcel placement fells Woods deterministically
+├── B1.17 ⬜ Property engine — wilderness SPAWN founds a 5×5 parcel + compound
+│            + bused-in congregation; BUY_PROPERTY intent (escalating cost);
+│            wilderness builds require own property; crowding cap penalty
+├── B1.18 ⬜ Civics engine — controlling police/elementary/high-school/
+│            grocery/church grants realistic takeover effects in the engines
+└── B1.19 ⬜ Compound outreach — fronts can target tiles within radius of an
+             operational compound (targeted conversion from wilderness bases)
 
 B2  ✔️ META — post-match systems (outside lockstep; float-safe by design)
 ├── B2.1 ✔️ ranked.ts — Glicko-2, FFA pairwise, tiers, seasonal soft reset (§20)
@@ -63,7 +81,8 @@ B3  ✔️ SERVER — hosted service (@flock/server, Node 22)
 ├── B3.6 ✔️ moderation.ts — leetspeak-aware name/chat filter (§30)
 ├── B3.7 ✔️ congregations.ts — clans + weekly best-10 ladder (§24)
 ├── B3.8 ✔️ metrics.ts — structured JSON logs, counters/gauges
-└── B3.9 ✔️ protocol.ts — client↔server wire message types
+├── B3.9 ✔️ protocol.ts — client↔server wire message types
+└── B3.10 ⬜ 4-player cap — human seats per match clamped to 4
 
 B4  ✔️ CLIENT — frontend spine (@flock/client, Vite + PixiJS)
 ├── B4.1 ✔️ main.ts — boot, app shell, input wiring, FTUE coachmark, recap overlay
@@ -78,8 +97,11 @@ B4  ✔️ CLIENT — frontend spine (@flock/client, Vite + PixiJS)
 │                server sendChat + relay already exist (HANDOFF §9.5)
 ├── B4.5 ✔️ menu.ts — lobby, leaderboard/store/clans/profile via REST API (§28)
 ├── B4.6 ✔️ settings.ts — reduced-motion / mute / colorblind, persisted (§28)
-└── B4.7 ✔️ Place identity — generated town name on the conversion bar +
-             hover chip (street / household / lot / landmark names)
+├── B4.7 ✔️ Place identity — generated town name on the conversion bar +
+│            hover chip (street / household / lot / landmark names)
+├── B4.8 ⬜ Property UI — BUY LAND placement mode, wilderness founding hints,
+│            property tint + crowding warning
+└── B4.9 ⬜ Civics panel — key buildings, owner + takeover effect, click to target
 
 B5  🔨 VISUALS — shared pixel renderer (SimState → RGBA, cosmetic boundary)
 ├── B5.1 ✔️ palette.ts — shared color tokens
@@ -91,8 +113,11 @@ B5  🔨 VISUALS — shared pixel renderer (SimState → RGBA, cosmetic boundary
 │   │            (low-LOD procedural now; high-detail flagged 🧩)
 │   ├── B5.2.3 ✔️ Cult building expansion — compound growth stages by cult
 │   │            size; claim assets extended to grass verges
-│   └── B5.2.4 ✔️ ASSETS.md — full asset × LOD ledger; high-detail versions
-│                tracked as 🧩 stubs per the Stub Law
+│   ├── B5.2.4 ✔️ ASSETS.md — full asset × LOD ledger; high-detail versions
+│   │            tracked as 🧩 stubs per the Stub Law
+│   └── B5.2.5 ⬜ Renderer v3 — biome palettes (desert/forest), footpaths,
+│                bridge-crossing fix, wired powerlines, cul-de-sac bulbs,
+│                orchards/pastures/warehouse/high-school, property stakes
 └── B5.3 🚫 Authored content — audio (§31) + ~40 frame-by-frame sprite
     │        animations (§30). BLOCKED: artist/composer work, not code.
     └── B5.3.1 🧩 High-detail (LOD 3–4) asset variants — deferred art pass;

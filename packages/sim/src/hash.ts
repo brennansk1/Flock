@@ -76,6 +76,8 @@ export function hashState(s: SimState): string {
   f.bytes(w.landmark);
   for (let i = 0; i < w.holdTicks.length; i++) f.u32(w.holdTicks[i]!);
   f.bytes(w.flags);
+  f.bytes(w.biome);
+  f.words(w.property);
   f.str(w.townName);
   f.u32(w.streets.length);
   for (const st of w.streets) {

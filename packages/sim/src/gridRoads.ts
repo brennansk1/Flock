@@ -164,6 +164,54 @@ export function traceGridRoads(w: World, rng: RngState, town: GridTownShape): St
     }
   }
 
+  // ---- CUL-DE-SACS: dead-end courts poking into residential blocks --------
+  // A stub street runs 2–3 tiles off an avenue into the block interior and
+  // ends in a bulb (a plus of road) that homes will ring once zoning runs.
+  const courts = 2 + nextRange(rng, 3);
+  for (let i = 0; i < courts && avenueSpans.length > 0; i++) {
+    let placed = false;
+    for (let attempt = 0; attempt < 8 && !placed; attempt++) {
+      const ave = avenueSpans[nextRange(rng, avenueSpans.length)]!;
+      if (ave.to - ave.from < 8) continue;
+      const sx = ave.from + 2 + nextRange(rng, ave.to - ave.from - 4);
+      const dir = nextRange(rng, 2) === 0 ? -1 : 1;
+      const len = 2 + nextRange(rng, 2);
+      const endY = ave.at + dir * (len + 1);
+      if (endY < 3 || endY > w.height - 4) continue;
+      // the whole court must sit inside the town footprint, or it will end
+      // up a lollipop street in open country once zoning skips it
+      if (!town.inTown(sx, endY) || !town.inTown(sx - 1, endY) || !town.inTown(sx + 1, endY)) continue;
+      // the stub + bulb tiles must be open grass, and the tile beyond the
+      // bulb must not be road (so the court stays a true dead end)
+      let clear = true;
+      for (let step = 1; step <= len + 1 && clear; step++) {
+        const t = (ave.at + dir * step) * w.width + sx;
+        if (w.terrain[t] !== Terrain.Grass) clear = false;
+      }
+      const beyond = (endY + dir) * w.width + sx;
+      if (beyond >= 0 && beyond < w.terrain.length && w.terrain[beyond] === Terrain.Road) clear = false;
+      for (const bx of [sx - 1, sx + 1]) {
+        const t = endY * w.width + bx;
+        if (t < 0 || t >= w.terrain.length || w.terrain[t] === Terrain.Road) clear = false;
+      }
+      if (!clear) continue;
+      placed = true;
+      paintRun(w, 1, sx, ave.at + dir, endY);
+      // the bulb: east + west of the end tile
+      for (const bx of [sx - 1, sx + 1]) {
+        const t = endY * w.width + bx;
+        if (bx > 1 && bx < w.width - 2 && w.terrain[t] === Terrain.Grass) w.terrain[t] = Terrain.Road;
+      }
+      streets.push({
+        name: freshLabel(rng, used, "court"),
+        axis: 1,
+        at: sx,
+        from: Math.min(ave.at + dir, endY),
+        to: Math.max(ave.at + dir, endY),
+      });
+    }
+  }
+
   // ---- COUNTRY ROADS: section-line roads with 90° jogs --------------------
   // Each continues a platted street from its ACTUAL painted endpoint (not the
   // town footprint — the frayed ends would leave a gap) out to the map edge.

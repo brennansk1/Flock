@@ -37,7 +37,7 @@ export function pickTownName(rng: RngState): string {
  */
 export function streetLabel(
   rng: RngState,
-  kind: "main" | "highway" | "avenue" | "street" | "road" | "lane",
+  kind: "main" | "highway" | "avenue" | "street" | "road" | "lane" | "court",
 ): string {
   const base = STREET_BASES[nextRange(rng, STREET_BASES.length)]!;
   switch (kind) {
@@ -53,6 +53,8 @@ export function streetLabel(
       return `${base} Road`;
     case "lane":
       return `${base} Lane`;
+    case "court":
+      return `${base} Court`;
   }
 }
 

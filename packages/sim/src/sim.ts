@@ -152,6 +152,8 @@ export function createWorld(width: number, height: number): World {
     flags: new Uint8Array(n),
     townName: "Mundane Falls",
     streets: [],
+    biome: new Uint8Array(n),
+    property: new Uint32Array(n),
   };
 }
 

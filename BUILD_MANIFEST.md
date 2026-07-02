@@ -44,6 +44,11 @@ else open is external provisioning (B7.*) or the deferred art pass (B5.3).
 | B1.4.3 | B1/mapgen/names | Town + street naming | `World.townName` fresh per seed from the faker corpus; every street segment named in `World.streets`; two same-seed runs identical | B1.4.1, B6.6 | ✔️ | mapgen.test.ts: determinism + Main-Street resolution + name variety across seeds all green |
 | B1.4.4 | B1/mapgen/zoning | Zoning re-fit + pop floor | Districts/farms/nature/landmarks on the block grid; ≥640 populated tiles & ≥2900 residents on 96 worlds across seeds | B1.4.1 | ✔️ | floors green over seeds (infill-housing fallback); also fixed a pre-existing (seed,attempt) rng-salt collision that made adjacent seeds produce identical towns |
 | B1.4.5 | B1/mapgen/contract | World naming contract | World gains {townName, streets}; SNAPSHOT_VERSION 6→7 carries + restores them; hashState covers them; round-trip invariant holds | T.5 | ✔️ | mapgen.test.ts snapshot round-trip hash-identical; lockstep smoke green |
+| B1.4.6 | B1/mapgen/zoning2 | Realistic zoning v2 | 8 districts (ResLow, ResHigh, Commercial, Industrial + Downtown/OldTown/College/Trailer), each with coeffs, pop ranges, and its own building set; industrial by the highway, commercial on Main St, ResHigh ringing downtown | B1.4.4 | ⬜ | |
+| B1.4.7 | B1/mapgen/keystones | Keystone civics guaranteed | Every town has elementary school, high school, sheriff, grocery, church, fire station, gas station — force-placed if stamping fails; test-asserted per seed | B1.4.6 | ⬜ | |
+| B1.4.8 | B1/mapgen/blocks | Block interiors | Footpaths (Terrain.Path) connect every pop≥3 home to the street net (test: access within 1 orth tile); cul-de-sacs with bulbs, named "X Court" | B1.4.1 | ⬜ | |
+| B1.4.9 | B1/mapgen/farms2 | Farming v2 | Farmsteads anchored ON rural lanes; rectangular road-aligned field parcels with baulks; orchards (tree rows) + fenced pastures (livestock) | B1.4.2 | ⬜ | |
+| B1.4.10 | B1/mapgen/biomes | Configurable biomes | `World.biome` blob layer (desert/forest) from `generateWorld` opts / server env; affects nature gen + render palette; snapshot v8 + hashed | B1.4.4 | ⬜ | |
 | B1.5 | B1/buildings | Buildings (§6) | Full table incl. Watchtowers fort×5, Hotlines 75% intercept | B1.1 | ✔️ | m1.test.ts green |
 | B1.6 | B1/units | Units (§7) | Couriers (robbable), Vans (mobile pressure/screening), invisible Agents | B1.5 | ✔️ | m1.test.ts green |
 | B1.7 | B1/pvp | PvP trio (§13/§15) | Raids, Scandal 50%-notify→Publish, Court Defection | B1.6 | ✔️ | m1.test.ts green |
@@ -55,6 +60,11 @@ else open is external provisioning (B7.*) or the deferred art pass (B5.3).
 | B1.13 | B1/matchflow | Match flow + victory (§18) | Founding pick, domination/last-standing/timer/Revelation, RECAP freeze | B1.1 | ✔️ | sim suite 60/60 |
 | B1.14 | B1/bots | Bot tiers (§21) | Drifter/Sect/Established-Church via Intent API only; no stat cheats | B1.* | ✔️ | bots.test.ts green; botleague harness |
 | B1.15 | B1/hardening | Input hardening | All client array intents length-capped; per-socket rate limit | T.4 | ✔️ | hardening.test.ts green |
+
+| B1.16 | B1/felling | Tree auto-felling | BUILD / SPAWN parcel / BUY_PROPERTY on Woods fells trees (terrain→Grass) deterministically; hashed | B1.17 | ⬜ | |
+| B1.17 | B1/property | Property engine | SPAWN = wilderness founding: 5×5 parcel + starter compound + bused-in congregation (no more town-blob start); BUY_PROPERTY intent, cost escalating per parcel, must adjoin empire; wilderness BUILD requires own parcel; crowding penalty on follower cap when parcels near-full | B1.16, T.4 | ⬜ | |
+| B1.18 | B1/civics | Civics takeover engine | Owning the majority of a civic lot's tiles grants: sheriff→heat decay bonus; elementary→creep ×1.25; high school→follower growth ×1.15; grocery→defense ×1.2; church→faith drift up | B1.4.7 | ⬜ | |
+| B1.19 | B1/outreach | Compound outreach | Fronts may press tiles within outreach radius of an operational compound (not just adjacency) — targeted conversion from wilderness bases | B1.17 | ⬜ | |
 
 ### B2 — Meta systems (outside lockstep)
 
@@ -81,6 +91,8 @@ else open is external provisioning (B7.*) or the deferred art pass (B5.3).
 | B3.8 | B3/metrics | Logs + metrics | Structured JSON logs, counters/gauges | — | ✔️ | services.test.ts green; real sinks → B7.5 |
 | B3.9 | B3/protocol | Wire protocol | Typed client↔server messages incl. `sendChat` + relay | T.4 | ✔️ | lockstep.smoke.ts green; chat UI consumer → B4.4.3 |
 
+| B3.10 | B3/cap4 | 4-player cap | Human seats per match ≤ 4 regardless of CAPACITY env | B3.2 | ⬜ | |
+
 ### B4 — Client (frontend spine)
 
 | ID | Tree Path | Feature | Contract / Acceptance Criteria | Depends On | Status | Evidence / Notes |
@@ -95,6 +107,9 @@ else open is external provisioning (B7.*) or the deferred art pass (B5.3).
 | B4.6 | B4/settings | Accessibility settings | Reduced-motion / mute / colorblind, persisted locally | — | ✔️ | build clean; prior live verification |
 | B4.7 | B4/place | Place identity in UI | Conversion bar shows `world.townName`; hovering a tile shows a chip with street/household/lot/landmark names (static seed data only — no fog leak); textContent-rendered (XSS-inert) | B1.4.5 | ✔️ | Playwright live: bar shows 'BRANCH FALLS', chip resolved 'Castaneda Street' + 'the woods'; screenshot evidence |
 
+| B4.8 | B4/property | Property UI | BUY LAND build-palette mode → BUY_PROPERTY at click; founding hints point at wilderness near town; property stakes tinted on map; crowding warning on cap | B1.17 | ⬜ | |
+| B4.9 | B4/civics | Civics panel | Right-rail list of key buildings with owner + effect; click centers camera on it (targeting affordance) | B1.18 | ⬜ | |
+
 ### B5 — Visuals
 
 | ID | Tree Path | Feature | Contract / Acceptance Criteria | Depends On | Status | Evidence / Notes |
@@ -105,6 +120,7 @@ else open is external provisioning (B7.*) or the deferred art pass (B5.3).
 | B5.2.2 | B5/townrender/lots | New lot assets | Cinema, TrailerHome, Playground, Dock, Greenhouse render at LOD1 (8px) with distinct silhouettes; placed by mapgen in fitting districts | B1.4.4 | ✔️ | vision-checked (cinema marquee downtown, trailers on farm lanes, dock w/ rowboat on shore); high-detail → B5.3.1 |
 | B5.2.3 | B5/townrender/growth | Cult building expansion | Compound icon gains visible growth stages (fence at ≥7%, banners at ≥15% town share); wilderness-claim assets extend to grass verges | B5.2 | ✔️ | stages keyed to ownedTiles permille (25/70/150‰ thresholds shared with woodsClaim); mid/late match screenshots rendered |
 | B5.2.4 | B5/assetsdoc | ASSETS.md ledger | Every rendered asset documented: name, source fn, LOD1 form, LOD2–4 detail, status; every deferred high-detail variant is a 🧩 row here + in this manifest | B5.2.1–.3 | ✔️ | ASSETS.md written: terrain/lots/landmarks/cult/units/effects × LOD, deferred variants itemized → B5.3.1 |
+| B5.2.5 | B5/townrender/v3 | Renderer v3 | Biome palettes (desert sand/cacti, forest density), Path sidewalks, bridge-CROSSING detection (no more shore-parallel false bridges), poles every 2 tiles with connected wire, cul-de-sac bulbs, orchard/pasture/warehouse/high-school assets, property stakes | B1.4.10 | ⬜ | |
 | B5.3 | B5/authored | Authored audio + animation (§30/§31) | ~40 frame-by-frame animations, full audio pass | B5.2 | 🚫 | BLOCKED: artist/composer content, not code; render/event seams ready |
 | B5.3.1 | B5/authored/lod | High-detail LOD 3–4 asset variants | Each 🧩 line in ASSETS.md gets a dedicated high-detail form (animated neon, truss bridges, per-tree canopies, walk cycles…) | B5.2.4 | 🧩 | STUBBED by design: low-LOD procedural forms ship now; this row is the Stub-Law tracker for the deferred art pass |
 

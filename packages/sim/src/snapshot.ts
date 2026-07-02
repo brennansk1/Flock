@@ -34,7 +34,7 @@ import type {
 } from "./types.js";
 import type { Street } from "./names.js";
 
-export const SNAPSHOT_VERSION = 7;
+export const SNAPSHOT_VERSION = 8;
 
 export interface Snapshot {
   v: number;
@@ -58,6 +58,8 @@ export interface Snapshot {
     flags: number[];
     townName: string;
     streets: Street[];
+    biome: number[];
+    property: number[];
   };
   players: PlayerState[];
   fronts: Front[];
@@ -120,6 +122,8 @@ export function toSnapshot(s: SimState): Snapshot {
       flags: [...w.flags],
       townName: w.townName,
       streets: w.streets.map((s) => ({ ...s })),
+      biome: [...w.biome],
+      property: [...w.property],
     },
     players: s.players.map((p) => ({ ...p, cooldowns: { ...p.cooldowns }, doctrine: [...p.doctrine] })),
     fronts: s.fronts.map((f) => ({ ...f, tiles: [...f.tiles] })),
@@ -186,6 +190,8 @@ export function fromSnapshot(snap: Snapshot): SimState {
     flags: Uint8Array.from(sw.flags),
     townName: sw.townName,
     streets: sw.streets.map((s) => ({ ...s })),
+    biome: Uint8Array.from(sw.biome),
+    property: Uint32Array.from(sw.property),
   };
   return {
     tick: snap.tick,

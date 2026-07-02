@@ -113,7 +113,8 @@ function acrossRoad(w: World, t: TileId, dx: number, dy: number): TileId {
     if (x < 0 || y < 0 || x >= w.width || y >= w.height) return -1;
     const n = y * w.width + x;
     if (w.terrain[n] === Terrain.Citizen) return step > 0 ? n : -1; // must cross ≥1 road
-    if (w.terrain[n] !== Terrain.Road && w.terrain[n] !== Terrain.Dirt) return -1; // nature blocks the word
+    if (w.terrain[n] !== Terrain.Road && w.terrain[n] !== Terrain.Dirt && w.terrain[n] !== Terrain.Path)
+      return -1; // nature blocks the word
   }
   return -1;
 }
@@ -381,7 +382,7 @@ export function resolveConversion(s: SimState, b: Balance): void {
       const y = ((t / w.width) | 0) + dy;
       if (x < 0 || y < 0 || x >= w.width || y >= w.height) continue;
       const adj = w.terrain[y * w.width + x];
-      if (adj !== Terrain.Road && adj !== Terrain.Dirt) continue;
+      if (adj !== Terrain.Road && adj !== Terrain.Dirt && adj !== Terrain.Path) continue;
       const far = acrossRoad(w, t, dx, dy);
       if (far >= 0) creepTo(far, true);
     }

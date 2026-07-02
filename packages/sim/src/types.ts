@@ -43,8 +43,22 @@ export const Terrain = {
   Grass: 4,
   Field: 5,
   Dirt: 6,
+  /** Footpath/sidewalk through a block interior — walkable, unbuildable. */
+  Path: 7,
+  /** Orchard rows — farmland dressing, wilderness rules like Field. */
+  Orchard: 8,
+  /** Fenced livestock pasture — wilderness rules like Field. */
+  Pasture: 9,
 } as const;
 export type Terrain = (typeof Terrain)[keyof typeof Terrain];
+
+/** Biome per tile (§2 rev. 3): blob overlays that reskin the open country. */
+export const Biome = {
+  Temperate: 0,
+  Desert: 1,
+  Forest: 2,
+} as const;
+export type Biome = (typeof Biome)[keyof typeof Biome];
 
 export const District = {
   Suburbs: "suburbs",
@@ -110,6 +124,8 @@ export const Lot = {
   Playground: 23,
   Dock: 24,
   Greenhouse: 25,
+  HighSchool: 26,
+  Warehouse: 27,
 } as const;
 export type Lot = (typeof Lot)[keyof typeof Lot];
 
@@ -156,6 +172,10 @@ export interface World {
   townName: string;
   /** Named axis-aligned street segments (grid roads only, §2). */
   streets: Street[];
+  /** Biome per tile (blob overlays; Biome enum). */
+  biome: Uint8Array;
+  /** Purchased-property owner per tile (0 = unowned). Gameplay layer (§18 rev). */
+  property: Uint32Array;
 }
 
 /**

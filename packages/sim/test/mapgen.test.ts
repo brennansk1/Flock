@@ -24,6 +24,7 @@ import {
   fromSnapshot,
   streetAt,
   householdName,
+  Lot,
   memberName,
   Terrain,
   type RawBalance,
@@ -127,6 +128,70 @@ test("naming fields survive the snapshot round-trip (hash-identical)", () => {
   assert.equal(hashState(restored), hashState(sim));
   assert.equal(restored.world.townName, w.townName);
   assert.deepEqual(restored.world.streets, w.streets);
+});
+
+test("every town guarantees its keystone civic buildings", () => {
+  for (const seed of SEEDS) {
+    const w = generateWorld(seed, 96, 96);
+    const present = new Set<number>();
+    for (let t = 0; t < w.lot.length; t++) if (w.lot[t] !== 0) present.add(w.lot[t]!);
+    for (const [name, kind] of [
+      ["elementary school", Lot.School],
+      ["high school", Lot.HighSchool],
+      ["sheriff", Lot.Sheriff],
+      ["grocery", Lot.Supermarket],
+      ["church", Lot.Church],
+      ["fire station", Lot.FireStation],
+      ["gas station", Lot.GasStation],
+      ["warehouse", Lot.Warehouse],
+    ] as const) {
+      assert.ok(present.has(kind), `seed ${seed}: town has no ${name}`);
+    }
+  }
+});
+
+test("no home without street access (roads, lanes, or footpaths)", () => {
+  for (const seed of SEEDS) {
+    const w = generateWorld(seed, 96, 96);
+    const way = (t: number): boolean =>
+      t >= 0 &&
+      t < w.terrain.length &&
+      (w.terrain[t] === Terrain.Road || w.terrain[t] === Terrain.Dirt || w.terrain[t] === Terrain.Path);
+    let orphans = 0;
+    for (let t = 0; t < w.terrain.length; t++) {
+      if (w.terrain[t] !== Terrain.Citizen || w.pop[t]! < 3 || w.lot[t] !== 0) continue;
+      const x = t % w.width;
+      const y = (t / w.width) | 0;
+      const ok =
+        (x > 0 && way(t - 1)) ||
+        (x < w.width - 1 && way(t + 1)) ||
+        (y > 0 && way(t - w.width)) ||
+        (y < w.height - 1 && way(t + w.width));
+      if (!ok) orphans++;
+    }
+    assert.equal(orphans, 0, `seed ${seed}: ${orphans} homes with no way to the street`);
+  }
+});
+
+test("biomes are configurable, blob-shaped, and deterministic", () => {
+  const both = generateWorld(5, 96, 96); // default: desert + forest
+  let desert = 0;
+  let forest = 0;
+  for (let t = 0; t < both.biome.length; t++) {
+    if (both.biome[t] === 1) desert++;
+    if (both.biome[t] === 2) forest++;
+  }
+  assert.ok(desert > 50, `default map should carry a desert blob (got ${desert})`);
+  assert.ok(forest > 50, `default map should carry a forest blob (got ${forest})`);
+  // pure temperate when configured off
+  const plain = generateWorld(5, 96, 96, { biomes: [] });
+  assert.ok(plain.biome.every((b) => b === 0), "biomes:[] must yield a temperate map");
+  // determinism per (seed, config)
+  const again = generateWorld(5, 96, 96);
+  assert.deepEqual([...again.biome], [...both.biome]);
+  // farming v2 exists: orchards or pastures show up on default worlds
+  const farmish = [...both.terrain].some((t) => t === Terrain.Orchard || t === Terrain.Pasture);
+  assert.ok(farmish, "farms should roll orchards/pastures");
 });
 
 test("household/member names are pure and stable", () => {

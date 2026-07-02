@@ -243,6 +243,17 @@ const C = {
   crosswalk: hexToRgb("#d8d4c8"),
   glass: hexToRgb("#cfe8e2"),
   glassFrame: hexToRgb("#8fb0a8"),
+  sandBg: hexToRgb("#d9c791"),
+  sandDark: hexToRgb("#c9b57e"),
+  sandScrub: hexToRgb("#a89a68"),
+  cactus: hexToRgb("#4e7a3a"),
+  cactusDark: hexToRgb("#3c6030"),
+  forestFloor: hexToRgb("#8ba06c"),
+  pathStone: hexToRgb("#b8b2a4"),
+  pathEdge: hexToRgb("#9a958e"),
+  cowWhite: hexToRgb("#e8e4d8"),
+  cowBrown: hexToRgb("#8a5a3a"),
+  wire: hexToRgb("#3a352e"),
 } as const;
 
 /** Town building styles: [body, roof, accent]. */
@@ -265,6 +276,8 @@ const LOT_STYLE: Record<number, [RGB, RGB, RGB]> = {
   [Lot.Factory]: [hexToRgb("#9a9088"), hexToRgb("#736a62"), hexToRgb("#5a5450")],
   [Lot.Motel]: [hexToRgb("#cabf9c"), hexToRgb("#7a6f58"), hexToRgb("#3fa0bf")],
   [Lot.Cinema]: [hexToRgb("#3a3f52"), hexToRgb("#2c3040"), hexToRgb("#ffd76a")],
+  [Lot.HighSchool]: [hexToRgb("#9a5a42"), hexToRgb("#7a4634"), hexToRgb("#f0e6d0")],
+  [Lot.Warehouse]: [hexToRgb("#aaa49a"), hexToRgb("#8a847a"), hexToRgb("#5f6670")],
   [Lot.Greenhouse]: [hexToRgb("#cfe8e2"), hexToRgb("#8fb0a8"), hexToRgb("#efe9da")],
 };
 
@@ -392,6 +405,25 @@ export function renderTown(sim: SimState, opts: RenderOpts = {}): RenderedFrame 
     for (let tx = tx0; tx <= tx1; tx++) {
       const t = ty * w.width + tx;
       drawTile(sim, t, tx, ty, put, archetypeOf, detail);
+      // purchased property: survey stakes + a boundary cord in the owner's
+      // color mark bought land in the wilderness (§18 rev.)
+      const propOwner = w.property[t]!;
+      if (propOwner !== 0 && w.terrain[t] !== Terrain.Citizen && w.terrain[t] !== Terrain.Road) {
+        const stake = hexToRgb(colorForPlayer(propOwner));
+        const x0p = tx * TILE_PX;
+        const y0p = ty * TILE_PX;
+        const edgeN = ty === 0 || w.property[t - w.width] !== propOwner;
+        const edgeS = ty === w.height - 1 || w.property[t + w.width] !== propOwner;
+        const edgeW = tx === 0 || w.property[t - 1] !== propOwner;
+        const edgeE = tx === w.width - 1 || w.property[t + 1] !== propOwner;
+        // dotted boundary cord along parcel edges only — interiors stay land
+        for (let i = 0; i < TILE_PX; i += 2) {
+          if (edgeN) put(x0p + i, y0p, stake);
+          if (edgeS) put(x0p + i, y0p + TILE_PX - 1, stake);
+          if (edgeW) put(x0p, y0p + i, stake);
+          if (edgeE) put(x0p + TILE_PX - 1, y0p + i, stake);
+        }
+      }
     }
   }
 
@@ -547,21 +579,37 @@ function drawTile(
       const waterAt = (n: number): boolean =>
         n >= 0 && n < w.terrain.length && w.terrain[n] === Terrain.Lake;
 
-      // BRIDGE: a road tile crossing water gets a plank deck + railings, so
-      // river crossings read as built structures, not asphalt floating on water
-      const waterBeside =
-        (ty > 0 && waterAt(t - w.width)) ||
-        (ty < w.height - 1 && waterAt(t + w.width)) ||
-        (tx > 0 && waterAt(t - 1)) ||
-        (tx < w.width - 1 && waterAt(t + 1));
-      if (waterBeside) {
-        const horiz = roadE || roadW; // direction of travel
+      // BRIDGE: only a true CROSSING gets a deck — the water must continue on
+      // BOTH sides perpendicular to travel (through the other highway lane if
+      // this is the 2-lane). A road that merely runs along a shore is a road.
+      const waterBeyond = (n: number, n2: number): boolean =>
+        waterAt(n) || (roadAt(n) && waterAt(n2));
+      const crossH =
+        (roadE || roadW) &&
+        ty > 1 &&
+        ty < w.height - 2 &&
+        waterBeyond(t - w.width, t - 2 * w.width) &&
+        waterBeyond(t + w.width, t + 2 * w.width);
+      const crossV =
+        (roadN || roadS) &&
+        tx > 1 &&
+        tx < w.width - 2 &&
+        waterBeyond(t - 1, t - 2) &&
+        waterBeyond(t + 1, t + 2);
+      if (crossH || crossV) {
+        const horiz = crossH;
+        // railings only on the sides that actually face water — the seam
+        // between the two highway lanes stays open deck
+        const railLo = horiz ? waterAt(t - w.width) : waterAt(t - 1);
+        const railHi = horiz ? waterAt(t + w.width) : waterAt(t + 1);
         for (let py = 0; py < TILE_PX; py++) {
           for (let px = 0; px < TILE_PX; px++) {
             const along = horiz ? px : py; // plank seams run across travel
             let c: RGB = along % 2 === 0 ? C.plank : C.plankDark;
-            const railBand = horiz ? py === 0 || py === TILE_PX - 1 : px === 0 || px === TILE_PX - 1;
-            if (railBand) c = (horiz ? px : py) % 2 === 0 ? C.rail : C.plankDark; // posts
+            const perp = horiz ? py : px;
+            const isRail =
+              (perp === 0 && railLo) || (perp === TILE_PX - 1 && railHi);
+            if (isRail) c = along % 2 === 0 ? C.rail : C.plankDark; // posts
             put(x0 + px, y0 + py, c);
           }
         }
@@ -583,6 +631,7 @@ function drawTile(
       }
       // CROSSWALKS: zebra dashes where two downtown streets meet
       const intersection = downtownFront && (roadN || roadS) && (roadE || roadW);
+      const fourWay = downtownFront && roadN && roadS && roadE && roadW;
       for (let py = 0; py < TILE_PX; py++) {
         for (let px = 0; px < TILE_PX; px++) {
           let c: RGB = highway ? shade(C.asphalt, 0.92) : C.asphalt;
@@ -606,9 +655,91 @@ function drawTile(
           put(x0 + px, y0 + py, c);
         }
       }
+      // TRAFFIC LIGHTS: paired signal heads on the corners of a 4-way
+      if (fourWay) {
+        put(x0 + 6, y0 + 2, C.iconDark); // NE pole
+        put(x0 + 6, y0 + 1, hexToRgb("#d23b3b")); // red head
+        put(x0 + 1, y0 + 5, C.iconDark); // SW pole
+        put(x0 + 1, y0 + 6, hexToRgb("#3cb44b")); // green head
+      }
+      return;
+    }
+    case Terrain.Path: {
+      // block-interior footpath: stone walk with a worn edge
+      for (let py = 0; py < TILE_PX; py++) {
+        for (let px = 0; px < TILE_PX; px++) {
+          const h = pixHash(x0 + px, y0 + py, 57);
+          let c: RGB = h % 7 === 0 ? C.pathEdge : C.pathStone;
+          if (px === 0 || px === TILE_PX - 1 || py === 0 || py === TILE_PX - 1) {
+            c = shade(C.pathEdge, 0.94);
+          }
+          put(x0 + px, y0 + py, c);
+        }
+      }
+      return;
+    }
+    case Terrain.Orchard: {
+      // orchard: mown ground with tree rows every other tile-row
+      for (let py = 0; py < TILE_PX; py++) {
+        for (let px = 0; px < TILE_PX; px++) {
+          put(x0 + px, y0 + py, (px + py) % 2 === 0 ? C.meadowLight : C.meadow);
+        }
+      }
+      const rowY = ty % 2 === 0 ? 2 : 5;
+      for (const cxp of [1, 4, 6]) {
+        put(x0 + cxp + 1, y0 + rowY + 1, C.shadow);
+        put(x0 + cxp, y0 + rowY, C.canopy);
+        put(x0 + cxp + (pixHash(t, cxp, 3) % 2), y0 + rowY - 1 < 0 ? 0 : y0 + rowY - 1, C.canopyLight);
+      }
+      return;
+    }
+    case Terrain.Pasture: {
+      // fenced pasture: worn meadow, perimeter fence, a couple of cattle
+      const fN = ty > 0 && w.terrain[t - w.width] !== Terrain.Pasture;
+      const fS = ty < w.height - 1 && w.terrain[t + w.width] !== Terrain.Pasture;
+      const fW = tx > 0 && w.terrain[t - 1] !== Terrain.Pasture;
+      const fE = tx < w.width - 1 && w.terrain[t + 1] !== Terrain.Pasture;
+      for (let py = 0; py < TILE_PX; py++) {
+        for (let px = 0; px < TILE_PX; px++) {
+          let c: RGB = pixHash(x0 + px, y0 + py, 15) % 11 === 0 ? C.grassLow : C.meadow;
+          if (
+            (fN && py === 0 && px % 2 === 0) ||
+            (fS && py === TILE_PX - 1 && px % 2 === 0) ||
+            (fW && px === 0 && py % 2 === 0) ||
+            (fE && px === TILE_PX - 1 && py % 2 === 0)
+          )
+            c = C.fence;
+          put(x0 + px, y0 + py, c);
+        }
+      }
+      if (pixHash(t, 8, 27) % 3 === 0) {
+        const hx = x0 + 2 + (pixHash(t, 9, 27) % 4);
+        const hy = y0 + 2 + (pixHash(t, 10, 27) % 4);
+        const c = pixHash(t, 11, 27) % 2 === 0 ? C.cowWhite : C.cowBrown;
+        put(hx, hy, c); // the cow
+        put(hx + 1, hy, c);
+        put(hx + 1, hy + 1, shade(c, 0.7));
+      }
       return;
     }
     case Terrain.Grass: {
+      // DESERT biome: the same rolling land, reskinned as sand and scrub
+      if (w.biome[t] === 1 /* Biome.Desert */) {
+        for (let py = 0; py < TILE_PX; py++) {
+          for (let px = 0; px < TILE_PX; px++) {
+            const gx = x0 + px;
+            const gy = y0 + py;
+            const h = pixHash(gx, gy, 65);
+            let c: RGB = h % 3 === 0 ? C.sandDark : C.sandBg;
+            if (valueNoise(gx, gy, 30, 66) > 0.68) c = shade(C.sandBg, 1.05); // dune crest
+            if (h % 31 === 0) c = C.sandScrub; // dry brush
+            const bleed = naturalEdgeBleed(w, tx, ty, px, py);
+            if (bleed) c = bleed;
+            put(gx, gy, c);
+          }
+        }
+        return;
+      }
       // gentle rolling elevation: a low-frequency noise field tints grass from
       // shaded valleys (grassLow) up to sunlit rises (grassHigh), and its slope
       // (the east-west gradient) shades west-facing banks for a hilly read.
@@ -627,6 +758,7 @@ function drawTile(
           const elev = elevAt(gx, gy);
           const cell = pixHash(gx >> 3, gy >> 3, 13) % 3;
           let c = cell === 0 ? C.meadowLight : C.meadow;
+          if (w.biome[t] === 2 /* Biome.Forest */) c = cell === 0 ? C.forestFloor : shade(C.forestFloor, 0.92);
           if (elev > 0.7) c = C.grassHigh; // hilltops catch the light
           else if (elev < 0.3) c = C.grassLow; // hollows sit in shade
           if (slope > 0.06 && px < 2) c = shade(c, 0.94); // west-facing bank
@@ -668,15 +800,36 @@ function drawTile(
         const roadS = ty < w.height - 1 && w.terrain[t + w.width] === Terrain.Road;
         const roadE = tx < w.width - 1 && w.terrain[t + 1] === Terrain.Road;
         const roadW = tx > 0 && w.terrain[t - 1] === Terrain.Road;
-        const along = (roadN || roadS) && tx % 3 === 0 ? "h" : (roadE || roadW) && ty % 3 === 0 ? "v" : "";
-        if (along) {
-          const cxp = x0 + 4;
-          const cyp = y0 + 4;
-          for (let py = 1; py <= 6; py++) put(cxp, y0 + py, C.trunk); // pole
-          put(cxp - 1, y0 + 2, C.trunk); // crossarm
-          put(cxp + 1, y0 + 2, C.trunk);
-          put(cxp + 2, y0 + 7, C.shadow); // foot shadow
-          void cyp;
+        const runH = roadN || roadS;
+        const runV = (roadE || roadW) && !runH;
+        if (runH || runV) {
+          const pole = runH ? tx % 2 === 0 : ty % 2 === 0;
+          // the WIRE sags in a U between poles: attached high at the
+          // crossarm, dipping a pixel (or two mid-span) between them
+          if (runH) {
+            for (let px = 0; px < TILE_PX; px++) {
+              const dip = pole
+                ? px >= 3 && px <= 5
+                  ? 0 // at the crossarm
+                  : 1
+                : px >= 3 && px <= 4
+                  ? 2 // deepest mid-span
+                  : 1;
+              put(x0 + px, y0 + 2 + dip, C.wire);
+            }
+          } else {
+            for (let py = 0; py < TILE_PX; py++) {
+              const dip = pole ? (py >= 3 && py <= 5 ? 0 : 1) : py >= 3 && py <= 4 ? 2 : 1;
+              put(x0 + 4 + dip - 1, y0 + py, C.wire);
+            }
+          }
+          if (pole) {
+            const cxp = x0 + 4;
+            for (let py = 1; py <= 6; py++) put(cxp, y0 + py, C.trunk); // pole
+            put(cxp - 1, y0 + 2, C.trunk); // crossarm
+            put(cxp + 1, y0 + 2, C.trunk);
+            put(cxp + 2, y0 + 7, C.shadow); // foot shadow
+          }
         }
       }
       // an established cult spills camp assets onto the open ground around its
@@ -757,6 +910,23 @@ function drawTile(
       return;
     }
     case Terrain.Woods: {
+      // DESERT: a woods stand is a saguaro patch, not canopy
+      if (w.biome[t] === 1 /* Biome.Desert */) {
+        for (let py = 0; py < TILE_PX; py++) {
+          for (let px = 0; px < TILE_PX; px++) {
+            const h = pixHash(x0 + px, y0 + py, 65);
+            put(x0 + px, y0 + py, h % 3 === 0 ? C.sandDark : C.sandBg);
+          }
+        }
+        const cx1 = x0 + 2 + (pixHash(t, 1, 67) % 3);
+        for (let py = 2; py <= 6; py++) put(cx1, y0 + py, C.cactus); // trunk
+        put(cx1 - 1, y0 + 3, C.cactusDark); // west arm
+        put(cx1 - 1, y0 + 2, C.cactus);
+        put(cx1 + 1, y0 + 4, C.cactusDark); // east arm
+        put(cx1 + 1, y0 + 3, C.cactus);
+        put(cx1 + 1, y0 + 7, C.shadow);
+        return;
+      }
       // Wilderness slowly becomes a cult compound (the fun part): woods near a
       // growing cult clear out and grow archetype-flavored assets — Dawn lights
       // bonfires, Radiant raises domes, the Circle paves and posts billboards,
@@ -784,10 +954,20 @@ function drawTile(
     }
   }
 
-  // citizen lot: lawn base, owned tint + pattern, then house/garden
+  // citizen lot. Ground rule (§2 rev. 3): only BUILT parcels (a home or a
+  // town building) take the district ground — lawns in the residential zones,
+  // concrete downtown/commercial, gravel in industrial — which is what makes
+  // zoning readable at map scale. Empty yards render as open biome ground, so
+  // the town sits IN the land instead of on a pale blob.
   const owner = w.owner[t]!;
   const apostate = w.state[t] === TileState.Apostate;
-  const lawnBase = hexToRgb(NEUTRAL_BY_DISTRICT[w.district[t]! % NEUTRAL_BY_DISTRICT.length]!);
+  const pop = w.pop[t]!;
+  const district = w.district[t]!;
+  const lot = w.lot[t]!;
+  const built = lot !== 0 || pop >= 3;
+  const lawnBase = hexToRgb(NEUTRAL_BY_DISTRICT[district % NEUTRAL_BY_DISTRICT.length]!);
+  const lawnDistrict = district === 1 || district === 2 || district === 4 || district === 0;
+  const desertY = w.biome[t] === 1;
 
   for (let py = 0; py < TILE_PX; py++) {
     for (let px = 0; px < TILE_PX; px++) {
@@ -796,43 +976,92 @@ function drawTile(
       let c: RGB;
       if (apostate) {
         c = (gx + gy) % 3 === 0 ? shade(C.scorched, 1.2) : C.scorched;
-      } else if (owner !== NEUTRAL) {
-        const cult = hexToRgb(colorForPlayer(owner));
-        // lawn tinted halfway to the cult color, with the archetype pattern
-        const mixed: RGB = [
-          (lawnBase[0] + cult[0]) >> 1,
-          (lawnBase[1] + cult[1]) >> 1,
-          (lawnBase[2] + cult[2]) >> 1,
-        ];
-        c =
-          owner >= 900
-            ? shade(mixed, 0.9)
-            : territoryPixel(mixed, archetypeOf.get(owner) ?? "dawn", gx, gy);
       } else {
-        c = (gx * 7 + gy * 13) % 11 === 0 ? shade(lawnBase, 0.94) : lawnBase;
+        if (built) {
+          if (lawnDistrict) {
+            // mown lawn: alternating mowing stripes, the proper green
+            c = ((gx >> 1) + (gy >> 1)) % 2 === 0 ? lawnBase : shade(lawnBase, 1.07);
+            if (pixHash(gx, gy, 33) % 37 === 0) c = shade(lawnBase, 0.85); // clover
+          } else {
+            // hard ground: concrete/pavers/gravel speckle
+            c = pixHash(gx, gy, 33) % 9 === 0 ? shade(lawnBase, 0.92) : lawnBase;
+          }
+        } else {
+          // open yard: biome ground
+          if (desertY) {
+            c = pixHash(gx, gy, 65) % 3 === 0 ? C.sandDark : C.sandBg;
+          } else {
+            const cell = pixHash(gx >> 3, gy >> 3, 13) % 3;
+            c = cell === 0 ? C.meadowLight : C.meadow;
+            if (w.biome[t] === 2) c = cell === 0 ? C.forestFloor : shade(C.forestFloor, 0.92);
+            if (pixHash(gx, gy, 5) % 19 === 0) c = C.scrub;
+            if (pixHash(gx, gy, 5) % 211 === 0) c = C.flowerY;
+          }
+        }
+        if (owner !== NEUTRAL) {
+          const cult = hexToRgb(colorForPlayer(owner));
+          const mixed: RGB = [
+            (c[0] + cult[0]) >> 1,
+            (c[1] + cult[1]) >> 1,
+            (c[2] + cult[2]) >> 1,
+          ];
+          c =
+            owner >= 900
+              ? shade(mixed, 0.9)
+              : territoryPixel(mixed, archetypeOf.get(owner) ?? "dawn", gx, gy);
+        }
       }
       put(gx, gy, c);
     }
   }
 
+  // SIDEWALKS: a concrete strip along every road-facing lot edge — the
+  // continuous line a real street front has. Drawn on all citizen tiles so
+  // the sidewalk runs unbroken past yards and homes alike.
+  if (!apostate) {
+    const roadSide = (n: number): boolean =>
+      n >= 0 && n < w.terrain.length && w.terrain[n] === Terrain.Road;
+    if (ty > 0 && roadSide(t - w.width)) {
+      for (let px = 0; px < TILE_PX; px++) {
+        put(x0 + px, y0, C.sidewalk);
+        put(x0 + px, y0 + 1, px % 4 === 0 ? shade(C.sidewalk, 0.9) : C.sidewalk);
+      }
+    }
+    if (ty < w.height - 1 && roadSide(t + w.width)) {
+      for (let px = 0; px < TILE_PX; px++) {
+        put(x0 + px, y0 + TILE_PX - 1, C.sidewalk);
+        put(x0 + px, y0 + TILE_PX - 2, px % 4 === 0 ? shade(C.sidewalk, 0.9) : C.sidewalk);
+      }
+    }
+    if (tx > 0 && roadSide(t - 1)) {
+      for (let py = 0; py < TILE_PX; py++) {
+        put(x0, y0 + py, C.sidewalk);
+        put(x0 + 1, y0 + py, py % 4 === 0 ? shade(C.sidewalk, 0.9) : C.sidewalk);
+      }
+    }
+    if (tx < w.width - 1 && roadSide(t + 1)) {
+      for (let py = 0; py < TILE_PX; py++) {
+        put(x0 + TILE_PX - 1, y0 + py, C.sidewalk);
+        put(x0 + TILE_PX - 2, y0 + py, py % 4 === 0 ? shade(C.sidewalk, 0.9) : C.sidewalk);
+      }
+    }
+  }
+
   if (apostate) return;
-  const pop = w.pop[t]!;
-  const district = w.district[t]!;
-  const lot = w.lot[t]!;
 
   if (lot !== 0) {
     drawLotBuilding(w, t, tx, ty, x0, y0, lot, put);
-  } else if (pop >= 8 && district === 3) {
-    drawBlock(x0, y0, t, put); // downtown apartment block
+  } else if (pop >= 8 && (district === 3 || district === 8)) {
+    drawBlock(x0, y0, t, put); // downtown/ResHigh apartment block
   } else if (pop >= 3) {
-    drawVerge(w, t, tx, ty, x0, y0, district, put); // driveway + street tree
+    drawVerge(w, t, tx, ty, x0, y0, district, put); // driveway/walk + street tree
     if (district === 5) drawTrailerHome(x0, y0, t, put); // trailer fringe (§2)
     else drawHouse(x0, y0, district, t, put, detail);
   } else if (pop >= 1) {
-    // garden: a few flowers
+    // garden: a few flower dots on the open ground
     for (let i = 0; i < 3; i++) {
       const h = pixHash(t, i, 7);
-      put(x0 + 1 + (h % 6), y0 + 1 + ((h >> 4) % 6), shade(lawnBase, 0.8));
+      put(x0 + 1 + (h % 6), y0 + 1 + ((h >> 4) % 6), i === 0 ? C.flowerW : C.flowerY);
     }
   }
 }
@@ -1112,6 +1341,33 @@ function drawLotBuilding(
         put(x0 + 3, y0 + 4, C.windowDark);
       }
       break;
+    case Lot.HighSchool:
+      // brick block with a gym wing stripe + the school sign
+      if (!sameLeft && !sameUp) {
+        put(x0 + 1, y0, accent); // flagpole
+        put(x0 + 1, y0 + 1, accent);
+      }
+      if (!sameUp) {
+        put(x0 + 3, y0 + 4, C.windowDark);
+        put(x0 + 5, y0 + 4, C.windowDark);
+      }
+      if (sameUp) {
+        put(x0 + 2, y0 + 3, accent); // the gym doors
+        put(x0 + 3, y0 + 3, accent);
+      }
+      break;
+    case Lot.Warehouse:
+      // long shed: roll-up bay doors + a loading dock strip
+      put(x0 + 2, y0 + 4, C.iconDark);
+      put(x0 + 2, y0 + 5, C.iconDark);
+      put(x0 + 5, y0 + 4, C.iconDark);
+      put(x0 + 5, y0 + 5, C.iconDark);
+      if (!sameDown) {
+        put(x0 + 2, y0 + 6, C.asphalt);
+        put(x0 + 3, y0 + 6, C.asphalt);
+        put(x0 + 4, y0 + 6, C.asphalt);
+      }
+      break;
     case Lot.Greenhouse:
       // glass panes with frame ribs + a sun glint
       for (let gy2 = 2; gy2 <= 5; gy2++) {
@@ -1253,26 +1509,54 @@ function drawVerge(
   district: number,
   put: Put,
 ): void {
-  const isRoad = (n: number): boolean =>
-    n >= 0 && n < w.terrain.length && w.terrain[n] === Terrain.Road;
-  const south = isRoad(t + w.width);
-  const north = ty > 0 && isRoad(t - w.width);
-  const east = tx < w.width - 1 && isRoad(t + 1);
-  const west = tx > 0 && isRoad(t - 1);
-  // paved (downtown/college) vs gravel (rural) driveways
-  const drive = district === 3 || district === 2 ? C.asphalt : C.dirt;
+  const kindAt = (n: number): number =>
+    n >= 0 && n < w.terrain.length ? w.terrain[n]! : -1;
+  const isWay = (n: number): boolean => {
+    const k = kindAt(n);
+    return k === Terrain.Road || k === Terrain.Dirt || k === Terrain.Path;
+  };
+  const south = isWay(t + w.width);
+  const north = ty > 0 && isWay(t - w.width);
+  const east = tx < w.width - 1 && isWay(t + 1);
+  const west = tx > 0 && isWay(t - 1);
+  // driveway to a road (paved downtown/college, gravel rural); footpath
+  // frontage gets a stone walk instead — every home connects visibly (§2)
+  const wayTile = south ? t + w.width : north ? t - w.width : east ? t + 1 : west ? t - 1 : -1;
+  const wayKind = wayTile >= 0 ? kindAt(wayTile) : -1;
+  const drive =
+    wayKind === Terrain.Path
+      ? C.pathStone
+      : district === 3 || district === 2 || district === 8 || district === 6
+        ? C.asphalt
+        : C.dirt;
   if (south) {
     put(x0 + 5, y0 + 7, drive);
     put(x0 + 4, y0 + 7, drive);
+    put(x0 + 5, y0 + 6, drive); // reach the door, not just the curb
+    put(x0 + 4, y0 + 6, drive);
   } else if (north) {
     put(x0 + 5, y0, drive);
     put(x0 + 4, y0, drive);
+    put(x0 + 5, y0 + 1, drive);
+    put(x0 + 4, y0 + 1, drive);
   } else if (east) {
     put(x0 + 7, y0 + 5, drive);
     put(x0 + 7, y0 + 4, drive);
+    put(x0 + 6, y0 + 5, drive);
+    put(x0 + 6, y0 + 4, drive);
   } else if (west) {
     put(x0, y0 + 5, drive);
     put(x0, y0 + 4, drive);
+    put(x0 + 1, y0 + 5, drive);
+    put(x0 + 1, y0 + 4, drive);
+  }
+  // a parked car on some road driveways
+  if ((south || north) && wayKind === Terrain.Road && pixHash(t, 13, 71) % 3 === 0) {
+    const cc = pixHash(t, 14, 71) % 3;
+    const car = cc === 0 ? hexToRgb("#7088b0") : cc === 1 ? hexToRgb("#b06a60") : hexToRgb("#d8d2c4");
+    const cy2 = south ? y0 + 6 : y0 + 1;
+    put(x0 + 4, cy2, car);
+    put(x0 + 5, cy2, shade(car, 0.85));
   }
   // a street tree on the verge of about half the road-fronting lots
   if ((south || north || east || west) && pixHash(t, 9, 67) % 2 === 0) {

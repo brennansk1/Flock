@@ -20,7 +20,7 @@
 import { IntentType, type Intent, type BuildingType } from "./intents.js";
 import { toInt } from "./fixed.js";
 import { nextRange, type RngState } from "./rng.js";
-import { Stance, type PlayerId, type SimState, type PlayerState } from "./types.js";
+import { Stance, Terrain, type PlayerId, type SimState, type PlayerState } from "./types.js";
 
 export type BotTier = "drifter" | "sect" | "church";
 
@@ -117,24 +117,71 @@ const CHURCH_BUILDS: BuildingType[] = [
  * Produce this bot's intents for the current tick. Caller should gate on
  * botShouldAct first; this assumes it's the bot's turn to think.
  */
+/** Nearest convertible citizen tile within maxR (spiral, deterministic). */
+function nearestCitizen(w: SimState["world"], from: number, maxR: number): number {
+  const cx = from % w.width;
+  const cy = (from / w.width) | 0;
+  for (let r = 1; r <= maxR; r++) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        const x = cx + dx;
+        const y = cy + dy;
+        if (x < 0 || y < 0 || x >= w.width || y >= w.height) continue;
+        const t = y * w.width + x;
+        if (w.terrain[t] === Terrain.Citizen && w.owner[t] === 0) return t;
+      }
+    }
+  }
+  return -1;
+}
+
+/** A free tile of the bot's own property (for wilderness construction). */
+function samplePropertyFree(sim: SimState, rng: RngState, pid: number): number {
+  const w = sim.world;
+  const candidates: number[] = [];
+  for (let t = 0; t < w.property.length; t++) {
+    if (w.property[t] !== pid) continue;
+    if (sim.buildings.some((bd) => bd.tile === t)) continue;
+    candidates.push(t);
+    if (candidates.length >= 32) break;
+  }
+  if (candidates.length === 0) return -1;
+  return candidates[nextRange(rng, candidates.length)]!;
+}
+
 export function botTurn(sim: SimState, bot: BotState, rng: RngState): Intent[] {
   const out: Intent[] = [];
   const p = sim.players.find((pl) => pl.id === bot.playerId);
   if (!p || !p.alive || !p.spawned) return out;
   const w = sim.world;
 
-  const origin = sampleOwned(sim, rng, bot.playerId);
-  if (origin < 0) return out;
+  let origin = sampleOwned(sim, rng, bot.playerId);
+  if (origin < 0) {
+    // no territory yet (property-start §18 rev.): operate from the compound
+    const compound = sim.buildings.find((bd) => bd.player === bot.playerId && bd.type === "compound");
+    if (!compound) return out;
+    origin = compound.tile;
+  }
   const ox = origin % w.width;
   const oy = (origin / w.width) | 0;
 
   // ---- expansion (all tiers expand; reach/discipline differ) -------------
-  const dir = nextRange(rng, 4);
-  const reach = bot.tier === "drifter" ? 3 : 4;
-  const dx = dir === 0 ? reach : dir === 1 ? -reach : 0;
-  const dy = dir === 2 ? reach : dir === 3 ? -reach : 0;
-  const fronts = blockAround(sim, ox + dx, oy + dy, bot.tier === "drifter" ? 2 : 3);
-  if (fronts.length > 0) out.push({ t: IntentType.OPEN_FRONT, player: bot.playerId, tiles: fronts });
+  if (p.ownedTiles === 0) {
+    // beachhead: front the closest citizen block within compound outreach
+    const target = nearestCitizen(w, origin, 12);
+    if (target >= 0) {
+      const fronts = blockAround(sim, target % w.width, (target / w.width) | 0, 2);
+      if (fronts.length > 0) out.push({ t: IntentType.OPEN_FRONT, player: bot.playerId, tiles: fronts });
+    }
+  } else {
+    const dir = nextRange(rng, 4);
+    const reach = bot.tier === "drifter" ? 3 : 4;
+    const dx = dir === 0 ? reach : dir === 1 ? -reach : 0;
+    const dy = dir === 2 ? reach : dir === 3 ? -reach : 0;
+    const fronts = blockAround(sim, ox + dx, oy + dy, bot.tier === "drifter" ? 2 : 3);
+    if (fronts.length > 0) out.push({ t: IntentType.OPEN_FRONT, player: bot.playerId, tiles: fronts });
+  }
 
   // ---- stance discipline -------------------------------------------------
   if (bot.tier === "drifter") {
@@ -153,7 +200,15 @@ export function botTurn(sim: SimState, bot: BotState, rng: RngState): Intent[] {
   const builds = bot.tier === "church" ? CHURCH_BUILDS : (["compound", "collection_plate", "watchtower"] as const);
   if (usd(p) > 35_000 && nextRange(rng, bot.tier === "church" ? 4 : 6) === 0) {
     const building = builds[nextRange(rng, builds.length)]!;
-    out.push({ t: IntentType.BUILD, player: bot.playerId, building, tile: origin });
+    // build on own land when there's room, else on an owned town lot
+    const site = samplePropertyFree(sim, rng, bot.playerId);
+    out.push({ t: IntentType.BUILD, player: bot.playerId, building, tile: site >= 0 ? site : origin });
+  }
+  // land acquisition (§18 rev.): buy the next parcel before crowding bites
+  if (usd(p) > 60_000 && nextRange(rng, 10) === 0) {
+    const dir2 = nextRange(rng, 4);
+    const off = dir2 === 0 ? 6 : dir2 === 1 ? -6 : dir2 === 2 ? 6 * w.width : -6 * w.width;
+    out.push({ t: IntentType.BUY_PROPERTY, player: bot.playerId, tile: origin + off });
   }
 
   // keep Faith healthy

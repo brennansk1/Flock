@@ -404,7 +404,7 @@ export function renderTown(sim: SimState, opts: RenderOpts = {}): RenderedFrame 
   for (let ty = ty0; ty <= ty1; ty++) {
     for (let tx = tx0; tx <= tx1; tx++) {
       const t = ty * w.width + tx;
-      drawTile(sim, t, tx, ty, put, archetypeOf, detail);
+      drawTile(sim, t, tx, ty, put, archetypeOf, detail, tick);
       // purchased property: survey stakes + a boundary cord in the owner's
       // color mark bought land in the wilderness (§18 rev.)
       const propOwner = w.property[t]!;
@@ -423,6 +423,33 @@ export function renderTown(sim: SimState, opts: RenderOpts = {}): RenderedFrame 
           if (edgeW) put(x0p, y0p + i, stake);
           if (edgeE) put(x0p + TILE_PX - 1, y0p + i, stake);
         }
+      }
+    }
+  }
+
+  // ---- pass 1.5: WELCOME SIGNS where the highway meets the town line ----
+  // "WELCOME TO <town>" boards flank Main Street's ends, derived from the
+  // named street records — no extra world state needed.
+  {
+    const main = w.streets.find((st) => st.name === "Main Street" && st.axis === 0);
+    if (main) {
+      for (const sx of [main.from - 3, main.to + 3]) {
+        if (sx < 1 || sx >= w.width - 1) continue;
+        const st2 = (main.at - 1) * w.width + sx;
+        if (st2 < 0 || st2 >= w.terrain.length) continue;
+        if (w.terrain[st2] !== Terrain.Grass) continue;
+        const bx = sx * TILE_PX;
+        const by = (main.at - 1) * TILE_PX;
+        put(bx + 2, by + 3, C.crosswalk); // the board
+        put(bx + 3, by + 3, C.crosswalk);
+        put(bx + 4, by + 3, C.crosswalk);
+        put(bx + 5, by + 3, C.crosswalk);
+        put(bx + 3, by + 4, C.iconAccent); // painted town crest
+        put(bx + 2, by + 4, C.crosswalk);
+        put(bx + 4, by + 4, C.crosswalk);
+        put(bx + 5, by + 4, C.crosswalk);
+        put(bx + 3, by + 5, C.trunk); // posts
+        put(bx + 5, by + 5, C.trunk);
       }
     }
   }
@@ -563,6 +590,7 @@ function drawTile(
   put: Put,
   archetypeOf: Map<number, Archetype>,
   detail: Detail | null = null,
+  frameTick = 0,
 ): void {
   const w = sim.world;
   const x0 = tx * TILE_PX;
@@ -648,8 +676,16 @@ function drawTile(
             const skirtE = px === TILE_PX - 1 && !roadE;
             if (skirtN || skirtS || skirtW || skirtE) c = C.sidewalk;
           }
-          // highway center line: yellow dashes along the seam between lanes
+          // 4-LANE HIGHWAY: yellow center seam + dashed white lane lines
           if (highwayTopLane && py === TILE_PX - 1 && gx % 6 < 3) c = C.highwayLine;
+          if (highway && py === 3 && gx % 8 < 3) c = C.asphaltDash; // lane line
+          // 2-LANE STREETS: faint center dashes along the travel axis
+          if (!highway) {
+            const horiz2 = roadE && roadW && !roadN && !roadS;
+            const vert2 = roadN && roadS && !roadE && !roadW;
+            if (horiz2 && py === 3 && gx % 8 < 3) c = shade(C.asphaltDash, 0.9);
+            if (vert2 && px === 3 && gy % 8 < 3) c = shade(C.asphaltDash, 0.9);
+          }
           // crosswalk bars across the entries of a downtown intersection
           if (intersection && px % 2 === 1 && (py === 1 || py === TILE_PX - 2)) c = C.crosswalk;
           put(x0 + px, y0 + py, c);
@@ -661,6 +697,42 @@ function drawTile(
         put(x0 + 6, y0 + 1, hexToRgb("#d23b3b")); // red head
         put(x0 + 1, y0 + 5, C.iconDark); // SW pole
         put(x0 + 1, y0 + 6, hexToRgb("#3cb44b")); // green head
+      } else if (
+        fronted &&
+        !highway &&
+        (roadN ? 1 : 0) + (roadS ? 1 : 0) + (roadE ? 1 : 0) + (roadW ? 1 : 0) === 3
+      ) {
+        // STOP SIGN where a side street tees into a through street
+        put(x0 + 6, y0 + 1, hexToRgb("#c8352a"));
+        put(x0 + 6, y0 + 2, C.iconDark);
+      }
+      // TRAFFIC: cars run the roads — a pure (position, tick) hash, so every
+      // client sees the same cars. Highways carry more; two directions ride
+      // the two sides of the roadway.
+      {
+        const carC = [hexToRgb("#7088b0"), hexToRgb("#b06a60"), hexToRgb("#d8d2c4"), hexToRgb("#5a7340")];
+        const tick2 = frameTick >> 1;
+        const drawCar = (cx2: number, cy2: number, horiz2: boolean, col: RGB): void => {
+          put(cx2, cy2, col);
+          put(horiz2 ? cx2 + 1 : cx2, horiz2 ? cy2 : cy2 + 1, shade(col, 0.8));
+        };
+        const spacing = highway ? 22 : 44;
+        if (roadE || roadW) {
+          // eastbound on the lower half, westbound on the upper
+          const posE = (tx * TILE_PX + tick2) % (spacing * TILE_PX);
+          if (posE < TILE_PX && pixHash(ty, 1, 83) % 3 !== 0) {
+            drawCar(x0 + posE, y0 + 5, true, carC[pixHash(ty, posE >> 3, 84) % 4]!);
+          }
+          const posW = (tx * TILE_PX - tick2 + spacing * TILE_PX * 8) % (spacing * TILE_PX);
+          if (posW < TILE_PX && pixHash(ty, 2, 83) % 3 === 0) {
+            drawCar(x0 + posW, y0 + 2, true, carC[pixHash(ty, posW >> 3, 85) % 4]!);
+          }
+        } else if (roadN || roadS) {
+          const posS = (ty * TILE_PX + tick2) % (spacing * TILE_PX);
+          if (posS < TILE_PX && pixHash(tx, 3, 83) % 3 === 0) {
+            drawCar(x0 + 5, y0 + posS, false, carC[pixHash(tx, posS >> 3, 86) % 4]!);
+          }
+        }
       }
       return;
     }
@@ -800,8 +872,15 @@ function drawTile(
         const roadS = ty < w.height - 1 && w.terrain[t + w.width] === Terrain.Road;
         const roadE = tx < w.width - 1 && w.terrain[t + 1] === Terrain.Road;
         const roadW = tx > 0 && w.terrain[t - 1] === Terrain.Road;
-        const runH = roadN || roadS;
-        const runV = (roadE || roadW) && !runH;
+        // utility lines belong on the RURAL side of town: one verge line,
+        // north of east-west roads / west of north-south roads, and only
+        // where no lots front the street (keeps town streets uncluttered)
+        let ruralVerge = true;
+        for (const n of [t - 1, t + 1, t - w.width, t + w.width]) {
+          if (n >= 0 && n < w.terrain.length && w.terrain[n] === Terrain.Citizen) ruralVerge = false;
+        }
+        const runH = roadS && ruralVerge; // pole line north of the road
+        const runV = roadE && !roadS && ruralVerge; // west of the road
         if (runH || runV) {
           const pole = runH ? tx % 2 === 0 : ty % 2 === 0;
           // the WIRE sags in a U between poles: attached high at the
@@ -845,17 +924,33 @@ function drawTile(
     case Terrain.Field: {
       const fenceN = ty > 0 && w.terrain[t - w.width] !== Terrain.Field;
       const fenceW = tx > 0 && w.terrain[t - 1] !== Terrain.Field;
+      // CROP VARIETY: each parcel (coarse 6-tile cell) rolls its planting —
+      // corn gold, soy green, pale wheat, or fallow brown
+      const parcel = pixHash((tx / 6) | 0, (ty / 6) | 0, 97) % 4;
+      const cropA =
+        parcel === 0 ? C.cropGold : parcel === 1 ? hexToRgb("#8aa54e") : parcel === 2 ? hexToRgb("#d8c88e") : hexToRgb("#a08458");
+      const cropB =
+        parcel === 0 ? C.cropRow : parcel === 1 ? hexToRgb("#71893c") : parcel === 2 ? hexToRgb("#c2b076") : hexToRgb("#8a7048");
       for (let py = 0; py < TILE_PX; py++) {
         for (let px = 0; px < TILE_PX; px++) {
           const gy = ty * TILE_PX + py;
           const row = gy % 3 === 0;
-          let c = row ? C.cropRow : C.cropGold;
+          let c = row ? cropB : cropA;
           if (pixHash(tx * TILE_PX + px, gy, 41) % 31 === 0) c = shade(c, 1.12);
           // fence posts along the field boundary
           if ((fenceN && py === 0 && px % 3 === 0) || (fenceW && px === 0 && py % 3 === 0))
             c = C.fence;
           put(x0 + px, y0 + py, c);
         }
+      }
+      // HAY BALES dot the harvested (fallow) parcels
+      if (parcel === 3 && pixHash(t, 6, 98) % 5 === 0) {
+        const bx2 = x0 + 2 + (pixHash(t, 7, 98) % 4);
+        const by2 = y0 + 2 + (pixHash(t, 8, 98) % 4);
+        put(bx2, by2, hexToRgb("#d8c88e"));
+        put(bx2 + 1, by2, hexToRgb("#c2b076"));
+        put(bx2, by2 + 1, hexToRgb("#c2b076"));
+        put(bx2 + 1, by2 + 1, C.shadow);
       }
       // Visitors press crop circles into the fields they're colonizing: a ring
       // of flattened (darkened) crop with a swirl center.
@@ -906,6 +1001,16 @@ function drawTile(
           const glint = pixHash(gx, gy, 31) % 41 === 0;
           put(x0 + px, y0 + py, glint ? C.waterGlint : ripple ? C.waterRipple : C.waterDeep);
         }
+      }
+      // shallows dressing: reeds along the shore, the odd rock breaking water
+      if ((shoreN || shoreS || shoreW || shoreE) && pixHash(t, 5, 37) % 4 === 0) {
+        const rx2 = x0 + 2 + (pixHash(t, 6, 37) % 4);
+        const ry2 = shoreN ? y0 + 1 : shoreS ? y0 + 6 : y0 + 2 + (pixHash(t, 7, 37) % 4);
+        put(rx2, ry2, C.bush); // reeds
+        put(rx2, ry2 + 1 > y0 + 7 ? y0 + 7 : ry2 + 1, shade(C.bush, 0.8));
+      } else if (pixHash(t, 8, 37) % 23 === 0) {
+        put(x0 + 3, y0 + 3, C.rock);
+        put(x0 + 4, y0 + 3, C.rockShade);
       }
       return;
     }
@@ -1017,14 +1122,20 @@ function drawTile(
 
   // SIDEWALKS: a concrete strip along every road-facing lot edge — the
   // continuous line a real street front has. Drawn on all citizen tiles so
-  // the sidewalk runs unbroken past yards and homes alike.
+  // the sidewalk runs unbroken past yards and homes alike. Downtown and the
+  // strip get STREETLIGHTS on a steady rhythm.
   if (!apostate) {
+    const lit = district === 3 || district === 6;
     const roadSide = (n: number): boolean =>
       n >= 0 && n < w.terrain.length && w.terrain[n] === Terrain.Road;
     if (ty > 0 && roadSide(t - w.width)) {
       for (let px = 0; px < TILE_PX; px++) {
         put(x0 + px, y0, C.sidewalk);
         put(x0 + px, y0 + 1, px % 4 === 0 ? shade(C.sidewalk, 0.9) : C.sidewalk);
+      }
+      if (lit && tx % 4 === 1) {
+        put(x0 + 1, y0 + 1, C.iconDark); // lamp post
+        put(x0 + 1, y0, C.windowLit); // warm head
       }
     }
     if (ty < w.height - 1 && roadSide(t + w.width)) {
@@ -1056,13 +1167,45 @@ function drawTile(
   } else if (pop >= 3) {
     drawVerge(w, t, tx, ty, x0, y0, district, put); // driveway/walk + street tree
     if (district === 5) drawTrailerHome(x0, y0, t, put); // trailer fringe (§2)
-    else drawHouse(x0, y0, district, t, put, detail);
+    else drawHouse(x0, y0, district, t, put, detail, frameTick);
   } else if (pop >= 1) {
-    // garden: a few flower dots on the open ground
-    for (let i = 0; i < 3; i++) {
-      const h = pixHash(t, i, 7);
-      put(x0 + 1 + (h % 6), y0 + 1 + ((h >> 4) % 6), i === 0 ? C.flowerW : C.flowerY);
+    // BACKYARD LIFE (§2 rev. 4): block interiors are the town's backyards —
+    // sheds, the odd above-ground pool, vegetable rows, and back fences
+    // between neighbors. Variety by pure tile hash.
+    const roll = pixHash(t, 4, 91) % 10;
+    if (roll < 2) {
+      // garden shed with a shadow
+      put(x0 + 5, y0 + 5, C.shadow);
+      put(x0 + 3, y0 + 2, hexToRgb("#8a847a"));
+      put(x0 + 4, y0 + 2, hexToRgb("#8a847a"));
+      put(x0 + 3, y0 + 3, hexToRgb("#9a948a"));
+      put(x0 + 4, y0 + 3, hexToRgb("#9a948a"));
+      put(x0 + 3, y0 + 4, C.door);
+    } else if (roll === 2) {
+      // above-ground pool
+      put(x0 + 3, y0 + 3, hexToRgb("#7fc4e8"));
+      put(x0 + 4, y0 + 3, hexToRgb("#9fd4f0"));
+      put(x0 + 3, y0 + 4, hexToRgb("#9fd4f0"));
+      put(x0 + 4, y0 + 4, hexToRgb("#7fc4e8"));
+      put(x0 + 2, y0 + 3, C.crosswalk); // rim
+      put(x0 + 5, y0 + 4, C.crosswalk);
+    } else if (roll < 6) {
+      // vegetable garden rows
+      for (let gy2 = 2; gy2 <= 5; gy2 += 2) {
+        for (let gx2 = 2; gx2 <= 5; gx2++) put(x0 + gx2, y0 + gy2, gy2 === 2 ? C.bush : C.cropRow);
+      }
+    } else {
+      // flowers on the open ground
+      for (let i = 0; i < 3; i++) {
+        const h = pixHash(t, i, 7);
+        put(x0 + 1 + (h % 6), y0 + 1 + ((h >> 4) % 6), i === 0 ? C.flowerW : C.flowerY);
+      }
     }
+    // back fence between adjacent interior yards (west/north seams)
+    const yard = (n: number): boolean =>
+      n >= 0 && n < w.terrain.length && w.terrain[n] === Terrain.Citizen && w.lot[n] === 0 && w.pop[n]! > 0 && w.pop[n]! < 3;
+    if (tx > 0 && yard(t - 1)) for (let fy = 1; fy < TILE_PX; fy += 2) put(x0, y0 + fy, C.fence);
+    if (ty > 0 && yard(t - w.width)) for (let fx = 1; fx < TILE_PX; fx += 2) put(x0 + fx, y0, C.fence);
   }
 }
 
@@ -1493,11 +1636,9 @@ function castShadow(x0: number, y0: number, put: Put, w = 6): void {
 }
 
 /**
- * The verge between a house and the street it fronts: a short driveway leading
- * to the curb and, on about half the lots, a street tree planted on the
- * grass strip. Lined-up street trees and driveways are what make a residential
- * block read as a neighbourhood rather than scattered boxes. Drawn under the
- * house body so the house always sits on top.
+ * Street furniture on a house lot's road frontage (§2 rev. 4): NO driveway
+ * blobs — the lawn runs to the sidewalk. Instead: street trees at a regular
+ * civic rhythm, a fire hydrant every few lots, and a mailbox at the curb.
  */
 function drawVerge(
   w: World,
@@ -1509,61 +1650,34 @@ function drawVerge(
   district: number,
   put: Put,
 ): void {
-  const kindAt = (n: number): number =>
-    n >= 0 && n < w.terrain.length ? w.terrain[n]! : -1;
-  const isWay = (n: number): boolean => {
-    const k = kindAt(n);
-    return k === Terrain.Road || k === Terrain.Dirt || k === Terrain.Path;
-  };
-  const south = isWay(t + w.width);
-  const north = ty > 0 && isWay(t - w.width);
-  const east = tx < w.width - 1 && isWay(t + 1);
-  const west = tx > 0 && isWay(t - 1);
-  // driveway to a road (paved downtown/college, gravel rural); footpath
-  // frontage gets a stone walk instead — every home connects visibly (§2)
-  const wayTile = south ? t + w.width : north ? t - w.width : east ? t + 1 : west ? t - 1 : -1;
-  const wayKind = wayTile >= 0 ? kindAt(wayTile) : -1;
-  const drive =
-    wayKind === Terrain.Path
-      ? C.pathStone
-      : district === 3 || district === 2 || district === 8 || district === 6
-        ? C.asphalt
-        : C.dirt;
-  if (south) {
-    put(x0 + 5, y0 + 7, drive);
-    put(x0 + 4, y0 + 7, drive);
-    put(x0 + 5, y0 + 6, drive); // reach the door, not just the curb
-    put(x0 + 4, y0 + 6, drive);
-  } else if (north) {
-    put(x0 + 5, y0, drive);
-    put(x0 + 4, y0, drive);
-    put(x0 + 5, y0 + 1, drive);
-    put(x0 + 4, y0 + 1, drive);
-  } else if (east) {
-    put(x0 + 7, y0 + 5, drive);
-    put(x0 + 7, y0 + 4, drive);
-    put(x0 + 6, y0 + 5, drive);
-    put(x0 + 6, y0 + 4, drive);
-  } else if (west) {
-    put(x0, y0 + 5, drive);
-    put(x0, y0 + 4, drive);
-    put(x0 + 1, y0 + 5, drive);
-    put(x0 + 1, y0 + 4, drive);
+  void district;
+  const isRoad = (n: number): boolean =>
+    n >= 0 && n < w.terrain.length && w.terrain[n] === Terrain.Road;
+  const south = isRoad(t + w.width);
+  const north = ty > 0 && isRoad(t - w.width);
+  const east = tx < w.width - 1 && isRoad(t + 1);
+  const west = tx > 0 && isRoad(t - 1);
+  if (!(south || north || east || west)) return;
+  const edgeY = south ? y0 + 7 : north ? y0 : y0 + 4;
+  const edgeX = east ? x0 + 7 : west ? x0 : x0 + 1;
+  // street trees on a regular rhythm — every 3rd frontage lot
+  const along = south || north ? tx : ty;
+  if (along % 3 === 0) {
+    put(edgeX, edgeY, C.canopyDark);
+    put(edgeX, Math.max(y0, edgeY - 1), C.canopy);
   }
-  // a parked car on some road driveways
-  if ((south || north) && wayKind === Terrain.Road && pixHash(t, 13, 71) % 3 === 0) {
-    const cc = pixHash(t, 14, 71) % 3;
-    const car = cc === 0 ? hexToRgb("#7088b0") : cc === 1 ? hexToRgb("#b06a60") : hexToRgb("#d8d2c4");
-    const cy2 = south ? y0 + 6 : y0 + 1;
-    put(x0 + 4, cy2, car);
-    put(x0 + 5, cy2, shade(car, 0.85));
+  // fire hydrant every ~6 lots (squat red pixel by the curb)
+  if (along % 6 === 2) {
+    const hx = south || north ? x0 + 6 : edgeX;
+    const hy = south ? y0 + 6 : north ? y0 + 1 : y0 + 6;
+    put(hx, hy, hexToRgb("#d23b3b"));
   }
-  // a street tree on the verge of about half the road-fronting lots
-  if ((south || north || east || west) && pixHash(t, 9, 67) % 2 === 0) {
-    const typ = south ? y0 + 7 : north ? y0 : y0 + 4;
-    const txp = east ? x0 + 7 : west ? x0 : x0 + 1;
-    put(txp, typ, C.canopyDark);
-    put(txp, typ - 1 < y0 ? y0 : typ - 1, C.canopy);
+  // mailbox at the curb of the remaining lots
+  if (along % 3 === 1) {
+    const mx = south || north ? x0 + 2 : edgeX;
+    const my = south ? y0 + 6 : north ? y0 + 1 : y0 + 2;
+    put(mx, my, C.trunk);
+    put(mx, my - 1 < y0 ? y0 : my - 1, C.rockShade);
   }
 }
 
@@ -1575,6 +1689,7 @@ function drawHouse(
   t: number,
   put: Put,
   detail: Detail | null = null,
+  frameTick = 0,
 ): void {
   castShadow(x0, y0, put);
   const roof = ROOFS[district % ROOFS.length]!;
@@ -1596,6 +1711,12 @@ function drawHouse(
   const chimX = flip ? 5 : 2;
   put(x0 + chimX, y0, shade(roof, 0.6));
   put(x0 + chimX, y0 + 1, shade(roof, 0.6));
+  // CHIMNEY SMOKE: a lazy animated wisp on some homes (pure tick hash)
+  if (frameTick > 0 && pixHash(t, 6, 59) % 3 === 0) {
+    const phase = ((frameTick >> 3) + t) % 4;
+    const sy = y0 - 1 - (phase >> 1);
+    if (sy >= 0) put(x0 + chimX + (phase % 2), sy, hexToRgb("#c9c4bc"));
+  }
   const doorX = flip ? 2 : 5;
   put(x0 + doorX, y0 + 5, C.door);
   put(x0 + doorX, y0 + 6, C.door);

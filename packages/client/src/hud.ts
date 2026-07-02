@@ -32,6 +32,11 @@ import {
   streetAt,
   householdName,
   memberName,
+  propertyCost,
+  propertyStats,
+  computeCivicControl,
+  CIVIC_LOTS,
+  CIVIC_EFFECTS,
   KIT,
   type SimState,
   type PlayerState,
@@ -43,7 +48,8 @@ export type PlacementKind =
   | { mode: "build"; building: string; key: string }
   | { mode: "strike"; strike: string }
   | { mode: "ritual"; ritual: string }
-  | { mode: "ability"; ability: string };
+  | { mode: "ability"; ability: string }
+  | { mode: "property" };
 
 /** The slice of the map camera the HUD needs (minimap jump + viewport rect). */
 export interface Camera {
@@ -155,6 +161,8 @@ const LOT_NAMES: Record<number, string> = {
   [Lot.Playground]: "the playground",
   [Lot.Dock]: "the boat dock",
   [Lot.Greenhouse]: "greenhouse",
+  [Lot.HighSchool]: "the high school",
+  [Lot.Warehouse]: "warehouse",
 };
 const LANDMARK_NAMES: Record<number, string> = {
   [Landmark.RadioTower]: "the radio tower",
@@ -169,6 +177,9 @@ const TERRAIN_NAMES: Record<number, string> = {
   [Terrain.Grass]: "open country",
   [Terrain.Field]: "crop fields",
   [Terrain.Dirt]: "a dirt lane",
+  [Terrain.Path]: "a footpath",
+  [Terrain.Orchard]: "an orchard",
+  [Terrain.Pasture]: "pasture",
 };
 
 /** Escape user-supplied text before it touches innerHTML (XSS guard). */
@@ -279,6 +290,7 @@ interface ElCache {
   docBadge: HTMLElement;
   players: HTMLElement;
   feed: HTMLElement;
+  civics: HTMLElement;
   [k: string]: HTMLElement;
 }
 
@@ -487,6 +499,17 @@ export class Hud {
       b.appendChild(cost);
       builds.appendChild(b);
     }
+    // BUY LAND (§18 rev.): claim a parcel of open country to expand onto
+    const land = this.btn("Buy Land", "N", () => {
+      if (this.ui.placement?.mode === "property") this.arm(null);
+      else this.arm({ mode: "property" });
+    });
+    land.dataset.land = "1";
+    land.title = "Buy Land — claim a parcel of open country for your compound to grow into (click, then click open ground)";
+    const landCost = document.createElement("span");
+    landCost.className = "cost";
+    land.appendChild(landCost);
+    builds.appendChild(land);
     this.el.builds = builds;
 
     const doc = document.createElement("button");
@@ -538,7 +561,14 @@ export class Hud {
     this.chatIn = chatIn;
     window.addEventListener("keydown", this.focusChatKey);
 
-    right.append(players, feed, chatIn);
+    // CIVICS: the key buildings and who holds them (§13 rev.) — click one to
+    // jump the camera there and plan the takeover.
+    const civicsBox = document.createElement("div");
+    civicsBox.className = "fk-grp";
+    civicsBox.innerHTML = `<h4>Key Buildings</h4>`;
+    this.el.civics = civicsBox;
+
+    right.append(players, civicsBox, feed, chatIn);
     this.root.appendChild(right);
 
     // place-identity chip (bottom-left): what & where the cursor is over.
@@ -781,6 +811,34 @@ export class Hud {
       if (costEl) costEl.textContent = fmtMoney(cost);
     });
 
+    // BUY LAND: live escalating price + affordability
+    {
+      const landBtn = this.el.builds.querySelector<HTMLElement>("[data-land]");
+      if (landBtn) {
+        const cost = toInt(propertyCost(me, this.g.balance));
+        const armed = this.ui.placement?.mode === "property";
+        landBtn.classList.toggle("arm", armed);
+        landBtn.classList.toggle("cant", usd < cost && !armed);
+        const costEl = landBtn.querySelector<HTMLElement>(".cost");
+        if (costEl) costEl.textContent = fmtMoney(cost);
+      }
+    }
+
+    // CROWDING (§18 rev.): flag the follower readout when land runs out
+    {
+      const stats = propertyStats(s, me.id);
+      const crowded = stats.tiles > 0 && stats.free < 3;
+      if (crowded) {
+        this.el.followers.textContent += " ⚠";
+        this.el.followers.title = "Crowded! Your land is full — buy property (N) or your flock stops growing.";
+      } else {
+        this.el.followers.title = `${stats.free} free parcel tiles`;
+      }
+    }
+
+    // CIVICS panel: who holds the key buildings (refresh ~1/s)
+    if (s.tick % 10 === 0) this.renderCivics(s);
+
     // doctrine badge
     const pts = doctrinePointsAvailable(me);
     (this.el.docBadge as HTMLElement).style.display = pts > 0 ? "flex" : "none";
@@ -914,6 +972,50 @@ export class Hud {
           (v.h / w.height) * H,
         );
       }
+    }
+  }
+
+  /** Key-buildings panel (§13 rev.): holder swatch + effect, click to jump. */
+  private renderCivics(s: SimState): void {
+    const w = s.world;
+    const control = computeCivicControl(s);
+    const NAMES: Record<number, string> = {
+      [Lot.Sheriff]: "Police",
+      [Lot.School]: "Elementary",
+      [Lot.HighSchool]: "High School",
+      [Lot.Supermarket]: "Grocery",
+      [Lot.Church]: "Church",
+    };
+    let html = `<h4>Key Buildings</h4>`;
+    for (const lot of CIVIC_LOTS) {
+      const holder = control.get(lot) ?? 0;
+      const mine = holder === this.g.playerId;
+      const holderName =
+        holder === 0
+          ? ""
+          : esc(this.g.players.find((p) => p.id === holder)?.name ?? `Cult #${holder}`);
+      const sw =
+        holder === 0
+          ? `<span class="sw" style="background:#4a4440"></span>`
+          : `<span class="sw" style="background:${colorForPlayer(holder)}"></span>`;
+      html += `<div class="fk-prow" data-civic="${lot}" style="cursor:pointer;pointer-events:auto;${mine ? "background:rgba(200,152,88,.18)" : ""}" title="${esc(CIVIC_EFFECTS[lot] ?? "")}">
+        ${sw}<span class="nm">${NAMES[lot] ?? "?"}</span>
+        <span style="opacity:.6;font-size:10px">${holder === 0 ? "unclaimed" : holderName}</span></div>`;
+    }
+    if (this.el.civics.dataset.h !== html) {
+      this.el.civics.innerHTML = html;
+      this.el.civics.dataset.h = html;
+      this.el.civics.querySelectorAll<HTMLElement>("[data-civic]").forEach((row) => {
+        row.onclick = () => {
+          const lot = Number(row.dataset.civic);
+          for (let t = 0; t < w.lot.length; t++) {
+            if (w.lot[t] === lot) {
+              this.camera?.centerOn(t);
+              break;
+            }
+          }
+        };
+      });
     }
   }
 

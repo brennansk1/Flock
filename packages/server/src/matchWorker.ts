@@ -132,13 +132,13 @@ export class MatchWorker {
     botCount = 0,
     foundingTicks = 200,
     churchCount = 0,
-    capacity = 20,
+    capacity = 4,
   ) {
     this.balanceRaw = balanceRaw;
     this.balance = loadBalance(balanceRaw);
     this.seed = seed;
     this.matchId = `m_${(seed >>> 0).toString(36)}`;
-    this.capacity = capacity;
+    this.capacity = Math.min(4, capacity); // hard cap: 4 cults per town (§18 rev.)
     // Separate RNG streams: seedSlice feeds the sim's randomness through the
     // turn stream (replays stay pure intent logs, §33); botRng drives Drifter
     // decisions, which also enter the turn stream as plain intents.
@@ -147,7 +147,15 @@ export class MatchWorker {
     this.sim = createSim({
       seed,
       balance: this.balance,
-      world: generateWorld(seed, worldSize, worldSize),
+      world: generateWorld(seed, worldSize, worldSize, {
+        // user-configurable biomes (§2 rev. 3): FLOCK_BIOMES="desert,forest",
+        // "none" for pure temperate; unset = both accents enabled
+        biomes:
+          process.env.FLOCK_BIOMES === "none"
+            ? []
+            : ((process.env.FLOCK_BIOMES?.split(",").map((b) => b.trim()) as ("desert" | "forest")[] | undefined) ??
+              ["desert", "forest"]),
+      }),
       spawns: [],
       foundingTicks, // FOUNDING spawn-pick window (§18)
     });
@@ -468,16 +476,32 @@ function spawnTileFor(w: World, index: number): number {
   const x0 = Math.min(w.width - 1, Math.max(0, cx + Math.round(Math.cos(angle) * r)));
   const y0 = Math.min(w.height - 1, Math.max(0, cy + Math.round(Math.sin(angle) * r)));
 
-  // spiral out to the nearest citizen tile so spawns never land in a lake
+  // Property start (§18 rev.): spawn on OPEN LAND with the town in reach —
+  // spiral to the nearest unclaimed grass tile that has citizen lots within
+  // compound-outreach range, so the first fronts can actually press something.
+  const citizenNear = (t: number, reach: number): boolean => {
+    const tx = t % w.width;
+    const ty = (t / w.width) | 0;
+    for (let dy = -reach; dy <= reach; dy++) {
+      const y = ty + dy;
+      if (y < 0 || y >= w.height) continue;
+      for (let dx = -reach; dx <= reach; dx++) {
+        const x = tx + dx;
+        if (x < 0 || x >= w.width) continue;
+        if (w.terrain[y * w.width + x] === Terrain.Citizen) return true;
+      }
+    }
+    return false;
+  };
   for (let radius = 0; radius < Math.max(w.width, w.height); radius++) {
     for (let dy = -radius; dy <= radius; dy++) {
       for (let dx = -radius; dx <= radius; dx++) {
         if (Math.max(Math.abs(dx), Math.abs(dy)) !== radius) continue;
         const x = x0 + dx;
         const y = y0 + dy;
-        if (x < 0 || y < 0 || x >= w.width || y >= w.height) continue;
+        if (x < 2 || y < 2 || x >= w.width - 2 || y >= w.height - 2) continue;
         const t = y * w.width + x;
-        if (w.terrain[t] === Terrain.Citizen) return t;
+        if (w.terrain[t] === Terrain.Grass && w.property[t] === 0 && citizenNear(t, 9)) return t;
       }
     }
   }

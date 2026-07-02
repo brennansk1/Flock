@@ -28,6 +28,7 @@ import {
   Terrain,
   TileState,
   TileFlag,
+  Lot,
   PROGRESS_STRIDE,
   type PlayerState,
   type SimState,
@@ -37,6 +38,7 @@ import {
 } from "./types.js";
 import { areAllied, commitBetrayal, grudgeMult } from "./diplomacy.js";
 import { fortMultAt, compoundDefenseAt, destroyBuildingsOnTile } from "./buildings.js";
+import { computeCivicControl, controlsCivic } from "./civics.js";
 import {
   r0Mult,
   creepMult,
@@ -251,6 +253,35 @@ function picketMult(s: SimState, attacker: PlayerId, t: TileId): Fixed {
 export function resolveConversion(s: SimState, b: Balance): void {
   const w = s.world;
   const dt = b.dt;
+  const civics = computeCivicControl(s); // key-building takeovers (§13 rev.)
+
+  // COMPOUND OUTREACH (§4 rev.): missionaries walk out from an operational
+  // compound, so fronts may press any tile within the outreach radius of one —
+  // this is what makes the wilderness property start (and targeted plays
+  // against specific buildings) work before territory adjacency exists.
+  const outreach = new Map<PlayerId, TileId[]>();
+  for (const bd of s.buildings) {
+    if (bd.type !== "compound" || bd.buildTicksLeft > 0 || bd.disabledTicks > 0) continue;
+    let list = outreach.get(bd.player);
+    if (!list) {
+      list = [];
+      outreach.set(bd.player, list);
+    }
+    list.push(bd.tile);
+  }
+  const outR = b.property.outreachRadius;
+  const withinOutreach = (pid: PlayerId, t: TileId): boolean => {
+    const list = outreach.get(pid);
+    if (!list) return false;
+    const x = t % w.width;
+    const y = (t / w.width) | 0;
+    for (const c of list) {
+      const dx = (c % w.width) - x;
+      const dy = ((c / w.width) | 0) - y;
+      if (dx * dx + dy * dy <= outR * outR) return true;
+    }
+    return false;
+  };
 
   // ---- Pass 1: gather each player's contested tiles from their fronts. ----
   const work: ContestedWork[] = [];
@@ -273,7 +304,7 @@ export function resolveConversion(s: SimState, b: Balance): void {
         if (tileOwner !== NEUTRAL && areAllied(s, p.id, tileOwner)) {
           commitBetrayal(s, p, tileOwner);
         }
-        if (!adjacentToOwned(w, t, p.id)) continue;
+        if (!adjacentToOwned(w, t, p.id) && !withinOutreach(p.id, t)) continue;
         seen.add(t);
       }
     }
@@ -341,6 +372,8 @@ export function resolveConversion(s: SimState, b: Balance): void {
           res = mul(res, coeffsOf(b, defender).retain);
           res = mul(res, faithCombatMod(defender.faith));
           res = mul(res, homeDefenseMult(defender)); // B2 Uniforms (§10)
+          // Grocery takeover: control the food, keep the flock (§13 rev.)
+          if (controlsCivic(civics, Lot.Supermarket, defender.id)) res = mul(res, b.civics.groceryDefenseMult);
           res = mul(res, glowMult(s, defender, t)); // Radiant Glow (§11.2)
           res = mul(res, stanceDefenseMult(b, defender)); // Tend +20% / Crusade −25% (§5)
           if (defender.judasTicks > 0) res = mul(res, fp(0.5)); // JUDAS shock (§16)
@@ -366,7 +399,9 @@ export function resolveConversion(s: SimState, b: Balance): void {
     const p = playerById.get(owner);
     if (!p || !p.alive) continue;
     const r0 = mul(coeffsOf(b, p).r0, r0Mult(p));
-    const cm = creepMult(p); // T2 Whisper Network +60% (§10)
+    let cm = creepMult(p); // T2 Whisper Network +60% (§10)
+    // Elementary-school takeover: the kids carry the word home (§13 rev.)
+    if (controlsCivic(civics, Lot.School, owner)) cm = mul(cm, b.civics.schoolCreepMult);
     const creepTo = (n: TileId, roadBonus: boolean): void => {
       if (w.owner[n] !== NEUTRAL || !convertible(w, n)) return;
       const dc = w.districtCoeffs[w.district[n]!] ?? { conv: ONE, retain: ONE, income: ONE };

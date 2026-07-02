@@ -64,14 +64,14 @@ export function districtCoeffTable(): DistrictCoeffs[] {
 /** Household size ranges per district: [min, max] residents on a populated lot. */
 const POP_RANGE: Record<number, [number, number]> = {
   [Districts.None]: [0, 0],
-  [Districts.Suburbs]: [3, 6],
-  [Districts.College]: [4, 9],
-  [Districts.Downtown]: [6, 12],
-  [Districts.OldTown]: [2, 5],
-  [Districts.Trailer]: [1, 4],
-  [Districts.Commercial]: [3, 7], // clerks + upstairs flats
-  [Districts.Industrial]: [2, 5], // shift crews
-  [Districts.ResHigh]: [8, 14], // apartment blocks
+  [Districts.Suburbs]: [4, 8],
+  [Districts.College]: [5, 10],
+  [Districts.Downtown]: [7, 13],
+  [Districts.OldTown]: [3, 6],
+  [Districts.Trailer]: [2, 5],
+  [Districts.Commercial]: [4, 8], // clerks + upstairs flats
+  [Districts.Industrial]: [3, 6], // shift crews
+  [Districts.ResHigh]: [9, 15], // apartment blocks
 };
 
 /** Chance (in %) that a town lot is an empty yard/garden (low pop). */
@@ -137,7 +137,7 @@ export function generateWorld(seed: number, width: number, height: number, opts:
     pruneRoadStubs(w); // erase whatever still leads nowhere
     pruneAllDeadEnds(w); // …including dirt lanes and orphaned spurs
     rollLots(w, rng);
-    ensureHomeAccess(w); // footpaths: no home without a way to the street
+    enforceRoadFrontage(w); // houses FRONT the street; interiors are yards
     infillToFloor(w, rng); // yards become modest homes until the pop floor holds
 
     if (countPopulated(w) >= MIN_POPULATED_TILES && countTotalPop(w) >= MIN_TOTAL_POP) break;
@@ -192,69 +192,26 @@ function paintBiomes(w: World, rng: RngState, town: TownShape, biomes: BiomeName
 }
 
 /**
- * No home without a way to the street (§2 rev. 3): every populated house lot
- * must touch a Road/Dirt/Path tile. Block interiors get FOOTPATHS — we BFS
- * from each cut-off home through yards and grass to the street net and pave
- * the corridor as Terrain.Path (a sidewalk). A home nothing can reach
- * downgrades to a garden, so the invariant is absolute.
+ * Houses FRONT the street (§2 rev. 4): a lot only carries a full household if
+ * it touches a Road orthogonally — like a real plat, homes line the block
+ * edges and the block interiors are backyards. Anything deeper is demoted to
+ * a yard/garden. (The old footpath corridors are gone: no more gray path
+ * tiles cutting through blocks.)
  */
-function ensureHomeAccess(w: World): void {
+function enforceRoadFrontage(w: World): void {
   const { width, height } = w;
-  const isWay = (t: number): boolean =>
-    w.terrain[t] === Terrain.Road || w.terrain[t] === Terrain.Dirt || w.terrain[t] === Terrain.Path;
-  const hasAccess = (t: number): boolean => {
-    const x = t % width;
-    const y = (t / width) | 0;
-    if (x > 0 && isWay(t - 1)) return true;
-    if (x < width - 1 && isWay(t + 1)) return true;
-    if (y > 0 && isWay(t - width)) return true;
-    if (y < height - 1 && isWay(t + width)) return true;
-    return false;
-  };
-  // walkable corridor tiles a footpath may pave over: yards + open grass
-  const paveable = (t: number): boolean =>
-    (w.terrain[t] === Terrain.Citizen && w.lot[t] === 0 && w.pop[t]! <= 2) ||
-    w.terrain[t] === Terrain.Grass;
-
+  const road = (t: number): boolean =>
+    t >= 0 && t < w.terrain.length && (w.terrain[t] === Terrain.Road || w.terrain[t] === Terrain.Dirt);
   for (let t = 0; t < w.terrain.length; t++) {
     if (w.terrain[t] !== Terrain.Citizen || w.pop[t]! < 3 || w.lot[t] !== 0) continue;
-    if (hasAccess(t)) continue;
-    // BFS ≤ 6 steps through paveable tiles to any way tile
-    const parent = new Map<number, number>();
-    const queue: number[] = [t];
-    const depth = new Map<number, number>([[t, 0]]);
-    let exit = -1;
-    while (queue.length > 0 && exit < 0) {
-      const c = queue.shift()!;
-      const d = depth.get(c)!;
-      if (d >= 6) continue;
-      const x = c % width;
-      const y = (c / width) | 0;
-      for (const n of [x > 0 ? c - 1 : -1, x < width - 1 ? c + 1 : -1, y > 0 ? c - width : -1, y < height - 1 ? c + width : -1]) {
-        if (n < 0 || depth.has(n)) continue;
-        if (isWay(n)) {
-          exit = c; // c is the last paveable tile before the street
-          parent.set(n, c);
-          break;
-        }
-        if (!paveable(n)) continue;
-        depth.set(n, d + 1);
-        parent.set(n, c);
-        queue.push(n);
-      }
-    }
-    if (exit < 0) {
-      w.pop[t] = 2; // unreachable: the "home" is really a garden plot
-      continue;
-    }
-    // pave the corridor back from the exit to (but not including) the home
-    let c: number | undefined = exit;
-    while (c !== undefined && c !== t) {
-      w.terrain[c] = Terrain.Path;
-      w.pop[c] = 0;
-      w.lot[c] = 0;
-      c = parent.get(c);
-    }
+    const x = t % width;
+    const y = (t / width) | 0;
+    const fronted =
+      (x > 0 && road(t - 1)) ||
+      (x < width - 1 && road(t + 1)) ||
+      (y > 0 && road(t - width)) ||
+      (y < height - 1 && road(t + width));
+    if (!fronted) w.pop[t] = 1 + (((t * 2654435761) >>> 0) % 2); // backyard
   }
 }
 
@@ -473,6 +430,43 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
         w.lot[n] = Lot.Parking;
         w.pop[n] = 0;
         parkCount.set(key, (parkCount.get(key) ?? 0) + 1);
+        break;
+      }
+    }
+  }
+
+  // GUARANTEE: every civic anchor that should have a parking lot HAS one —
+  // if the opportunistic pass found no free lot beside it, clear one (a yard
+  // makes way, or fresh ground is paved).
+  const mustPark = [Lot.Supermarket, Lot.School, Lot.HighSchool, Lot.Sheriff, Lot.Cinema, Lot.FireStation, Lot.Factory];
+  for (const lotKind of mustPark) {
+    // does ANY tile of this lot type have an adjacent parking tile?
+    let has = false;
+    let anchor = -1;
+    for (let t = 0; t < w.lot.length && !has; t++) {
+      if (w.lot[t] !== lotKind) continue;
+      if (anchor < 0) anchor = t;
+      for (const n of [t - 1, t + 1, t - width, t + width]) {
+        if (n >= 0 && n < w.lot.length && w.lot[n] === Lot.Parking) has = true;
+      }
+    }
+    if (has || anchor < 0) continue;
+    const ax = anchor % width;
+    const ay = (anchor / width) | 0;
+    for (const [nx, ny] of [
+      [ax, ay + 1],
+      [ax + 1, ay],
+      [ax, ay - 1],
+      [ax - 1, ay],
+    ] as [number, number][]) {
+      if (nx < 1 || ny < 1 || nx >= width - 1 || ny >= w.height - 1) continue;
+      const n = ny * width + nx;
+      const tr = w.terrain[n];
+      if ((tr === Terrain.Citizen && w.lot[n] === 0) || tr === Terrain.Grass) {
+        w.terrain[n] = Terrain.Citizen;
+        if (w.district[n] === 0) w.district[n] = w.district[anchor]!;
+        w.lot[n] = Lot.Parking;
+        w.pop[n] = 0;
         break;
       }
     }
@@ -1405,7 +1399,7 @@ function infillToFloor(w: World, rng: RngState): void {
   const way = (t: number): boolean =>
     t >= 0 &&
     t < w.terrain.length &&
-    (w.terrain[t] === Terrain.Road || w.terrain[t] === Terrain.Dirt || w.terrain[t] === Terrain.Path);
+    (w.terrain[t] === Terrain.Road || w.terrain[t] === Terrain.Dirt);
   for (let t = 0; t < w.terrain.length && pop < MIN_TOTAL_POP; t++) {
     if (w.terrain[t] !== Terrain.Citizen || w.lot[t] !== 0) continue;
     // infill homes must have street/path access — never recreate orphans

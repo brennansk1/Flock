@@ -21,6 +21,7 @@ import {
   TileState,
   TileFlag,
   Landmark,
+  Lot,
   MatchStatus,
   type Building,
   type PlayerState,
@@ -64,6 +65,7 @@ import {
   stepSchism,
 } from "./diplomacy.js";
 import { pickDoctrine, titheMult, ownDissentMult, loveBombCostMult, strikeCostMult, tryAbsorbMassApostasy } from "./doctrine.js";
+import { computeCivicControl, controlsCivic } from "./civics.js";
 
 export { newPlayer } from "./player.js";
 
@@ -229,6 +231,12 @@ export function followerCap(p: PlayerState, b: Balance, s?: SimState): Fixed {
         cap = add(cap, fromInt(KIT.saucerLanding.capBonus));
       }
     }
+    // CROWDING (§18 rev.): a flock needs land. When the compound grounds run
+    // out of free parcel tiles, the cap sags until more property is bought.
+    const stats = propertyStats(s, p.id);
+    if (stats.tiles > 0 && stats.free < b.property.crowdingFreeTiles) {
+      cap = mul(cap, b.property.crowdingCapMult);
+    }
   }
   return cap;
 }
@@ -261,6 +269,103 @@ function startCooldown(p: PlayerState, key: string, ticks: number): void {
 }
 
 /** Claim a radius-`r` blob of neutral citizen tiles around `center` for `pid`. */
+/** Terrain a land parcel can claim (wilderness incl. farmland + woods). */
+function claimableTerrain(tr: number): boolean {
+  return (
+    tr === Terrain.Grass ||
+    tr === Terrain.Field ||
+    tr === Terrain.Orchard ||
+    tr === Terrain.Pasture ||
+    tr === Terrain.Woods
+  );
+}
+
+/**
+ * Claim a (2r+1)² PROPERTY parcel around `center` (§18 rev.): every claimable,
+ * unowned tile becomes the player's land; woods inside are auto-felled — the
+ * lot is cleared for construction. Returns tiles claimed.
+ */
+function claimParcel(s: SimState, pid: PlayerId, center: TileId, r: number): number {
+  const w = s.world;
+  const cx = center % w.width;
+  const cy = (center / w.width) | 0;
+  let claimed = 0;
+  for (let dy = -r; dy <= r; dy++) {
+    for (let dx = -r; dx <= r; dx++) {
+      const x = cx + dx;
+      const y = cy + dy;
+      if (x < 1 || y < 1 || x >= w.width - 1 || y >= w.height - 1) continue;
+      const t = y * w.width + x;
+      if (w.property[t] !== 0 || !claimableTerrain(w.terrain[t]!)) continue;
+      w.property[t] = pid;
+      if (w.terrain[t] === Terrain.Woods) w.terrain[t] = Terrain.Grass; // felled
+      claimed++;
+    }
+  }
+  return claimed;
+}
+
+/**
+ * Nearest tile to `want` where a parcel makes sense: claimable terrain,
+ * unowned, with at least 60% of the parcel footprint claimable. Spirals out
+ * deterministically so any honest click (or a bot's rough aim) lands.
+ */
+function findParcelAnchor(s: SimState, want: TileId, r: number): TileId {
+  const w = s.world;
+  const wx = want % w.width;
+  const wy = (want / w.width) | 0;
+  const need = Math.ceil((2 * r + 1) * (2 * r + 1) * 0.6);
+  const fits = (cx: number, cy: number): boolean => {
+    const t0 = cy * w.width + cx;
+    if (w.property[t0] !== 0 || !claimableTerrain(w.terrain[t0]!)) return false;
+    let n = 0;
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        const x = cx + dx;
+        const y = cy + dy;
+        if (x < 1 || y < 1 || x >= w.width - 1 || y >= w.height - 1) continue;
+        const t = y * w.width + x;
+        if (w.property[t] === 0 && claimableTerrain(w.terrain[t]!)) n++;
+      }
+    }
+    return n >= need;
+  };
+  for (let radius = 0; radius <= 24; radius++) {
+    for (let dy = -radius; dy <= radius; dy++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== radius) continue;
+        const x = wx + dx;
+        const y = wy + dy;
+        if (x < 2 || y < 2 || x >= w.width - 2 || y >= w.height - 2) continue;
+        if (fits(x, y)) return y * w.width + x;
+      }
+    }
+  }
+  return -1;
+}
+
+/** Escalating land price: base × growth^parcels (§18 rev.). */
+export function propertyCost(p: PlayerState, b: Balance): Fixed {
+  let cost = b.property.baseCost;
+  for (let i = 0; i < p.parcels; i++) cost = mul(cost, b.property.costGrowth);
+  return cost;
+}
+
+/** Property occupancy for the crowding rule + the client's land readout. */
+export function propertyStats(
+  s: SimState,
+  pid: PlayerId,
+): { tiles: number; used: number; free: number } {
+  const w = s.world;
+  let tiles = 0;
+  for (let t = 0; t < w.property.length; t++) if (w.property[t] === pid) tiles++;
+  let used = 0;
+  for (const bd of s.buildings) {
+    if (bd.player === pid && w.property[bd.tile] === pid) used++;
+  }
+  return { tiles, used, free: tiles - used };
+}
+
 function claimBlob(s: SimState, pid: PlayerId, center: TileId, r: number): number {
   const w = s.world;
   const cx = center % w.width;
@@ -592,14 +697,66 @@ export function applyIntent(s: SimState, intent: Intent, b: Balance): void {
       break;
 
     case IntentType.SPAWN: {
-      // FOUNDING phase (§18): claim the starting blob around the picked tile.
-      // The blob's residents are your first congregation.
+      // FOUNDING (§18 rev.): the cult BUYS PROPERTY in the open country —
+      // a parcel of land outside town, cleared of trees, with the First
+      // Compound already standing and the founding congregation bused in
+      // (start_followers). From there it's conversion warfare.
       if (p.spawned) break;
-      const claimed = claimBlob(s, p.id, intent.tile, 3);
-      if (claimed > 0) {
-        p.ownedTiles += claimed;
-        p.spawned = true;
+      const r = b.property.parcelRadius;
+      const anchor = findParcelAnchor(s, intent.tile, r);
+      if (anchor < 0) {
+        // degenerate world with no open country anywhere near (hand-built
+        // test grids): fall back to the classic congregation-blob founding
+        const claimed = claimBlob(s, p.id, intent.tile, 3);
+        if (claimed > 0) {
+          p.ownedTiles += claimed;
+          p.spawned = true;
+        }
+        break;
       }
+      claimParcel(s, p.id, anchor, r);
+      p.parcels = 1;
+      s.buildings.push({
+        id: s.nextEntityId++,
+        player: p.id,
+        type: "compound",
+        tile: anchor,
+        buildTicksLeft: 0, // the First Compound comes with the land (§3.1)
+        disabledTicks: 0,
+      });
+      carveDirtLane(s.world, anchor); // pilgrims need a way in
+      p.spawned = true;
+      break;
+    }
+
+    case IntentType.BUY_PROPERTY: {
+      // Expansion land (§18 rev.): escalating price, must adjoin the empire.
+      const w = s.world;
+      const t = intent.tile;
+      if (t < 0 || t >= w.property.length) break;
+      if (w.property[t] !== 0 || !claimableTerrain(w.terrain[t]!)) break;
+      // linked expansion: within reach of existing property or a building
+      const maxD = b.property.maxLinkDist;
+      const tx = t % w.width;
+      const ty2 = (t / w.width) | 0;
+      let linked = false;
+      for (let dy = -maxD; dy <= maxD && !linked; dy++) {
+        const y = ty2 + dy;
+        if (y < 0 || y >= w.height) continue;
+        for (let dx = -maxD; dx <= maxD && !linked; dx++) {
+          const x = tx + dx;
+          if (x < 0 || x >= w.width) continue;
+          if (w.property[y * w.width + x] === p.id) linked = true;
+        }
+      }
+      if (!linked) break;
+      const cost = propertyCost(p, b);
+      if (p.usd < cost) break;
+      const anchor = findParcelAnchor(s, t, b.property.parcelRadius);
+      if (anchor < 0) break;
+      p.usd = sub(p.usd, cost);
+      claimParcel(s, p.id, anchor, b.property.parcelRadius);
+      p.parcels++;
       break;
     }
 
@@ -637,9 +794,9 @@ export function applyIntent(s: SimState, intent: Intent, b: Balance): void {
       const t = intent.tile;
       if (t < 0 || t >= w.owner.length) break;
       const onOwnedLot = w.owner[t] === p.id && w.terrain[t] === Terrain.Citizen;
-      const inWilderness =
-        (w.terrain[t] === Terrain.Grass || w.terrain[t] === Terrain.Field) &&
-        nearOwnTerritory(s, p.id, t, 10);
+      // Wilderness construction happens on YOUR LAND (§18 rev.): the tile must
+      // be property you bought. Woods on the lot are felled by the build.
+      const inWilderness = claimableTerrain(w.terrain[t]!) && w.property[t] === p.id;
       if (!onOwnedLot && !inWilderness) break;
       if (s.buildings.some((bd) => bd.tile === t)) break; // 1 per tile (§6)
       const cost = buildingCost(s, p.id, type);
@@ -654,7 +811,13 @@ export function applyIntent(s: SimState, intent: Intent, b: Balance): void {
         disabledTicks: 0,
       });
       if (inWilderness) {
-        w.terrain[t] = Terrain.Grass; // stake the lot (fields get cleared)
+        w.terrain[t] = Terrain.Grass; // stake the lot (fields/woods cleared)
+        // construction fells the trees crowding the site (§2 rev. 3)
+        for (const n of [t - 1, t + 1, t - w.width, t + w.width]) {
+          if (n >= 0 && n < w.terrain.length && w.terrain[n] === Terrain.Woods && w.property[n] === p.id) {
+            w.terrain[n] = Terrain.Grass;
+          }
+        }
         carveDirtLane(w, t); // the access road auto-generates
       }
       if (type === "compound") p.compounds++;
@@ -796,6 +959,7 @@ export function applyIntent(s: SimState, intent: Intent, b: Balance): void {
 function stepEconomy(s: SimState, b: Balance): void {
   const dt = b.dt;
   const w = s.world;
+  const civics = computeCivicControl(s); // key-building takeovers (§13 rev.)
 
   // Per-owner aggregates over owned tiles: income coeff sum + dissent sum.
   const incomeSum = new Map<PlayerId, Fixed>();
@@ -824,6 +988,8 @@ function stepEconomy(s: SimState, b: Balance): void {
       const utilization = sub(ONE, div(p.followers, cap)); // (1 − F/cap)
       let dF = mul(b.economy.followerGrowth, mul(p.followers, utilization));
       dF = mul(dF, faithGrowthMod);
+      // High-school takeover: youth recruitment feeds the flock (§13 rev.)
+      if (controlsCivic(civics, Lot.HighSchool, p.id)) dF = mul(dF, b.civics.highschoolGrowthMult);
       p.followers = clamp(add(p.followers, mul(dF, dt)), 0, cap);
     }
 
@@ -854,6 +1020,10 @@ function stepEconomy(s: SimState, b: Balance): void {
     if (ownsLandmark(s, p.id, Landmark.Megachurch)) {
       p.faith = clamp(add(p.faith, mul(fp(0.15), dt)), 0, HUNDRED);
     }
+    // Church takeover: the pulpit preaches for you (§13 rev.)
+    if (controlsCivic(civics, Lot.Church, p.id)) {
+      p.faith = clamp(add(p.faith, mul(b.civics.churchFaithPerS, dt)), 0, HUNDRED);
+    }
 
     // Heat decay (§3.5) base −0.08/s; Town Hall extra −0.25/s (§12); crusade gain.
     let heat = p.heat;
@@ -861,6 +1031,8 @@ function stepEconomy(s: SimState, b: Balance): void {
       heat = add(heat, mul(mul(b.stances.crusade.heatPerS, b.archetypes[p.archetype].heat), dt));
     heat = sub(heat, mul(b.heat.decay, dt));
     if (ownsLandmark(s, p.id, Landmark.TownHall)) heat = sub(heat, mul(fp(0.25), dt));
+    // Sheriff takeover: complaints get lost in the filing (§13 rev.)
+    if (controlsCivic(civics, Lot.Sheriff, p.id)) heat = sub(heat, mul(b.civics.sheriffHeatDecay, dt));
     p.heat = clamp(heat, 0, HUNDRED);
   }
 
@@ -1040,13 +1212,13 @@ function prophecyRapture(s: SimState, p: PlayerState): void {
 function checkVictory(s: SimState, b: Balance): void {
   if (s.status === MatchStatus.Ended) return;
 
-  // Elimination: spawned, zero tiles AND zero satellites (§18).
+  // Elimination (§18 rev.): spawned, zero tiles AND zero standing buildings.
+  // A landless cult with a compound on its property is besieged, not dead —
+  // the property start starts everyone at zero tiles.
   for (const p of s.players) {
     if (!p.alive || !p.spawned || p.ownedTiles > 0) continue;
-    const hasSatellite = s.buildings.some(
-      (bd) => bd.type === "satellite" && bd.player === p.id,
-    );
-    if (!hasSatellite) p.alive = false;
+    const hasBuilding = s.buildings.some((bd) => bd.player === p.id);
+    if (!hasBuilding) p.alive = false;
   }
 
   const contenders = s.players.filter((p) => p.alive && p.spawned);

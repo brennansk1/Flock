@@ -47,6 +47,24 @@ export interface RawBalance {
     doctrinal: { faith_hold_s: number; channel_s: number };
   };
   charisma_items: number;
+  /** Property purchase + crowding (§18 rev.) — optional for older files. */
+  property?: {
+    parcel_radius: number;
+    base_cost: number;
+    cost_growth: number;
+    max_link_dist: number;
+    crowding_free_tiles: number;
+    crowding_cap_mult: number;
+    outreach_radius: number;
+  };
+  /** Civic-takeover effects (§13 rev.) — optional for older files. */
+  civics?: {
+    sheriff_heat_decay: number;
+    school_creep_mult: number;
+    highschool_growth_mult: number;
+    grocery_defense_mult: number;
+    church_faith_per_s: number;
+  };
 }
 
 export interface ArchetypeCoeffs {
@@ -90,6 +108,22 @@ export interface Balance {
   heat: { decay: Fixed; cpaHarass: Fixed; cpaSiege: Fixed };
   archetypes: Record<"dawn" | "radiant" | "circle" | "visitors", ArchetypeCoeffs>;
   charismaItems: Fixed;
+  property: {
+    parcelRadius: number;
+    baseCost: Fixed;
+    costGrowth: Fixed;
+    maxLinkDist: number;
+    crowdingFreeTiles: number;
+    crowdingCapMult: Fixed;
+    outreachRadius: number;
+  };
+  civics: {
+    sheriffHeatDecay: Fixed;
+    schoolCreepMult: Fixed;
+    highschoolGrowthMult: Fixed;
+    groceryDefenseMult: Fixed;
+    churchFaithPerS: Fixed;
+  };
 }
 
 export function loadBalance(raw: RawBalance): Balance {
@@ -146,5 +180,21 @@ export function loadBalance(raw: RawBalance): Balance {
       visitors: arche("visitors"),
     },
     charismaItems: fromFloat(raw.charisma_items),
+    property: {
+      parcelRadius: raw.property?.parcel_radius ?? 2,
+      baseCost: fromFloat(raw.property?.base_cost ?? 8000),
+      costGrowth: fromFloat(raw.property?.cost_growth ?? 1.5),
+      maxLinkDist: raw.property?.max_link_dist ?? 14,
+      crowdingFreeTiles: raw.property?.crowding_free_tiles ?? 3,
+      crowdingCapMult: fromFloat(raw.property?.crowding_cap_mult ?? 0.85),
+      outreachRadius: raw.property?.outreach_radius ?? 10,
+    },
+    civics: {
+      sheriffHeatDecay: fromFloat(raw.civics?.sheriff_heat_decay ?? 0.1),
+      schoolCreepMult: fromFloat(raw.civics?.school_creep_mult ?? 1.25),
+      highschoolGrowthMult: fromFloat(raw.civics?.highschool_growth_mult ?? 1.15),
+      groceryDefenseMult: fromFloat(raw.civics?.grocery_defense_mult ?? 1.2),
+      churchFaithPerS: fromFloat(raw.civics?.church_faith_per_s ?? 0.1),
+    },
   };
 }

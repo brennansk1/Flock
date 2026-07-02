@@ -7,7 +7,7 @@
  * Connect: ws://host:8787/?name=Mae&archetype=radiant            (new guest)
  *          ws://host:8787/?token=<session>&archetype=radiant     (returning)
  *
- * Env: PORT, WORLD, BOTS, CHURCHES, CAPACITY, FOUNDING, FLOCK_SECRET,
+ * Env: PORT, WORLD, BOTS, CHURCHES, CAPACITY (≤4), FOUNDING, FLOCK_BIOMES, FLOCK_SECRET,
  *      FLOCK_DATA (dir → durable JSON store; unset → in-memory), LOG_LEVEL.
  */
 
@@ -40,7 +40,7 @@ async function main(): Promise<void> {
     botCount: Number(process.env.BOTS ?? 6),
     churchCount: Number(process.env.CHURCHES ?? 1),
     foundingTicks: Number(process.env.FOUNDING ?? 200),
-    capacity: Number(process.env.CAPACITY ?? 20),
+    capacity: Math.min(4, Number(process.env.CAPACITY ?? 4)), // ≤4 players (§18 rev.)
   });
   const congregations = new CongregationService(store);
 

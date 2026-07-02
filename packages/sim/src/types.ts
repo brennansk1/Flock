@@ -230,6 +230,8 @@ export interface PlayerState {
   faithHoldTicks: number;
   /** Doctrinal victory: Megachurch channel progress after the hold. */
   channelTicks: number;
+  /** Land parcels bought (§18 rev.) — drives escalating BUY_PROPERTY cost. */
+  parcels: number;
 }
 
 /** Recap event log (§25): the raw material for headlines and cards. */

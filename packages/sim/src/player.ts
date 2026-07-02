@@ -38,6 +38,7 @@ export function newPlayer(
     schismRiskTicks: 0,
     usdEarned: 0,
     faithHoldTicks: 0,
+    parcels: 0,
     channelTicks: 0,
   };
 }

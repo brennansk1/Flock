@@ -262,6 +262,9 @@ function wireInput(app: Application, map: MapRenderer, g: GameSession, hud: Hud)
         case "ability":
           g.sendIntent({ t: IntentType.ABILITY, ability: placement.ability, target: center });
           return;
+        case "property":
+          g.sendIntent({ t: IntentType.BUY_PROPERTY, tile: center } as never);
+          return;
       }
     }
 
@@ -387,8 +390,8 @@ function statusPrompt(g: GameSession): string {
   if (g.sim.foundingTicksLeft > 0) {
     const secs = (g.sim.foundingTicksLeft / 10).toFixed(0);
     return me.spawned
-      ? `FOUNDING — your flock gathers · ${secs}s`
-      : `CLICK A GLOWING SPOT TO FOUND YOUR COMPOUND · ${secs}s`;
+      ? `FOUNDING — your congregation is bused in · ${secs}s`
+      : `BUY YOUR FIRST PROPERTY — CLICK OPEN LAND NEAR TOWN · ${secs}s`;
   }
   if (!me.alive) return "☠ ELIMINATED — spectating";
   const prophecy = g.sim.prophecies[0];
@@ -404,13 +407,24 @@ function statusPrompt(g: GameSession): string {
  */
 function recommendedSpawns(g: GameSession): number[] {
   const w = g.sim.world;
+  // §18 rev.: you found on OPEN LAND near town — recommend grass tiles with
+  // plenty of citizen lots inside compound-outreach range.
   const candidates: { tile: number; s: number }[] = [];
   const stride = Math.max(1, Math.floor(w.width / 48));
   for (let y = 2; y < w.height - 2; y += stride) {
     for (let x = 2; x < w.width - 2; x += stride) {
       const t = y * w.width + x;
-      if (w.terrain[t] !== Terrain.Citizen || w.owner[t] !== NEUTRAL) continue;
-      candidates.push({ tile: t, s: w.susceptibility[t]! });
+      if (w.terrain[t] !== Terrain.Grass || w.property[t] !== 0) continue;
+      let reach = 0;
+      for (let dy = -8; dy <= 8; dy += 2) {
+        for (let dx = -8; dx <= 8; dx += 2) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= w.width || ny >= w.height) continue;
+          if (w.terrain[ny * w.width + nx] === Terrain.Citizen) reach++;
+        }
+      }
+      if (reach >= 6) candidates.push({ tile: t, s: reach });
     }
   }
   candidates.sort((a, b) => b.s - a.s);

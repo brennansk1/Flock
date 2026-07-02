@@ -14,6 +14,7 @@ export const IntentType = {
   OPEN_FRONT: "OPEN_FRONT",
   CLOSE_FRONT: "CLOSE_FRONT",
   BUILD: "BUILD",
+  BUY_PROPERTY: "BUY_PROPERTY",
   CANCEL_BUILD: "CANCEL_BUILD",
   RITUAL: "RITUAL",
   ABILITY: "ABILITY",
@@ -57,6 +58,7 @@ export type Intent =
   | { t: typeof IntentType.OPEN_FRONT; player: PlayerId; tiles: TileId[] }
   | { t: typeof IntentType.CLOSE_FRONT; player: PlayerId; front: number }
   | { t: typeof IntentType.BUILD; player: PlayerId; building: BuildingType; tile: TileId }
+  | { t: typeof IntentType.BUY_PROPERTY; player: PlayerId; tile: TileId }
   | { t: typeof IntentType.CANCEL_BUILD; player: PlayerId; tile: TileId }
   | {
       t: typeof IntentType.RITUAL;

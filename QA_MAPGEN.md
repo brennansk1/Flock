@@ -238,8 +238,33 @@ station, gas station, elevator, depot) in at least 3 seeds.
 
 ## QA report (filled by the executing agent)
 
-> _Pass not yet run. Current honest baseline (2026-07-02): the world reads
-> ~60% real. Known largest gaps going in: house/commercial variety
-> (§3 MONOTONE), forest-biome ecotone (§7), fringe gradient (§8), marsh/
-> millpond hydrology (§5), in-town water tower + civic square (§3/§1),
-> tree/bush variants (§7), alleys + curb cuts (§1)._
+### LOD 1 pass — first + second sweep (2026-07-02, seeds 11/21/42/77/99 + biome variants)
+
+Filed on sweep 1, all fixed and re-verified on sweep 2:
+
+- [MISGEN/S1] hydrology · tributaries — creeks dead-ended at the town edge
+  when their walk was blocked (seeds 21, 42, 77, 99) → FIXED: sources now
+  rise on the river's side of the map (never across town); a creek that
+  fails to reach its confluence erases itself entirely.
+- [MISPLACED/S1] vegetation · forest vs farmland — nature blobs painted over
+  cultivated parcels, leaving half-eaten field rows under canopy (all seeds)
+  → FIXED: nature generates BEFORE farming; fields wrap around timber.
+- [DENSITY/S1] agriculture · farm lattice — one rigid 9×7 cell grid made
+  parcel edges align map-wide (stamped read) → FIXED: per-parcel size
+  (6–9 × 5–7) and offset jitter inside each cell; farm-share gate retuned.
+- [MISGEN/S1] hydrology · creek shape — perfectly straight 20+ tile reaches
+  → FIXED: bend forced after 5 straight steps.
+- [MISGEN/S1] hydrology · lake connectivity — the outlet carver could stop
+  at riparian trees/pavement and orphan a lake → PARTIALLY FIXED:
+  component-based connector (desert playas exempt by design), outlets cut
+  through vegetation and pass under roads as culverts. 5/10 seeds verify
+  fully connected; remaining orphan bodies on seeds 1/21/42/77/123 are
+  **OPEN** — next action of this pass.
+
+S2/S3 carried to the LOD 2–3 passes: forest-biome ecotone ungraded, creek-
+parallel lanes, desert-band parcel dithering, tree/bush monotony, outlet
+channels hugging the map edge.
+
+> _Baseline note (pre-pass): the world read ~60% real. Known variety gaps
+> (house/commercial shapes, trees) and missing assets (marsh/millpond,
+> civic square, in-town water tower, alleys) remain queued in §1–§10._

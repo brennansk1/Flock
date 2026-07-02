@@ -128,10 +128,12 @@ export function generateWorld(seed: number, width: number, height: number, opts:
     paintBiomes(w, rng, town, opts.biomes ?? ["desert", "forest"]);
     const riverPath = carveRiver(w, rng, town);
     scatterExurbs(w, rng, town);
-    layoutFarms(w, rng, town);
-    fillFarmBelt(w, rng, town); // contiguous working farmland, not islands
+    // nature FIRST, then farming: forests must never chew through planted
+    // parcels — fields wrap around standing timber, not the reverse (QA S1-B)
     placeNature(w, rng, town, riverPath);
     if (riverPath) connectLakesToRiver(w, riverPath); // no disconnected lakes
+    layoutFarms(w, rng, town);
+    fillFarmBelt(w, rng, town); // contiguous working farmland, not islands
     placeTownBuildings(w, rng, town);
     placeDocks(w, rng, town);
     placeLandmarks(w, town);
@@ -921,12 +923,18 @@ function fillFarmBelt(w: World, rng: RngState, town: TownShape): void {
       const ddy = cy + CELL_H / 2 - town.cy;
       if (ddx * ddx + ddy * ddy < inner * inner) continue; // town + spawn ring
       const roll = nextRange(rng, 12);
-      if (roll < 4) continue; // meadow cell
+      if (roll < 3) continue; // meadow cell
       const kind: Terrain = roll < 9 ? Terrain.Field : roll < 11 ? Terrain.Pasture : Terrain.Orchard;
-      for (let dy = 0; dy < CELL_H - 1; dy++) {
-        for (let dx = 0; dx < CELL_W - 1; dx++) {
-          const x = cx2 + dx;
-          const y = cy + dy;
+      // break the lattice read (QA S1-C): every parcel gets its own extent
+      // and offset inside the cell, so edges stop aligning map-wide
+      const pw = 6 + nextRange(rng, 4);
+      const ph = 5 + nextRange(rng, 3);
+      const offX = nextRange(rng, Math.max(1, CELL_W - pw));
+      const offY = nextRange(rng, Math.max(1, CELL_H - ph));
+      for (let dy = 0; dy < ph; dy++) {
+        for (let dx = 0; dx < pw; dx++) {
+          const x = cx2 + offX + dx;
+          const y = cy + offY + dy;
           if (x < 1 || y < 1 || x >= width - 1 || y >= height - 1) continue;
           const t = y * width + x;
           if (w.terrain[t] !== Terrain.Grass) continue;
@@ -1272,16 +1280,16 @@ function carveRiver(w: World, rng: RngState, town: TownShape): number[] | null {
     }
   }
 
-  // TRIBUTARIES (#5): two creeks rise on the far side of the map and wander
-  // in to join the river at the confluence rows — axis-aligned steps so road
-  // crossings stay square little bridges.
+  // TRIBUTARIES (#5): creeks rise in the open country on the RIVER'S side of
+  // the map — never across the town — and wander down to their confluence.
+  // A creek that cannot reach the river erases itself (QA S1-A: no stubs).
   const riverSide = side; // which side of town the river runs on
   for (const [i, joinY] of [join1, join2].entries()) {
-    const srcX =
-      riverSide === 1
-        ? 4 + nextRange(rng, Math.max(4, Math.floor(width * 0.25)))
-        : width - 5 - nextRange(rng, Math.max(4, Math.floor(width * 0.25)));
     const srcY = Math.max(2, joinY - 18 - nextRange(rng, 10));
+    // source sits between the river and the map edge on the river's side
+    const away = 8 + nextRange(rng, 16);
+    let srcX = cxs[srcY]! + riverSide * away;
+    srcX = Math.max(3, Math.min(width - 4, srcX));
     carveCreek(w, rng, srcX, srcY, cxs, joinY, i);
   }
 
@@ -1291,7 +1299,11 @@ function carveRiver(w: World, rng: RngState, town: TownShape): number[] | null {
   return cxs;
 }
 
-/** Walk a 1-tile creek from (x,y) toward the river's (cxs[joinY], joinY). */
+/**
+ * Walk a 1-tile creek from (x,y) toward the river's (cxs[joinY], joinY).
+ * Never runs straight for long (QA S1-D) and never leaves a stub: if the
+ * walk fails to reach the river the whole channel is erased (QA S1-A).
+ */
 function carveCreek(
   w: World,
   rng: RngState,
@@ -1304,58 +1316,169 @@ function carveCreek(
   const { width, height } = w;
   let x = x0;
   let y = y0;
+  const painted: number[] = [];
   const paint = (t: number): void => {
     const tr = w.terrain[t];
-    if (tr === Terrain.Grass || tr === Terrain.Field) w.terrain[t] = Terrain.Lake;
+    if (tr === Terrain.Grass || tr === Terrain.Field) {
+      w.terrain[t] = Terrain.Lake;
+      painted.push(t);
+    }
   };
+  let straight = 0;
+  let lastAxis = -1;
   for (let guard = 0; guard < width * 3; guard++) {
-    if (y >= height - 2) return;
+    if (y >= height - 2) break;
     const targetX = cxs[Math.min(joinY, y)]!;
-    if (Math.abs(x - targetX) <= 1 && y >= joinY - 2) return; // joined
-    // meander: mostly downstream (toward joinY), drifting toward the river,
-    // with a seeded wobble — one orthogonal step at a time
+    if (Math.abs(x - targetX) <= 1 && y >= joinY - 2) return; // joined — keep
     const wantX = targetX - x;
     const roll = nextRange(rng, 10 + salt);
     let dx = 0;
     let dy = 0;
     if (y < joinY && (roll < 5 || wantX === 0)) dy = 1;
     else dx = wantX > 0 ? 1 : wantX < 0 ? -1 : nextRange(rng, 2) === 0 ? 1 : -1;
+    // no long straights: after 5 steps on one axis, force a bend
+    const axis = dx !== 0 ? 0 : 1;
+    straight = axis === lastAxis ? straight + 1 : 0;
+    lastAxis = axis;
+    if (straight >= 5) {
+      if (axis === 0 && y < height - 3) {
+        dx = 0;
+        dy = 1;
+      } else if (axis === 1) {
+        dx = wantX >= 0 ? 1 : -1;
+        dy = 0;
+      }
+      straight = 0;
+      lastAxis = dx !== 0 ? 0 : 1;
+    }
     x = Math.max(1, Math.min(width - 2, x + dx));
     y = Math.max(1, Math.min(height - 2, y + dy));
     paint(y * width + x);
   }
+  // never joined: a creek to nowhere is worse than no creek — erase it
+  for (const t of painted) w.terrain[t] = Terrain.Grass;
 }
 
 /**
  * Every standing lake links to the river with a 1-tile outlet channel — no
- * disconnected puddles in a drainage basin (#6).
+ * disconnected puddles in a drainage basin (#6). Component-based: flood-fill
+ * the water reachable from the river; any unreached lake body gets an outlet
+ * carved from its lowest tile. EXCEPTION: a lake inside the desert biome is
+ * a playa — endorheic by nature — and stays landlocked (QA LOD-1 pass).
  */
 function connectLakesToRiver(w: World, cxs: number[]): void {
   const { width, height } = w;
-  // find a lake tile that is NOT on the river column band, pick its lowest row
-  let lakeT = -1;
-  for (let y = height - 1; y >= 0 && lakeT < 0; y--) {
-    for (let x = 1; x < width - 1; x++) {
+  const n = width * height;
+  const reached = new Uint8Array(n);
+  const queue: number[] = [];
+  // seeds: the river channel band itself
+  for (let y = 0; y < height; y++) {
+    for (let dx = -3; dx <= 3; dx++) {
+      const x = cxs[y]! + dx;
+      if (x < 0 || x >= width) continue;
       const t = y * width + x;
-      if (w.terrain[t] !== Terrain.Lake) continue;
-      if (Math.abs(x - cxs[y]!) <= 3) continue; // that's the river itself
-      lakeT = t;
-      break;
+      if (w.terrain[t] === Terrain.Lake && !reached[t]) {
+        reached[t] = 1;
+        queue.push(t);
+      }
     }
   }
-  if (lakeT < 0) return;
-  let x = lakeT % width;
-  let y = (lakeT / width) | 0;
-  for (let guard = 0; guard < width * 2; guard++) {
-    const targetX = cxs[y]!;
-    if (Math.abs(x - targetX) <= 1) return; // reached the river
-    // L-walk: close the horizontal gap, drifting down every few steps
-    if (guard % 4 === 3 && y < height - 2) y++;
-    else x += targetX > x ? 1 : -1;
-    if (x < 1 || x >= width - 1) return;
-    const t = y * width + x;
-    const tr = w.terrain[t];
-    if (tr === Terrain.Grass || tr === Terrain.Field) w.terrain[t] = Terrain.Lake;
+  while (queue.length > 0) {
+    const c = queue.pop()!;
+    const x = c % width;
+    const y = (c / width) | 0;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+      const nx = x + dx;
+      const ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+      const t = ny * width + nx;
+      if (w.terrain[t] === Terrain.Lake && !reached[t]) {
+        reached[t] = 1;
+        queue.push(t);
+      } else if (w.terrain[t] === Terrain.Road || w.terrain[t] === Terrain.Rail) {
+        // water flows under bridges/culverts: jump the pavement
+        const bx = nx + dx;
+        const by = ny + dy;
+        if (bx < 0 || by < 0 || bx >= width || by >= height) continue;
+        const bt = by * width + bx;
+        if (w.terrain[bt] === Terrain.Lake && !reached[bt]) {
+          reached[bt] = 1;
+          queue.push(bt);
+        }
+      }
+    }
+  }
+  // find disconnected components; carve an outlet for the non-desert ones
+  const seen = new Uint8Array(n);
+  for (let t0 = 0; t0 < n; t0++) {
+    if (w.terrain[t0] !== Terrain.Lake || reached[t0] || seen[t0]) continue;
+    // collect this component
+    const comp: number[] = [t0];
+    seen[t0] = 1;
+    for (let i = 0; i < comp.length; i++) {
+      const c = comp[i]!;
+      const x = c % width;
+      const y = (c / width) | 0;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+        const t = ny * width + nx;
+        if (w.terrain[t] === Terrain.Lake && !seen[t] && !reached[t]) {
+          seen[t] = 1;
+          comp.push(t);
+        }
+      }
+    }
+    // desert playa: landlocked is the realistic state
+    let desertTiles = 0;
+    for (const t of comp) if (w.biome[t] === Biome.Desert) desertTiles++;
+    if (desertTiles * 2 > comp.length) continue;
+    // carve from the component's lowest tile toward the river
+    let start = comp[0]!;
+    for (const t of comp) if (((t / width) | 0) > ((start / width) | 0)) start = t;
+    let x = start % width;
+    let y = (start / width) | 0;
+    for (let guard = 0; guard < width * 2; guard++) {
+      const targetX = cxs[y]!;
+      if (Math.abs(x - targetX) <= 1) break; // reached the river
+      let nx = x;
+      let ny = y;
+      if (guard % 4 === 3 && y < height - 2) ny++;
+      else nx += targetX > x ? 1 : -1;
+      if (nx < 1 || nx >= width - 1 || ny >= height - 1) break;
+      const t = ny * width + nx;
+      const tr = w.terrain[t];
+      if (tr === Terrain.Citizen) {
+        // never through a lot: divert downhill around the settlement
+        if (y < height - 2) {
+          y++;
+          const dt = y * width + x;
+          const dtr = w.terrain[dt];
+          if (
+            dtr === Terrain.Grass ||
+            dtr === Terrain.Field ||
+            dtr === Terrain.Orchard ||
+            dtr === Terrain.Pasture ||
+            dtr === Terrain.Woods
+          )
+            w.terrain[dt] = Terrain.Lake;
+        }
+        continue;
+      }
+      x = nx;
+      y = ny;
+      // the outlet cuts through vegetation and farmland; pavement stays (a
+      // culvert) and the channel resumes on the far side
+      if (
+        tr === Terrain.Grass ||
+        tr === Terrain.Field ||
+        tr === Terrain.Orchard ||
+        tr === Terrain.Pasture ||
+        tr === Terrain.Woods
+      )
+        w.terrain[t] = Terrain.Lake;
+    }
   }
 }
 

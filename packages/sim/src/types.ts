@@ -49,6 +49,8 @@ export const Terrain = {
   Orchard: 8,
   /** Fenced livestock pasture — wilderness rules like Field. */
   Pasture: 9,
+  /** Railroad right-of-way — unbuildable, unclaimable; ideas cross it. */
+  Rail: 10,
 } as const;
 export type Terrain = (typeof Terrain)[keyof typeof Terrain];
 
@@ -126,6 +128,8 @@ export const Lot = {
   Greenhouse: 25,
   HighSchool: 26,
   Warehouse: 27,
+  GrainElevator: 28,
+  Depot: 29,
 } as const;
 export type Lot = (typeof Lot)[keyof typeof Lot];
 

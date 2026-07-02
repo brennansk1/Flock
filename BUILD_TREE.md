@@ -42,8 +42,16 @@ B1  ✔️ SIM — deterministic gameplay core (@flock/sim, runs bit-identically
 │   │            cul-de-sacs ("X Court") in residential zones
 │   ├── B1.4.9 ✔️ Farming v2 — road-aligned field parcels, orchards,
 │   │            fenced pastures, farmstead clusters at lanes
-│   └── B1.4.10 ✔️ Biomes — configurable blob biomes (desert/forest),
-│                World.biome layer, snapshot v8, hashed
+│   ├── B1.4.10 ✔️ Biomes — configurable blob biomes (desert/forest),
+│   │            World.biome layer, snapshot v8, hashed
+│   ├── B1.4.11 ✔️ Realism pass (geographer review): railroad + depot +
+│   │            grain elevator + level crossings; tributary creeks, lake
+│   │            outlet, downstream river widening; riparian forests +
+│   │            bank galleries; contiguous farm belt; shelterbelts;
+│   │            hedgerows; field shoulders; edge cemetery; ecotones
+│   └── B1.4.12 ⬜ Terrain fields v2 — coarse heightmap + moisture layer
+│                driving hydrology/biomes/vegetation (deferred: reviewer
+│                finding #8; foundational rework)
 ├── B1.5  ✔️ buildings.ts — full §6 table (Compounds…Supplement Labs)
 ├── B1.6  ✔️ entities.ts — Couriers, Vans, invisible Agents (§7)
 ├── B1.7  ✔️ PvP trio — raids / scandal→publish / court defection (§13/§15)

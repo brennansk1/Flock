@@ -124,11 +124,14 @@ export function generateWorld(seed: number, width: number, height: number, opts:
     w.townName = pickTownName(rng); // a fresh fake town, every seed
 
     const town = layoutHighwaysAndTown(w, rng, rScale);
+    layoutRail(w, rng, town); // the railroad the town was built on (§2 rev. 5)
     paintBiomes(w, rng, town, opts.biomes ?? ["desert", "forest"]);
-    carveRiver(w, rng, town);
+    const riverPath = carveRiver(w, rng, town);
     scatterExurbs(w, rng, town);
     layoutFarms(w, rng, town);
-    placeNature(w, rng, town);
+    fillFarmBelt(w, rng, town); // contiguous working farmland, not islands
+    placeNature(w, rng, town, riverPath);
+    if (riverPath) connectLakesToRiver(w, riverPath); // no disconnected lakes
     placeTownBuildings(w, rng, town);
     placeDocks(w, rng, town);
     placeLandmarks(w, town);
@@ -143,6 +146,86 @@ export function generateWorld(seed: number, width: number, height: number, opts:
     if (countPopulated(w) >= MIN_POPULATED_TILES && countTotalPop(w) >= MIN_TOTAL_POP) break;
   }
   return w;
+}
+
+/**
+ * The RAILROAD (§2 rev. 5, review finding #2): farm towns exist because of
+ * the rail line. One straight alignment parallels the highway a few blocks
+ * off, running the full map width; roads keep their pavement where they
+ * cross (level crossings — the renderer draws the tracks over the asphalt
+ * and posts the crossbucks). The grain elevator and depot anchor a siding
+ * where the line passes the industrial edge of town.
+ */
+function layoutRail(w: World, rng: RngState, town: TownShape): void {
+  const { width, height } = w;
+  // candidate rows on both sides of the highway; take the one that crosses
+  // the fewest streets — a right-of-way never runs ALONG an avenue
+  const preferred = nextRange(rng, 2) === 0 ? -1 : 1;
+  let railY = -1;
+  let bestRoads = Infinity;
+  for (const sd of [preferred, -preferred]) {
+    for (let off = 5; off <= 9; off++) {
+      const y = Math.max(3, Math.min(height - 4, town.highwayY + sd * off));
+      let roads = 0;
+      for (let x = 0; x < width; x++) if (w.terrain[y * width + x] === Terrain.Road) roads++;
+      if (roads < bestRoads) {
+        bestRoads = roads;
+        railY = y;
+      }
+    }
+  }
+  const side = railY > town.highwayY ? 1 : -1;
+  for (let x = 0; x < width; x++) {
+    const t = railY * width + x;
+    const tr = w.terrain[t];
+    // the right-of-way predates the houses: it claims open ground AND
+    // unbuilt town lots; only pavement (level crossings) and water (trestle
+    // approaches stay rail via the grass check upstream) interrupt it
+    if (tr === Terrain.Grass || tr === Terrain.Field || (tr === Terrain.Citizen && w.lot[t] === 0)) {
+      w.terrain[t] = Terrain.Rail;
+    }
+  }
+  // the SIDING: a short parallel spur one row off, at the town's edge —
+  // try both ends of town until the elevator AND depot both stand
+  const sideY = railY + side;
+  const plant = (lotKind: number, x: number, y: number, wide: number, workers: number): number => {
+    let placed = 0;
+    for (let dx = 0; dx < wide; dx++) {
+      const xx = x + dx;
+      if (xx < 1 || xx >= width - 1 || y < 1 || y >= height - 1) continue;
+      const t = y * width + xx;
+      const tr = w.terrain[t];
+      // open ground or an unbuilt lot — the works claim their ground
+      if (tr !== Terrain.Grass && tr !== Terrain.Field && !(tr === Terrain.Citizen && w.lot[t] === 0))
+        continue;
+      w.terrain[t] = Terrain.Citizen;
+      w.district[t] = Districts.Industrial;
+      w.lot[t] = lotKind;
+      w.pop[t] = Math.min(15, Math.max(2, workers));
+      placed++;
+    }
+    return placed;
+  };
+  if (sideY > 2 && sideY < height - 3) {
+    const firstEnd = nextRange(rng, 2) === 0 ? -1 : 1;
+    for (const end of [firstEnd, -firstEnd]) {
+      const sx0 = town.cx + end * (town.r - 2);
+      const buildY = sideY + side; // one further row off the siding
+      if (buildY <= 1 || buildY >= height - 2) continue;
+      const elev = plant(Lot.GrainElevator, sx0 - 1, buildY, 2, 6);
+      const depot = plant(Lot.Depot, sx0 + 2, buildY, 2, 4);
+      if (elev === 0 && depot === 0) continue; // this end is blocked — try the other
+      for (let x = sx0 - 4; x <= sx0 + 4; x++) {
+        if (x < 1 || x >= width - 1) continue;
+        const t = sideY * width + x;
+        const tr = w.terrain[t];
+        if (tr === Terrain.Grass || tr === Terrain.Field || (tr === Terrain.Citizen && w.lot[t] === 0))
+          w.terrain[t] = Terrain.Rail;
+      }
+      carveDirtLane(w, buildY * width + sx0);
+      if (elev > 0 && depot > 0) break;
+    }
+  }
 }
 
 /**
@@ -576,8 +659,9 @@ function layoutHighwaysAndTown(w: World, rng: RngState, rScale = 1): TownShape {
     return d <= radiusAt(Math.atan2(dy, dx));
   };
 
+  // the crossing sits OFF the town's center (#14) — real grids grow lopsided
   const highwayY = cy + nextRange(rng, 5) - 2;
-  const highwayX = cx + nextRange(rng, 5) - 2;
+  const highwayX = cx + (nextRange(rng, 2) === 0 ? -1 : 1) * (2 + nextRange(rng, 5));
   const streets: Street[] = traceGridRoads(w, rng, { cx, cy, r, highwayY, highwayX, inTown });
   w.streets = streets;
 
@@ -781,9 +865,19 @@ function layoutFarms(w: World, rng: RngState, town: TownShape): void {
       }
     }
 
-    // field parcels: 2 per side of the road, aligned, 1-tile baulks between
+    // SHELTERBELT (#12): the windbreak tree row on the farmstead's north side
+    for (let sxx = -1; sxx <= houses; sxx++) {
+      const x = horiz ? ax + sxx : ax + homeSide * 2;
+      const y = horiz ? ay + homeSide * 2 : ay + sxx;
+      if (x < 1 || y < 1 || x >= width - 1 || y >= height - 1) continue;
+      const t = y * width + x;
+      if (w.terrain[t] === Terrain.Grass) w.terrain[t] = Terrain.Woods;
+    }
+
+    // field parcels: 2 per side of the road, aligned, 1-tile baulks between;
+    // a 1-tile grass shoulder always separates pavement from crop (#13)
     for (const side of [1, -1]) {
-      let offset = side === homeSide ? 2 : 1; // clear the farmstead row
+      let offset = 2; // the roadside shoulder
       for (let parcel = 0; parcel < 2; parcel++) {
         const along = 5 + nextRange(rng, 4); // length along the road
         const deep = 3 + nextRange(rng, 3); // depth away from it
@@ -805,6 +899,51 @@ function layoutFarms(w: World, rng: RngState, town: TownShape): void {
       }
     }
     carveDirtLane(w, anchor);
+  }
+}
+
+/**
+ * The working countryside (#3): in real farm country every plowable acre is
+ * plowed — cultivated land is contiguous, not islands in decorative grass.
+ * Tile the rural band with quarter-section parcels along a coarse lattice,
+ * skipping water margins, woods, desert, rail, roads (plus a shoulder), and
+ * a construction ring near town where cults buy property. ~1/3 of cells stay
+ * meadow so pasture/hay ground still breathes.
+ */
+function fillFarmBelt(w: World, rng: RngState, town: TownShape): void {
+  const { width, height } = w;
+  const inner = town.r + 10;
+  const CELL_W = 9;
+  const CELL_H = 7;
+  for (let cy = 2; cy < height - 2; cy += CELL_H) {
+    for (let cx2 = 2; cx2 < width - 2; cx2 += CELL_W) {
+      const ddx = cx2 + CELL_W / 2 - town.cx;
+      const ddy = cy + CELL_H / 2 - town.cy;
+      if (ddx * ddx + ddy * ddy < inner * inner) continue; // town + spawn ring
+      const roll = nextRange(rng, 12);
+      if (roll < 4) continue; // meadow cell
+      const kind: Terrain = roll < 9 ? Terrain.Field : roll < 11 ? Terrain.Pasture : Terrain.Orchard;
+      for (let dy = 0; dy < CELL_H - 1; dy++) {
+        for (let dx = 0; dx < CELL_W - 1; dx++) {
+          const x = cx2 + dx;
+          const y = cy + dy;
+          if (x < 1 || y < 1 || x >= width - 1 || y >= height - 1) continue;
+          const t = y * width + x;
+          if (w.terrain[t] !== Terrain.Grass) continue;
+          if (w.biome[t] === Biome.Desert) continue;
+          // shoulder from pavement/rail, margin from water
+          let blocked = false;
+          for (const n of [t - 1, t + 1, t - width, t + width]) {
+            if (n < 0 || n >= w.terrain.length) continue;
+            const tr = w.terrain[n];
+            if (tr === Terrain.Road || tr === Terrain.Rail || tr === Terrain.Lake || tr === Terrain.Dirt)
+              blocked = true;
+          }
+          if (blocked) continue;
+          w.terrain[t] = kind;
+        }
+      }
+    }
   }
 }
 
@@ -1069,7 +1208,7 @@ export function nearestRoad(w: World, from: number, maxR: number): number {
  * the road intact: that gap reads as a BRIDGE. Banks meet land as sand
  * shoreline in the renderer, so the creek reads as flowing water, not a pond.
  */
-function carveRiver(w: World, rng: RngState, town: TownShape): void {
+function carveRiver(w: World, rng: RngState, town: TownShape): number[] | null {
   const { width, height } = w;
   // run roughly vertically (crossing the horizontal highway) down whichever
   // side has more room, offset well clear of the town footprint.
@@ -1080,11 +1219,11 @@ function carveRiver(w: World, rng: RngState, town: TownShape): void {
   const leftRoom = town.cx;
   const side = rightRoom >= leftRoom ? 1 : -1;
   const room = side === 1 ? rightRoom : leftRoom;
-  if (room < town.r + 8) return; // town fills this side: no room for a river
+  if (room < town.r + 8) return null; // town fills this side: no room for a river
   const off = Math.min(town.r + 6 + jitter, room - 6);
-  if (off <= town.r + 2) return; // would cut through the streets
+  if (off <= town.r + 2) return null; // would cut through the streets
   const baseX = town.cx + side * off;
-  if (baseX < 4 || baseX > width - 5) return;
+  if (baseX < 4 || baseX > width - 5) return null;
   const a1 = 4 + nextRange(rng, 5); // meander amplitudes
   const a2 = 2 + nextRange(rng, 3);
   const k1 = 0.05 + nextRange(rng, 4) / 100;
@@ -1115,17 +1254,108 @@ function carveRiver(w: World, rng: RngState, town: TownShape): void {
       if (yy >= 0 && yy < height) cxs[yy] = cx;
     }
   }
+  // DOWNSTREAM WIDENING (#7): the channel is a creek at the top of the map
+  // and a river at the bottom, stepping up in width at each confluence.
+  const join1 = Math.floor(height * 0.28) + nextRange(rng, 6);
+  const join2 = Math.floor(height * 0.58) + nextRange(rng, 6);
   for (let y = 0; y < height; y++) {
     const cx = cxs[y]!;
-    const hw = 1; // 3-tile-wide channel
-    for (let dx = -hw; dx <= hw; dx++) {
+    const hw = y < join1 ? 0 : y < join2 ? 1 : 1; // 1-wide → 3-wide
+    const extra = y >= join2 ? 1 : 0; // below the second confluence: 4-wide
+    for (let dx = -hw; dx <= hw + extra; dx++) {
       const x = cx + dx;
       if (x < 1 || x >= width - 1) continue;
       const t = y * width + x;
       const tr = w.terrain[t];
-      // never destroy roads (bridge), town lots, or existing nature
+      // never destroy roads (bridge), rail, town lots, or existing nature
       if (tr === Terrain.Grass || tr === Terrain.Field) w.terrain[t] = Terrain.Lake;
     }
+  }
+
+  // TRIBUTARIES (#5): two creeks rise on the far side of the map and wander
+  // in to join the river at the confluence rows — axis-aligned steps so road
+  // crossings stay square little bridges.
+  const riverSide = side; // which side of town the river runs on
+  for (const [i, joinY] of [join1, join2].entries()) {
+    const srcX =
+      riverSide === 1
+        ? 4 + nextRange(rng, Math.max(4, Math.floor(width * 0.25)))
+        : width - 5 - nextRange(rng, Math.max(4, Math.floor(width * 0.25)));
+    const srcY = Math.max(2, joinY - 18 - nextRange(rng, 10));
+    carveCreek(w, rng, srcX, srcY, cxs, joinY, i);
+  }
+
+  // LAKE OUTLET (#6): the drainage hookup runs again after placeNature has
+  // stamped the lake (generateWorld holds the returned path).
+  connectLakesToRiver(w, cxs);
+  return cxs;
+}
+
+/** Walk a 1-tile creek from (x,y) toward the river's (cxs[joinY], joinY). */
+function carveCreek(
+  w: World,
+  rng: RngState,
+  x0: number,
+  y0: number,
+  cxs: number[],
+  joinY: number,
+  salt: number,
+): void {
+  const { width, height } = w;
+  let x = x0;
+  let y = y0;
+  const paint = (t: number): void => {
+    const tr = w.terrain[t];
+    if (tr === Terrain.Grass || tr === Terrain.Field) w.terrain[t] = Terrain.Lake;
+  };
+  for (let guard = 0; guard < width * 3; guard++) {
+    if (y >= height - 2) return;
+    const targetX = cxs[Math.min(joinY, y)]!;
+    if (Math.abs(x - targetX) <= 1 && y >= joinY - 2) return; // joined
+    // meander: mostly downstream (toward joinY), drifting toward the river,
+    // with a seeded wobble — one orthogonal step at a time
+    const wantX = targetX - x;
+    const roll = nextRange(rng, 10 + salt);
+    let dx = 0;
+    let dy = 0;
+    if (y < joinY && (roll < 5 || wantX === 0)) dy = 1;
+    else dx = wantX > 0 ? 1 : wantX < 0 ? -1 : nextRange(rng, 2) === 0 ? 1 : -1;
+    x = Math.max(1, Math.min(width - 2, x + dx));
+    y = Math.max(1, Math.min(height - 2, y + dy));
+    paint(y * width + x);
+  }
+}
+
+/**
+ * Every standing lake links to the river with a 1-tile outlet channel — no
+ * disconnected puddles in a drainage basin (#6).
+ */
+function connectLakesToRiver(w: World, cxs: number[]): void {
+  const { width, height } = w;
+  // find a lake tile that is NOT on the river column band, pick its lowest row
+  let lakeT = -1;
+  for (let y = height - 1; y >= 0 && lakeT < 0; y--) {
+    for (let x = 1; x < width - 1; x++) {
+      const t = y * width + x;
+      if (w.terrain[t] !== Terrain.Lake) continue;
+      if (Math.abs(x - cxs[y]!) <= 3) continue; // that's the river itself
+      lakeT = t;
+      break;
+    }
+  }
+  if (lakeT < 0) return;
+  let x = lakeT % width;
+  let y = (lakeT / width) | 0;
+  for (let guard = 0; guard < width * 2; guard++) {
+    const targetX = cxs[y]!;
+    if (Math.abs(x - targetX) <= 1) return; // reached the river
+    // L-walk: close the horizontal gap, drifting down every few steps
+    if (guard % 4 === 3 && y < height - 2) y++;
+    else x += targetX > x ? 1 : -1;
+    if (x < 1 || x >= width - 1) return;
+    const t = y * width + x;
+    const tr = w.terrain[t];
+    if (tr === Terrain.Grass || tr === Terrain.Field) w.terrain[t] = Terrain.Lake;
   }
 }
 
@@ -1191,13 +1421,25 @@ function organicBlob(
   }
 }
 
-function placeNature(w: World, rng: RngState, town: TownShape): void {
+function placeNature(w: World, rng: RngState, town: TownShape, riverPath: number[] | null = null): void {
   const { width, height } = w;
   // a couple of generous forests, several smaller copses, one irregular lake
   const forests = 2 + nextRange(rng, 2);
   const copses = 5 + nextRange(rng, 4);
+  const nearWater = (x: number, y: number, r2: number): boolean => {
+    for (let dy = -r2; dy <= r2; dy += 2) {
+      const yy = y + dy;
+      if (yy < 0 || yy >= height) continue;
+      for (let dx = -r2; dx <= r2; dx += 2) {
+        const xx = x + dx;
+        if (xx < 0 || xx >= width) continue;
+        if (w.terrain[yy * width + xx] === Terrain.Lake) return true;
+      }
+    }
+    return false;
+  };
   const tryPlace = (r: number, kind: Terrain, wantBiome = -1): void => {
-    for (let attempt = 0; attempt < 8; attempt++) {
+    for (let attempt = 0; attempt < 14; attempt++) {
       const bx = nextRange(rng, width);
       const by = nextRange(rng, height);
       const ddx = bx - town.cx;
@@ -1209,6 +1451,9 @@ function placeNature(w: World, rng: RngState, town: TownShape): void {
       // targeted placement keeps trying until it lands in the wanted biome
       if (kind === Terrain.Woods && bio === Biome.Desert) continue;
       if (wantBiome >= 0 && bio !== wantBiome) continue;
+      // RIPARIAN BIAS (#9): the first attempts insist on hugging water —
+      // surviving woodland lives in the floodplain, not on prime cropland
+      if (kind === Terrain.Woods && wantBiome < 0 && attempt < 8 && !nearWater(bx, by, 8)) continue;
       organicBlob(w, rng, bx, by, r, kind);
       return;
     }
@@ -1248,6 +1493,24 @@ function placeNature(w: World, rng: RngState, town: TownShape): void {
         if (bx + 2 < width && w.terrain[t + 2]! === Terrain.Grass) w.terrain[t + 2] = Terrain.Woods;
         if (by + 1 < height && w.terrain[t + width]! === Terrain.Grass) w.terrain[t + width] = Terrain.Woods;
         break;
+      }
+    }
+  }
+
+  // RIPARIAN FRINGE (#9): trees line the banks — a broken gallery forest
+  // along the river, denser away from town, never in the desert.
+  if (riverPath) {
+    for (let t = 0; t < w.terrain.length; t++) {
+      if (w.terrain[t] !== Terrain.Lake) continue;
+      const x = t % width;
+      const y = (t / width) | 0;
+      const ddx = x - town.cx;
+      const ddy = y - town.cy;
+      if (ddx * ddx + ddy * ddy < (town.r + 4) * (town.r + 4)) continue;
+      for (const n of [t - 1, t + 1, t - width, t + width]) {
+        if (n < 0 || n >= w.terrain.length) continue;
+        if (w.terrain[n] !== Terrain.Grass || w.biome[n] === Biome.Desert) continue;
+        if (((n * 2654435761) >>> 0) % 3 === 0) w.terrain[n] = Terrain.Woods;
       }
     }
   }

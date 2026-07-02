@@ -254,6 +254,12 @@ const C = {
   cowWhite: hexToRgb("#e8e4d8"),
   cowBrown: hexToRgb("#8a5a3a"),
   wire: hexToRgb("#3a352e"),
+  ballast: hexToRgb("#8a8178"),
+  tie: hexToRgb("#5a4634"),
+  railSteel: hexToRgb("#4a4a52"),
+  boxcarA: hexToRgb("#8a4a3a"),
+  boxcarB: hexToRgb("#6a6e54"),
+  elevator: hexToRgb("#c8c2b4"),
 } as const;
 
 /** Town building styles: [body, roof, accent]. */
@@ -278,6 +284,8 @@ const LOT_STYLE: Record<number, [RGB, RGB, RGB]> = {
   [Lot.Cinema]: [hexToRgb("#3a3f52"), hexToRgb("#2c3040"), hexToRgb("#ffd76a")],
   [Lot.HighSchool]: [hexToRgb("#9a5a42"), hexToRgb("#7a4634"), hexToRgb("#f0e6d0")],
   [Lot.Warehouse]: [hexToRgb("#aaa49a"), hexToRgb("#8a847a"), hexToRgb("#5f6670")],
+  [Lot.GrainElevator]: [hexToRgb("#c8c2b4"), hexToRgb("#a8a294"), hexToRgb("#8a4a3a")],
+  [Lot.Depot]: [hexToRgb("#9a5a42"), hexToRgb("#7a4634"), hexToRgb("#e8e4d8")],
   [Lot.Greenhouse]: [hexToRgb("#cfe8e2"), hexToRgb("#8fb0a8"), hexToRgb("#efe9da")],
 };
 
@@ -450,6 +458,36 @@ export function renderTown(sim: SimState, opts: RenderOpts = {}): RenderedFrame 
         put(bx + 5, by + 4, C.crosswalk);
         put(bx + 3, by + 5, C.trunk); // posts
         put(bx + 5, by + 5, C.trunk);
+      }
+    }
+  }
+
+  // ---- pass 1.6: a parked grain consist on the siding by the elevator ----
+  {
+    let depot = -1;
+    for (let t = 0; t < w.lot.length && depot < 0; t++) if (w.lot[t] === Lot.Depot) depot = t;
+    if (depot >= 0) {
+      const dy0 = (depot / w.width) | 0;
+      let drawn = 0;
+      for (let dx = -6; dx <= 6 && drawn < 4; dx++) {
+        const x = (depot % w.width) + dx;
+        if (x < 0 || x >= w.width) continue;
+        for (const yy of [dy0 - 1, dy0 - 2, dy0 + 1]) {
+          if (yy < 0 || yy >= w.height) continue;
+          const rt = yy * w.width + x;
+          if (w.terrain[rt] !== Terrain.Rail) continue;
+          const bx = x * TILE_PX;
+          const by = yy * TILE_PX;
+          const col = pixHash(rt, 1, 88) % 2 === 0 ? C.boxcarA : C.boxcarB;
+          for (let px = 0; px < TILE_PX; px++) {
+            put(bx + px, by + 2, shade(col, 1.1));
+            put(bx + px, by + 3, col);
+            put(bx + px, by + 4, col);
+            put(bx + px, by + 5, shade(col, 0.8));
+          }
+          drawn++;
+          break;
+        }
       }
     }
   }
@@ -650,6 +688,11 @@ function drawTile(
         return;
       }
 
+      // LEVEL CROSSING: the rail line runs through this road tile
+      const railAt = (n: number): boolean =>
+        n >= 0 && n < w.terrain.length && w.terrain[n] === Terrain.Rail;
+      const crossingH = tx > 0 && tx < w.width - 1 && railAt(t - 1) && railAt(t + 1);
+      const crossingV = ty > 0 && ty < w.height - 1 && railAt(t - w.width) && railAt(t + w.width);
       // a road tile beside another horizontal road row = the 2-lane HIGHWAY
       const highway = (roadN || roadS) && roadW && roadE;
       const highwayTopLane = highway && roadS && !roadN;
@@ -694,8 +737,18 @@ function drawTile(
           }
           // crosswalk bars across the entries of a downtown intersection
           if (intersection && px % 2 === 1 && (py === 1 || py === TILE_PX - 2)) c = C.crosswalk;
+          // the tracks continue straight across the pavement
+          if (crossingH && (py === 2 || py === 5)) c = C.railSteel;
+          if (crossingV && (px === 2 || px === 5)) c = C.railSteel;
           put(x0 + px, y0 + py, c);
         }
+      }
+      // crossbuck posts flank a level crossing
+      if (crossingH || crossingV) {
+        put(x0 + 1, y0 + 1, C.crosswalk); // X sign
+        put(x0 + 1, y0 + 2, C.iconDark);
+        put(x0 + 6, y0 + 5, C.crosswalk);
+        put(x0 + 6, y0 + 6, C.iconDark);
       }
       // TRAFFIC LIGHTS: paired signal heads on the corners of a 4-way
       if (fourWay) {
@@ -738,6 +791,37 @@ function drawTile(
           if (posS < TILE_PX && pixHash(tx, 3, 83) % 3 === 0) {
             drawCar(x0 + 5, y0 + posS, false, carC[pixHash(tx, posS >> 3, 86) % 4]!);
           }
+        }
+      }
+      return;
+    }
+    case Terrain.Rail: {
+      // railroad: ballast bed, ties across the travel axis, twin steel rails
+      const railE = tx < w.width - 1 && (w.terrain[t + 1] === Terrain.Rail || w.terrain[t + 1] === Terrain.Road);
+      const railW = tx > 0 && (w.terrain[t - 1] === Terrain.Rail || w.terrain[t - 1] === Terrain.Road);
+      const horizR = railE || railW;
+      const overWater =
+        (ty > 0 && w.terrain[t - w.width] === Terrain.Lake) ||
+        (ty < w.height - 1 && w.terrain[t + w.width] === Terrain.Lake);
+      for (let py = 0; py < TILE_PX; py++) {
+        for (let px = 0; px < TILE_PX; px++) {
+          const gx = x0 + px;
+          const gy = y0 + py;
+          let c: RGB = overWater
+            ? (px + py) % 2 === 0
+              ? C.plankDark
+              : C.plank // trestle deck over the water
+            : pixHash(gx, gy, 73) % 5 === 0
+              ? shade(C.ballast, 0.9)
+              : C.ballast;
+          if (horizR) {
+            if (gx % 2 === 0 && py >= 2 && py <= 5) c = C.tie;
+            if (py === 2 || py === 5) c = C.railSteel;
+          } else {
+            if (gy % 2 === 0 && px >= 2 && px <= 5) c = C.tie;
+            if (px === 2 || px === 5) c = C.railSteel;
+          }
+          put(gx, gy, c);
         }
       }
       return;
@@ -801,13 +885,25 @@ function drawTile(
       return;
     }
     case Terrain.Grass: {
-      // desert borders dither into the green (no hard biome line)
-      const desertBeside =
-        w.biome[t] !== 1 &&
-        ((tx > 0 && w.biome[t - 1] === 1) ||
-          (tx < w.width - 1 && w.biome[t + 1] === 1) ||
-          (ty > 0 && w.biome[t - w.width] === 1) ||
-          (ty < w.height - 1 && w.biome[t + w.width] === 1));
+      // desert borders grade through a scrub ecotone (no hard biome line):
+      // ring 1 = heavy sand mix, rings 2-3 = sparse sand + dry scrub
+      let desertRing = 0;
+      if (w.biome[t] !== 1) {
+        outer: for (let ring = 1; ring <= 3; ring++) {
+          for (let dy = -ring; dy <= ring; dy++) {
+            for (let dx = -ring; dx <= ring; dx++) {
+              if (Math.max(Math.abs(dx), Math.abs(dy)) !== ring) continue;
+              const x = tx + dx;
+              const y = ty + dy;
+              if (x < 0 || y < 0 || x >= w.width || y >= w.height) continue;
+              if (w.biome[y * w.width + x] === 1) {
+                desertRing = ring;
+                break outer;
+              }
+            }
+          }
+        }
+      }
       // DESERT biome: the same rolling land, reskinned as sand and scrub
       if (w.biome[t] === 1 /* Biome.Desert */) {
         for (let py = 0; py < TILE_PX; py++) {
@@ -850,7 +946,10 @@ function drawTile(
           if (h % 19 === 0) c = C.scrub;
           if (h % 211 === 0) c = C.flowerY;
           else if (h % 223 === 0) c = C.flowerW;
-          if (desertBeside && h % 3 === 0) c = C.sandBg; // dithered biome edge
+          // graded ecotone: heavy sand at ring 1, thinning scrub to ring 3
+          if (desertRing === 1 && h % 3 === 0) c = C.sandBg;
+          else if (desertRing === 2 && h % 6 === 0) c = h % 12 === 0 ? C.sandScrub : C.sandBg;
+          else if (desertRing === 3 && h % 12 === 0) c = C.sandScrub;
           // woods/lake spill a ragged sub-tile edge into this grass pixel
           const bleed = naturalEdgeBleed(w, tx, ty, px, py);
           if (bleed) c = bleed;
@@ -953,8 +1052,13 @@ function drawTile(
           const row = (vertRows ? gx2 : gy) % 3 === 0;
           let c = row ? cropB : cropA;
           if (pixHash(tx * TILE_PX + px, gy, 41) % 31 === 0) c = shade(c, 1.12);
-          // fence posts along the field boundary
-          if ((fenceN && py === 0 && px % 3 === 0) || (fenceW && px === 0 && py % 3 === 0))
+          // fence posts along the field boundary; a brush hedgerow where the
+          // parcel meets standing timber (#11)
+          const woodsN = ty > 0 && w.terrain[t - w.width] === Terrain.Woods;
+          const woodsW = tx > 0 && w.terrain[t - 1] === Terrain.Woods;
+          if ((woodsN && py === 0) || (woodsW && px === 0)) {
+            if ((px + py) % 2 === 0) c = C.bush;
+          } else if ((fenceN && py === 0 && px % 3 === 0) || (fenceW && px === 0 && py % 3 === 0))
             c = C.fence;
           put(x0 + px, y0 + py, c);
         }
@@ -1516,6 +1620,31 @@ function drawLotBuilding(
         put(x0 + 2, y0 + 3, accent); // the gym doors
         put(x0 + 3, y0 + 3, accent);
       }
+      break;
+    case Lot.GrainElevator:
+      // the tallest thing in town: a bank of tall bins + headhouse
+      if (!sameLeft) {
+        put(x0 + 2, y0, body); // bins rise past the roofline
+        put(x0 + 3, y0, shade(body, 0.9));
+        put(x0 + 5, y0, body);
+        put(x0 + 2, y0 + 1, shade(body, 1.05));
+        put(x0 + 5, y0 + 1, shade(body, 1.05));
+        put(x0 + 3, y0 + 2, accent); // the shed roof band
+        put(x0 + 4, y0 + 2, accent);
+      } else {
+        put(x0 + 3, y0, C.iconDark); // headhouse + spout
+        put(x0 + 3, y0 + 1, body);
+        put(x0 + 2, y0 + 3, C.iconDark);
+      }
+      break;
+    case Lot.Depot:
+      // long low station: platform strip + bay window
+      put(x0 + 2, y0 + 5, C.crosswalk); // platform edge
+      put(x0 + 3, y0 + 5, C.crosswalk);
+      put(x0 + 4, y0 + 5, C.crosswalk);
+      put(x0 + 5, y0 + 5, C.crosswalk);
+      put(x0 + 3, y0 + 3, C.windowDark);
+      put(x0 + 4, y0 + 3, accent);
       break;
     case Lot.Warehouse:
       // long shed: roll-up bay doors + a loading dock strip

@@ -50,6 +50,11 @@ flagged for a later art pass (tracked as B5.3.1 in the Build Manifest).
 | Traffic lights | paired red/green heads at downtown 4-ways | — | 🧩 cycling phases |
 | Streetlights | lamp posts with warm heads, downtown/commercial sidewalks | — | 🧩 night mode glow |
 | Welcome signs | "town line" boards flanking Main Street's ends | — | 🧩 painted town name at LOD 4 |
+| Railroad | ballast bed, ties, twin steel rails; trestle deck over water; level crossings with crossbucks where streets cross | — | 🧩 moving freight train |
+| Parked boxcars | rust/olive consist on the elevator siding | — | — |
+| Hedgerows | brush line where crops meet standing timber | — | — |
+| Shelterbelts | windbreak tree rows on farmstead north sides | — | — |
+| Desert ecotone | 3-ring graded sand/scrub transition into grass | — | — |
 | **Highway center line** | dashed yellow line along the 2-lane seam | — | — |
 | **Crosswalks** | zebra dashes at downtown intersections | — | — |
 | **Bridge** (road over water) | plank deck (seams across travel) + railing posts | — | 🧩 truss silhouette at LOD 3+ |
@@ -86,6 +91,8 @@ flagged for a later art pass (tracked as B5.3.1 in the Build Manifest).
 | Ballfield | dirt infield diamond + home plate | — | — |
 | **Cinema** | dark facade, lit marquee strip, poster bill | — | 🧩 marquee letter crawl |
 | **Dock** | plank walkway reaching into the water + moored rowboat | — | — |
+| **Grain elevator** | tall bin bank + headhouse over the siding (the town's skyline) | — | 🧩 spout + dust at LOD 3 |
+| **Depot** | long low station with platform strip | — | — |
 
 ## Landmarks (`LANDMARK_ICON`, gold)
 

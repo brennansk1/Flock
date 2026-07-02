@@ -11,7 +11,7 @@ implementation step. Tree view: [BUILD_TREE.md](./BUILD_TREE.md)._
 
 ## Progress summary
 
-**68/76 nodes VERIFIED · 1 NOT_STARTED (B6.5) · 6 BLOCKED (external infra/content) · 1 STUBBED (deferred high-detail art, tracked) · 0 BLOCKED_BY_POLICY**
+**69/78 nodes VERIFIED · 2 NOT_STARTED (B6.5, B1.4.12) · 6 BLOCKED (external infra/content) · 1 STUBBED (deferred high-detail art, tracked) · 0 BLOCKED_BY_POLICY**
 
 Next recommended action: **B6.5** (cross-browser determinism CI) — the
 top-listed risk in HANDOFF §10 and the last pure-code ⬜ node; everything
@@ -49,6 +49,8 @@ else open is external provisioning (B7.*) or the deferred art pass (B5.3).
 | B1.4.8 | B1/mapgen/blocks | Block interiors | Footpaths (Terrain.Path) connect every pop≥3 home to the street net (test: access within 1 orth tile); cul-de-sacs with bulbs, named "X Court" | B1.4.1 | ✔️ | REVISED per feedback: homes FRONT roads (no path corridors); frontage test green ×5 seeds; cul-de-sacs in-footprint |
 | B1.4.9 | B1/mapgen/farms2 | Farming v2 | Farmsteads anchored ON rural lanes; rectangular road-aligned field parcels with baulks; orchards (tree rows) + fenced pastures (livestock) | B1.4.2 | ✔️ | road-anchored parcels + orchards/pastures asserted in tests; river margin enforced; crop variety + hay bales rendered |
 | B1.4.10 | B1/mapgen/biomes | Configurable biomes | `World.biome` blob layer (desert/forest) from `generateWorld` opts / server env; affects nature gen + render palette; snapshot v8 + hashed | B1.4.4 | ✔️ | biome config test green (default/[]/determinism); FLOCK_BIOMES env plumbed; snapshot v8 hashed |
+| B1.4.11 | B1/mapgen/realism | Geographer realism pass | Rail line (fewest-crossing row, right-of-way through unbuilt lots) + siding + grain elevator + depot every town; 2 tributaries joining at confluence rows; lake outlet channel; river widens 1→3→4 downstream; riparian forest bias + bank galleries; quarter-section farm-belt fill (>20% of open land cultivated); farmstead shelterbelts; woods/field hedgerows; road-field shoulders; cemetery at town edge; 3-ring desert ecotone; off-center crossing | B1.4.4 | ✔️ | Sonnet fresh-eyes review (18 findings, 11 implemented); mapgen.test.ts rail/farm-belt/hydrology gates green ×5 seeds; vision-checked full map + rail-siding zoom |
+| B1.4.12 | B1/mapgen/fields | Terrain fields v2 | Coarse heightmap + moisture field generated first; river follows drainage, biomes gated on elevation+moisture, vegetation on wetness | B1.4.11 | ⬜ | Deferred (reviewer finding #8) — foundational; also deferred: #16 diagonal legacy road (conflicts with the roads-must-be-H/V requirement), #1 river-anchored founding, #15 curvilinear suburbs |
 | B1.5 | B1/buildings | Buildings (§6) | Full table incl. Watchtowers fort×5, Hotlines 75% intercept | B1.1 | ✔️ | m1.test.ts green |
 | B1.6 | B1/units | Units (§7) | Couriers (robbable), Vans (mobile pressure/screening), invisible Agents | B1.5 | ✔️ | m1.test.ts green |
 | B1.7 | B1/pvp | PvP trio (§13/§15) | Raids, Scandal 50%-notify→Publish, Court Defection | B1.6 | ✔️ | m1.test.ts green |

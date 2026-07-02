@@ -194,6 +194,38 @@ test("biomes are configurable, blob-shaped, and deterministic", () => {
   assert.ok(farmish, "farms should roll orchards/pastures");
 });
 
+test("the railroad, elevator, and depot anchor every town (§2 rev. 5)", () => {
+  for (const seed of SEEDS) {
+    const w = generateWorld(seed, 96, 96);
+    let rail = 0;
+    const lots = new Set<number>();
+    for (let t = 0; t < w.terrain.length; t++) {
+      if (w.terrain[t] === Terrain.Rail) rail++;
+      if (w.lot[t] !== 0) lots.add(w.lot[t]!);
+    }
+    assert.ok(rail >= 80, `seed ${seed}: rail line too short (${rail} tiles)`);
+    assert.ok(lots.has(Lot.GrainElevator), `seed ${seed}: no grain elevator`);
+    assert.ok(lots.has(Lot.Depot), `seed ${seed}: no depot`);
+  }
+});
+
+test("the countryside is farmed, watered, and wooded like working land", () => {
+  const w = generateWorld(3, 96, 96);
+  let farm = 0;
+  let rural = 0;
+  let water = 0;
+  for (let t = 0; t < w.terrain.length; t++) {
+    const tr = w.terrain[t];
+    if (tr === Terrain.Lake) water++;
+    if (tr === Terrain.Field || tr === Terrain.Orchard || tr === Terrain.Pasture) farm++;
+    if (tr === Terrain.Grass || tr === Terrain.Field || tr === Terrain.Orchard || tr === Terrain.Pasture) rural++;
+  }
+  // contiguous farm belt (#3): a solid share of the open land is cultivated
+  assert.ok(farm / rural > 0.2, `farm share too low: ${(farm / rural * 100).toFixed(1)}%`);
+  // tributaries + outlet (#5/#6): meaningfully more water than one channel
+  assert.ok(water > 200, `drainage too sparse: ${water} water tiles`);
+});
+
 test("household/member names are pure and stable", () => {
   assert.equal(householdName(1234), householdName(1234));
   assert.equal(memberName(1234, 0), memberName(1234, 0));

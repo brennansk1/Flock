@@ -55,7 +55,8 @@ DESIGN.md  DEPLOY.md  README.md  HANDOFF.md(this)  balance.json(tuning, hot-patc
 | `hash.ts` | `hashState` — the lockstep StateHash (the CI gate) |
 | `snapshot.ts` | `toSnapshot`/`fromSnapshot` — join/resync codec |
 | `mapgen.ts` | Seeded map: districts, grid roads, river, farms, landmarks, naming |
-| `gridRoads.ts` | Axis-aligned street-grid road network (blocks, named streets) |
+| `gridRoads.ts` | Axis-aligned street-grid road network (blocks, named streets, cul-de-sacs) |
+| `civics.ts` | Key-building takeover engine (police/schools/grocery/church effects) |
 | `names.ts` `nameData.ts` | World naming: faker-generated corpora + seeded/pure pickers |
 | `buildings.ts` `doctrine.ts` `diplomacy.ts` `entities.ts` `player.ts` | M1 systems (§6/§10/§16/§7) |
 | `bots.ts` | 3 bot tiers (Drifter/Sect/Established Church) — pure, unit-tested |

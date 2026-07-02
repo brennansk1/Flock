@@ -38,7 +38,18 @@ flagged for a later art pass (tracked as B5.3.1 in the Build Manifest).
 | Lake / river | deep water, drifting ripple rows, glints, sand shoreline ring | ragged sub-tile shore bleed | 🧩 animated flow direction on the river |
 | Crop fields | gold crop with row striping, fence posts on boundaries | — | 🧩 crop growth stages by match clock |
 | Dirt lanes | mottled two-tone dirt | — | — |
+| Footpath (Terrain.Path) | stone walk (legacy support; mapgen no longer emits them — homes front roads) | — | — |
+| Orchard | mown rows with tree lines + shadows | — | 🧩 blossom/fruit seasons |
+| Pasture | fenced worn meadow, grazing cattle (white/brown) | — | 🧩 cow walk cycle |
+| Biome: desert | sand with dune crests, dry scrub, saguaro stands | — | 🧩 heat shimmer |
+| Biome: forest | darker forest-floor grass, denser stands | — | — |
 | Asphalt road | worn asphalt, sidewalk skirts where lots front it, gravel shoulders in country | — | 🧩 tire tracks / patch cracks |
+| Lane markings | 4-lane highway: yellow center seam + white lane dashes; 2-lane streets: faint center dashes | — | — |
+| Traffic | deterministic cars (hash of position × tick) — two directions, denser on the highway; parked cars in lots | — | 🧩 turning traffic at intersections |
+| Stop signs | red head + post where a side street tees in | — | — |
+| Traffic lights | paired red/green heads at downtown 4-ways | — | 🧩 cycling phases |
+| Streetlights | lamp posts with warm heads, downtown/commercial sidewalks | — | 🧩 night mode glow |
+| Welcome signs | "town line" boards flanking Main Street's ends | — | 🧩 painted town name at LOD 4 |
 | **Highway center line** | dashed yellow line along the 2-lane seam | — | — |
 | **Crosswalks** | zebra dashes at downtown intersections | — | — |
 | **Bridge** (road over water) | plank deck (seams across travel) + railing posts | — | 🧩 truss silhouette at LOD 3+ |
@@ -106,6 +117,12 @@ flagged for a later art pass (tracked as B5.3.1 in the Build Manifest).
 | Asset | Form | High-detail deferred |
 |-------|------|----------------------|
 | Residents | 2-px living dots, cult-colored; walk Manhattan day-cycles to work/worship | 🧩 walk-cycle sprite (per §30 animation pass, B5.3) |
+| Property stakes | dotted boundary cord in owner color along bought-parcel edges | — |
+| Backyards | sheds, above-ground pools, vegetable rows, back fences, flowers (block interiors) | 🧩 laundry lines |
+| Street furniture | regular street trees, fire hydrants, mailboxes on frontages | — |
+| Chimney smoke | animated wisp on a third of homes (pure tick hash) | — |
+| Crop variety | per-parcel corn/soy/wheat/fallow palettes + hay bales | — |
+| Lake dressing | shore reeds, rocks breaking water | — |
 | Tithe Courier | 6×6 walker with money satchel, glides along route | 🧩 frame animation |
 | Recruitment Van | 6×6 minibus with glass + wheels | 🧩 wheel spin frames |
 | Agent (own-side only) | hooded figure | — |

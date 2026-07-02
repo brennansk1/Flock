@@ -49,9 +49,12 @@ B1  ✔️ SIM — deterministic gameplay core (@flock/sim, runs bit-identically
 │   │            outlet, downstream river widening; riparian forests +
 │   │            bank galleries; contiguous farm belt; shelterbelts;
 │   │            hedgerows; field shoulders; edge cemetery; ecotones
-│   └── B1.4.12 ⬜ Terrain fields v2 — coarse heightmap + moisture layer
-│                driving hydrology/biomes/vegetation (deferred: reviewer
-│                finding #8; foundational rework)
+│   ├── B1.4.12 ⬜ Terrain fields v2 — coarse heightmap + moisture layer
+│   │            driving hydrology/biomes/vegetation (deferred: reviewer
+│   │            finding #8; foundational rework)
+│   └── B1.4.13 ⬜ Mapgen QA pass — execute QA_MAPGEN.md: flag & fix
+│                misgenerated/misplaced assets, add missing ones, build
+│                variety (houses, trees, shops) — the 60%→95% push
 ├── B1.5  ✔️ buildings.ts — full §6 table (Compounds…Supplement Labs)
 ├── B1.6  ✔️ entities.ts — Couriers, Vans, invisible Agents (§7)
 ├── B1.7  ✔️ PvP trio — raids / scandal→publish / court defection (§13/§15)

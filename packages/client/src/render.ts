@@ -10,7 +10,7 @@
  * LOD so finer detail (window mullions, shingles, ragged tree edges) resolves.
  */
 
-import { Application, Sprite, Texture } from "pixi.js";
+import { Application, Sprite, Texture, Graphics } from "pixi.js";
 import { renderTown, TILE_PX, type SimState } from "@flock/sim";
 
 const MAX_LOD = 4;
@@ -35,6 +35,10 @@ export class MapRenderer {
   private centerY: number;
   // last view used (tile coords) so tileAt can invert screen→tile
   private view = { x: 0, y: 0, w: 0, h: 0, lod: 1, screenScale: 1 };
+  // transient "look here" highlight (clicking a Key Building)
+  private highlight: Graphics | null = null;
+  private focusTile = -1;
+  private focusUntil = 0;
 
   constructor(app: Application, width: number, height: number) {
     this.app = app;
@@ -94,6 +98,51 @@ export class MapRenderer {
   /** The current visible tile window (for the minimap viewport rectangle). */
   getView(): { x: number; y: number; w: number; h: number } {
     return { x: this.view.x, y: this.view.y, w: this.view.w, h: this.view.h };
+  }
+
+  /**
+   * "Look here": zoom the camera in on a tile and flash a pulsing ring on it
+   * for a few seconds (clicking a Key Building row). Deterministic-safe — pure
+   * camera/overlay, never touches sim state.
+   */
+  flashTile(tile: number, nowMs: number): void {
+    this.centerX = (tile % this.mapW) + 0.5;
+    this.centerY = ((tile / this.mapW) | 0) + 0.5;
+    this.zoom = Math.min(MAX_LOD, 3.5); // pull in close enough to read the lot
+    this.clampCenter();
+    this.focusTile = tile;
+    this.focusUntil = nowMs + 2800;
+    this.lastDrawnTick = -1; // force a redraw at the new camera
+  }
+
+  /**
+   * Per-frame overlay for the flash-highlight (called from the app ticker so
+   * the pulse animates smoothly even between sim ticks).
+   */
+  drawHighlight(nowMs: number): void {
+    if (!this.highlight) {
+      this.highlight = new Graphics();
+      this.app.stage.addChild(this.highlight);
+    }
+    const g = this.highlight;
+    g.clear();
+    if (this.focusTile < 0 || nowMs >= this.focusUntil) {
+      this.focusTile = -1;
+      return;
+    }
+    const r = this.tileToScreen(this.focusTile);
+    if (!r) return;
+    const life = this.focusUntil - nowMs;
+    const alpha = life < 800 ? life / 800 : 1;
+    const pulse = 1 + 0.25 * Math.sin(nowMs / 120);
+    const pad = Math.max(14, r.size * 0.9) * pulse;
+    const x = r.x - pad;
+    const y = r.y - pad;
+    const w = r.size + pad * 2;
+    // translucent gold wash (proven-visible fill) + a bright pulsing ring
+    g.rect(x, y, w, w).fill({ color: 0xf0b53e, alpha: alpha * 0.22 });
+    g.rect(x, y, w, w).stroke({ width: Math.max(4, r.size * 0.25), color: 0xf0b53e, alpha });
+    g.rect(x - 3, y - 3, w + 6, w + 6).stroke({ width: 2, color: 0x19110a, alpha: alpha * 0.7 });
   }
 
   /** Drag-pan by a screen-pixel delta. */

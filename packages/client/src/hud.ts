@@ -69,6 +69,8 @@ export type PlacementKind =
 /** The slice of the map camera the HUD needs (minimap jump + viewport rect). */
 export interface Camera {
   centerOn(tile: number): void;
+  /** zoom in on a tile and flash a transient highlight ring on it */
+  flashTile(tile: number, nowMs: number): void;
   getView(): { x: number; y: number; w: number; h: number };
 }
 
@@ -1431,12 +1433,18 @@ export class Hud {
       this.el.civics.querySelectorAll<HTMLElement>("[data-civic]").forEach((row) => {
         row.onclick = () => {
           const lot = Number(row.dataset.civic);
+          // jump to the controlling instance if held, else the first on the map
+          const holderNow = computeCivicControl(this.g.sim).get(lot) ?? 0;
+          let target = -1;
           for (let t = 0; t < w.lot.length; t++) {
-            if (w.lot[t] === lot) {
-              this.camera?.centerOn(t);
+            if (w.lot[t] !== lot) continue;
+            if (target < 0) target = t;
+            if (holderNow !== 0 && w.owner[t] === holderNow) {
+              target = t;
               break;
             }
           }
+          if (target >= 0) this.camera?.flashTile(target, performance.now());
         };
       });
     }

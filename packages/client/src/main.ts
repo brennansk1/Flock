@@ -105,6 +105,7 @@ async function boot(): Promise<void> {
       app.ticker.add(() => {
         map.showDissent = hud.showDissent;
         map.draw(g.sim);
+        map.drawHighlight(performance.now()); // transient "look here" ring
         drawFoundingHints(map, foundingHints, g, recommended, app.ticker.lastTime);
         // HUD + bar update at sim rate (10 Hz), not every animation frame.
         if (g.sim.tick !== lastHudTick) {

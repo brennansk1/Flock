@@ -38,7 +38,6 @@ import {
   BUILDING_DEFS,
   buildingCost,
   countBuildings,
-  hasPrintShop,
   freeBroadcastTower,
   vanCapacity,
   stepBuildings,
@@ -217,7 +216,6 @@ export function createSim(opts: {
     scandals: [],
     cropCircles: [],
     pickets: [],
-    courtCooldowns: {},
     raidLockouts: {},
     nextSplinterId: 900,
     cpaNextPicketTick: 0,
@@ -621,7 +619,7 @@ function applyAbility(s: SimState, p: PlayerState, b: Balance, intent: Intent): 
     }
 
     case "radio_static": {
-      // §11.4 Visitors active 2: enemy Broadcast Tower + Hotlines offline 20s.
+      // §11.4 Visitors active 2: enemy Broadcast Towers offline 20s.
       if (p.archetype !== "visitors") return;
       if (onCooldown(p, "radio_static") || p.faith < fromInt(KIT.radioStatic.faithCost)) return;
       const t = intent.target ?? -1;
@@ -929,9 +927,6 @@ export function applyIntent(s: SimState, intent: Intent, b: Balance): void {
 
     case IntentType.ALLY_BREAK:
       breakAlliance(s, p.id, intent.target);
-      break;
-
-    case IntentType.COURT_DEFECTION:
       break;
 
     case IntentType.PUBLISH_SCANDAL:

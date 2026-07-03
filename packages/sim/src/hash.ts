@@ -274,7 +274,7 @@ export function hashState(s: SimState): string {
     f.u32(e.tile);
     f.u32(e.ticksLeft);
   }
-  for (const rec of [s.courtCooldowns, s.raidLockouts]) {
+  for (const rec of [s.raidLockouts]) {
     const rkeys = Object.keys(rec)
       .map(Number)
       .sort((a, z) => a - z);

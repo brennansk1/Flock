@@ -27,7 +27,6 @@ export const IntentType = {
   ALLY_ACCEPT: "ALLY_ACCEPT",
   ALLY_BREAK: "ALLY_BREAK",
   PACT_PICK: "PACT_PICK",
-  COURT_DEFECTION: "COURT_DEFECTION",
   PUBLISH_SCANDAL: "PUBLISH_SCANDAL",
   CHAT: "CHAT",
   EMOTE: "EMOTE",
@@ -80,7 +79,6 @@ export type Intent =
   | { t: typeof IntentType.ALLY_ACCEPT; player: PlayerId; target: PlayerId }
   | { t: typeof IntentType.ALLY_BREAK; player: PlayerId; target: PlayerId }
   | { t: typeof IntentType.PACT_PICK; player: PlayerId; node: string }
-  | { t: typeof IntentType.COURT_DEFECTION; player: PlayerId; district: DistrictId }
   | { t: typeof IntentType.PUBLISH_SCANDAL; player: PlayerId; target: PlayerId }
   | { t: typeof IntentType.CHAT; player: PlayerId; channel: string; msg: string }
   | { t: typeof IntentType.EMOTE; player: PlayerId; emote: number }

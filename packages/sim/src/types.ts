@@ -473,8 +473,6 @@ export interface SimState {
   scandals: Scandal[];
   cropCircles: CropCircle[];
   pickets: Picket[];
-  /** district id → tick when Court Defection unlocks again (§15.3) */
-  courtCooldowns: Record<number, number>;
   /** district id → tick when full-strength raids resume (§13 lockout) */
   raidLockouts: Record<number, number>;
   /** next sim-spawned player id (Splinter Sects, §16); high range avoids server ids */

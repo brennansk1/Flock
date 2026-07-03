@@ -174,9 +174,10 @@ const STEPS: TutStep[] = [
   },
   {
     title: "UNLEASH YOUR POWER",
-    body: "Each archetype has unique abilities. Click the first button in the CULT POWERS panel (or press D) to activate your archetype's active power (Street Prophet, Juice Cleanse, Seminar Blitz, or Crop Circle). We've granted you the cash to try it.",
+    body: "Each archetype has a signature active power. Click the FIRST button in the CULT POWERS panel — it arms your power — THEN click a house in town to unleash it (Street Prophet, Juice Cleanse, Seminar Blitz, or Crop Circle land where you click). We've granted you the cash to try it.",
     glow: ".fk-pow",
     enter: (g) => money(g, 60_000),
+    hint: "Two clicks: the D power button first (it lights up), then a town tile to fire it. If nothing happens, you clicked the button but not a target yet.",
     done: (g) => {
       const p = me(g);
       if (!p) return false;

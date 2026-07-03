@@ -5,7 +5,7 @@
  *
  * Movement is per-tick fractional advance along a precomputed straight-line
  * path (roads give couriers/vans their speed bonus). Everything is fixed-point
- * and order-stable; the only randomness (hotline intercepts, manifesto scatter)
+ * and order-stable; the only randomness (manifesto scatter)
  * draws from the sim RNG, which lives in the hashed state.
  */
 
@@ -379,7 +379,7 @@ export function publishScandal(s: SimState, attacker: PlayerState, victimId: Pla
 
 // ---------------------------------------------------------------- strikes
 
-/** Charge → 10s warning → land, with hotline intercept rolls (§8). */
+/** Charge → 10s warning → land (§8). */
 export function stepStrikes(s: SimState, b: Balance): void {
   for (let i = s.strikes.length - 1; i >= 0; i--) {
     const c = s.strikes[i]!;

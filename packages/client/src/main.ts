@@ -301,10 +301,6 @@ function wireInput(app: Application, map: MapRenderer, g: GameSession, hud: Hud)
             g.sendIntent({ t: IntentType.PUBLISH_SCANDAL, target: owner });
           else pingPrompt("Click a rival cult's tile to publish a scandal.");
           return;
-        case "defection":
-          if (district > 0) g.sendIntent({ t: IntentType.COURT_DEFECTION, district });
-          else pingPrompt("Court a DISTRICT — click inside town.");
-          return;
         case "van":
           g.sendIntent(nearestVanIntent(g, center));
           return;

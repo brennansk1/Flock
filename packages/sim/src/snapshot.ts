@@ -92,7 +92,6 @@ export interface Snapshot {
   scandals: Scandal[];
   cropCircles: CropCircle[];
   pickets: Picket[];
-  courtCooldowns: Record<number, number>;
   raidLockouts: Record<number, number>;
   nextSplinterId: number;
   cpaNextPicketTick: number;
@@ -158,7 +157,6 @@ export function toSnapshot(s: SimState): Snapshot {
     scandals: s.scandals.map((e) => ({ ...e })),
     cropCircles: s.cropCircles.map((e) => ({ ...e })),
     pickets: s.pickets.map((e) => ({ ...e })),
-    courtCooldowns: { ...s.courtCooldowns },
     raidLockouts: { ...s.raidLockouts },
     nextSplinterId: s.nextSplinterId,
     cpaNextPicketTick: s.cpaNextPicketTick,
@@ -237,7 +235,6 @@ export function fromSnapshot(snap: Snapshot): SimState {
     scandals: snap.scandals.map((e) => ({ ...e })),
     cropCircles: snap.cropCircles.map((e) => ({ ...e })),
     pickets: snap.pickets.map((e) => ({ ...e })),
-    courtCooldowns: { ...snap.courtCooldowns },
     raidLockouts: { ...snap.raidLockouts },
     nextSplinterId: snap.nextSplinterId,
     cpaNextPicketTick: snap.cpaNextPicketTick,

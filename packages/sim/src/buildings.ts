@@ -3,8 +3,8 @@
  * refund, destroyed (not captured) when their tile flips, disabled by strikes.
  *
  * This module owns the authoritative §6 table and the spatial queries other
- * systems ask of it (fort_mult, hotline intercept coverage, watchtower vision,
- * print-shop discounts, supplement-lab adjacency).
+ * systems ask of it (fort_mult, watchtower vision, van capacity,
+ * supplement-lab adjacency).
  */
 
 import { add, mul, fromInt, fromFloat, ONE, type Fixed } from "./fixed.js";
@@ -148,13 +148,6 @@ export function watchtowerSees(s: SimState, player: PlayerId, tile: TileId): boo
     if (b.type !== "watchtower" || b.player !== player || !isOperational(b)) continue;
     if (dist2(s.world, b.tile, tile) <= 100) return true;
   }
-  return false;
-}
-
-
-
-/** Print Shop (§6): rituals −25% Faith cost, strike cooldowns −20%, if any operational. */
-export function hasPrintShop(s: SimState, player: PlayerId): boolean {
   return false;
 }
 

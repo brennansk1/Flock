@@ -62,7 +62,6 @@ export type PlacementKind =
   //    required. Each arms a target mode; main.ts's map-click resolves it.
   | { mode: "agent"; mission: "deprogram" | "scandal" } // click a district
   | { mode: "scandal" } //                                click an enemy cult
-  | { mode: "defection" } //                             click a district
   | { mode: "van" } //                                   click a tile
   | { mode: "close_front" } //                           click near a front
   | { mode: "cancel_build" }; //                         click your building
@@ -542,7 +541,6 @@ export class Hud {
       case "strike": return `strike:${p.strike}`;
       case "agent": return `agent:${p.mission}`;
       case "scandal": return "scandal";
-      case "defection": return "defection";
       case "van": return "van";
       case "close_front": return "close_front";
       case "cancel_build": return "cancel_build";
@@ -859,7 +857,7 @@ export class Hud {
     help.className = "fk-helpbtn";
     help.textContent = "?";
     help.title =
-      "Controls — 1/2/3 stance · Q/W/E/R rituals · D/F powers · G signature · B/T/C/Y/U/H/J/L build · N buy land · Esc cancel (click for the full sheet)";
+      "Controls — 1/2/3 stance · Q/W/E/R rituals · D/F powers · G signature · B/T/C/Y/L build · N buy land · H dissent map · Esc cancel (click for the full sheet)";
     help.onclick = () => this.toggleHelp();
     this.root.appendChild(help);
   }
@@ -880,10 +878,10 @@ export class Hud {
       <b style="color:#e0a422">Goal</b> — convert the town. Watch the bar up top; reach the win % to dominate.<br/>
       <b style="color:#e0a422">Map</b> — click a tile to open a front there · drag to pan · wheel to zoom · click the minimap to jump.<br/>
       <b style="color:#e0a422">Stance</b> — 1 Tend (defend) · 2 Spread (grow) · 3 Crusade (push hard, +Heat).<br/>
-      <b style="color:#e0a422">Rituals</b> — Q Sermon · W Festival · E Offering · R Atonement (spend Faith).<br/>
+      <b style="color:#e0a422">Rituals</b> — Q Sermon · W Festival · E Offering · R Public Apology (vents Heat).<br/>
       <b style="color:#e0a422">Powers</b> — D / F archetype actives · G signature (your big play).<br/>
-      <b style="color:#e0a422">Build</b> — click a palette button then a tile, or press B/T/C/Y/U/H/J/L. Greyed = can't afford.<br/>
-      <b style="color:#e0a422">Scheme</b> — A raid · X snoop · P publish scandal · K strike · V van · O/I alliances · Esc cancels.<br/>
+      <b style="color:#e0a422">Build</b> — click a palette button then a tile, or press B/T/C/Y/L. N buys land · H toggles the dissent map. Greyed = can't afford.<br/>
+      <b style="color:#e0a422">Scheme</b> — click a SCHEME button then a target (or hotkeys: A raid · X snoop · P scandal · K strike · V van · O/I alliances). Esc cancels.<br/>
       <div style="color:#8a7550;margin-top:10px;font-family:'VT323',monospace;font-size:16px">▸ click anywhere to close</div>
     </div>`;
     panel.onclick = () => panel.remove();

@@ -159,6 +159,12 @@ export class MatchWorker {
     this.roomCode = extra.roomCode ?? "";
     this.foundingTicksTotal = Math.max(1, foundingTicks);
     this.capacity = Math.min(4, capacity); // hard cap: 4 cults per town (§18 rev.)
+    // Validate the archetype knob: a typo'd/hostile ?town= param falls back to
+    // "farm" rather than silently generating a broken world.
+    const TOWN_TYPES = ["farm", "oceanside", "desert", "mountain", "lakeside"] as const;
+    const townType = (TOWN_TYPES as readonly string[]).includes(extra.townType ?? "farm")
+      ? (extra.townType as (typeof TOWN_TYPES)[number])
+      : "farm";
     // Separate RNG streams: seedSlice feeds the sim's randomness through the
     // turn stream (replays stay pure intent logs, §33); botRng drives Drifter
     // decisions, which also enter the turn stream as plain intents.
@@ -175,8 +181,8 @@ export class MatchWorker {
             ? []
             : ((process.env.FLOCK_BIOMES?.split(",").map((b) => b.trim()) as ("desert" | "forest")[] | undefined) ??
               ["desert", "forest"]),
-        // town archetype (§2A): private hosts can pick the world type
-        townType: (extra.townType ?? "farm") as "farm" | "oceanside" | "desert" | "mountain" | "lakeside",
+        // town archetype (§2A): private hosts can pick the world type (validated above)
+        townType,
       }),
       spawns: [],
       foundingTicks, // FOUNDING spawn-pick window (§18)
@@ -312,8 +318,11 @@ export class MatchWorker {
     // turn stream. Late join == late spawn, deterministically.
     this.sim.players.push(newPlayer(playerId, archetype, this.balance));
     // Humans pick a spawn during FOUNDING (§18) by clicking; bots (and humans
-    // joining a live match) are placed immediately.
-    if (autoSpawn || this.sim.foundingTicksLeft === 0) {
+    // joining a live match) are placed immediately. A human who arrives once
+    // the founding window has already ticked to its final hold (<=1) missed
+    // the window — auto-place them so they can NEVER extend the founding gate
+    // (the gate only waits for founders present during the real window).
+    if (autoSpawn || this.sim.foundingTicksLeft <= 1) {
       const spawnTile = spawnTileFor(this.sim.world, this.roster.length - 1);
       this.pending.push({ t: IntentType.SPAWN, player: playerId, tile: spawnTile });
     }
@@ -324,14 +333,6 @@ export class MatchWorker {
     const slot = this.clients.get(playerId);
     if (!slot) return;
 
-    // Rate limit: 20 intents/sec/client (§33).
-    const now = Date.now();
-    if (now - slot.windowStart >= 1000) {
-      slot.windowStart = now;
-      slot.windowCount = 0;
-    }
-    if (++slot.windowCount > RATE_LIMIT_PER_SEC) return; // drop + (telemetry later)
-
     let msg: unknown;
     try {
       msg = JSON.parse(raw);
@@ -341,7 +342,10 @@ export class MatchWorker {
     if (typeof msg !== "object" || msg === null) return;
     const type = (msg as { type?: string }).type;
 
-    // Desync recovery (§33): a client whose StateHash diverged asks for a fresh
+    // Control messages (resync/pause/resume) are meta, not gameplay intents —
+    // handle them BEFORE the intent rate limit so a burst of them can't starve
+    // a player's real actions (§33).
+    // Desync recovery: a client whose StateHash diverged asks for a fresh
     // authoritative snapshot and re-mirrors from there.
     if (type === "resync") {
       this.send(slot.ws, { type: "snapshot", snapshot: toSnapshot(this.sim), players: this.roster });
@@ -356,6 +360,15 @@ export class MatchWorker {
       return;
     }
     if (type !== "intent") return;
+
+    // Rate limit: 20 intents/sec/client (§33). Only real intents count.
+    const now = Date.now();
+    if (now - slot.windowStart >= 1000) {
+      slot.windowStart = now;
+      slot.windowCount = 0;
+    }
+    if (++slot.windowCount > RATE_LIMIT_PER_SEC) return; // drop + (telemetry later)
+
     const intent = (msg as { intent?: Intent }).intent;
     if (!intent || typeof intent.t !== "string") return;
 

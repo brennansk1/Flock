@@ -295,7 +295,9 @@ export function resolveConversion(s: SimState, b: Balance): void {
 
   for (const p of s.players) {
     if (!p.alive) continue;
-    if (p.atonementTicks > 0) continue; // Day of Atonement freezes own fronts (§9)
+    // Public Apology (ex-Day of Atonement) is a pure cool-down valve now: it
+    // vents Heat + heals Dissent fast (stepEconomy) but NO LONGER freezes your
+    // own fronts — freezing your own attack felt bad to play (§9 rev.).
     const seen = new Set<TileId>();
     for (const f of s.fronts) {
       if (f.player !== p.id) continue;

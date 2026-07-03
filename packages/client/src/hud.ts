@@ -326,6 +326,10 @@ const HUD_CSS = `
 /* ---- pixel panels ---- */
 .fk-grp{background:#1a130b;border:3px solid #4a3a26;box-shadow:0 4px 0 #060403;padding:9px}
 .fk-grp h4{margin:0 0 8px;font-family:'Press Start 2P',monospace;font-size:7px;letter-spacing:1px;color:#8a7550;font-weight:400;text-transform:uppercase}
+.fk-foldh{cursor:pointer;display:flex;align-items:center;gap:5px;user-select:none}
+.fk-foldh:hover{color:#e0a422}
+.fk-foldh .cv{color:#e0a422;font-size:8px}
+.fk-foldsub{margin-left:auto;font-size:6px;color:#6b563a;letter-spacing:1px}
 /* ---- rail buttons ---- */
 .fk-btn{display:flex;align-items:center;gap:8px;width:100%;box-sizing:border-box;padding:7px 9px;font-size:12px;font-weight:500;letter-spacing:.3px;text-align:left;color:#efe3c6;background:#241c12;box-shadow:inset 0 0 0 1px #36291a,0 3px 0 #060403;margin:3px 0}
 .fk-btn:hover{box-shadow:inset 0 0 0 1px #6b563a,0 3px 0 #060403}
@@ -607,6 +611,29 @@ export class Hud {
     return d;
   }
 
+  /**
+   * A group whose header toggles its body — used to fold ADVANCED tools away
+   * so a first-timer isn't hit with a wall of buttons (§26 ease-of-play). The
+   * header shows a ▸/▾ caret and the body starts collapsed by default.
+   */
+  private foldGroup(title: string, sub: string): { group: HTMLDivElement; body: HTMLDivElement } {
+    const d = document.createElement("div");
+    d.className = "fk-grp fk-fold";
+    const h = document.createElement("h4");
+    h.className = "fk-foldh";
+    h.innerHTML = `<span class="cv">▸</span>${title} <span class="fk-foldsub">${sub}</span>`;
+    const body = document.createElement("div");
+    body.style.display = "none";
+    h.onclick = () => {
+      const open = body.style.display !== "none";
+      body.style.display = open ? "none" : "";
+      const cv = h.querySelector<HTMLElement>(".cv");
+      if (cv) cv.textContent = open ? "▸" : "▾";
+    };
+    d.append(h, body);
+    return { group: d, body };
+  }
+
   /** ◄/► pixel collapse toggle wired to show/hide a rail stack. */
   private collapse(stack: HTMLElement, openChar: string, closedChar: string, horizontal = false): HTMLButtonElement {
     const b = document.createElement("button");
@@ -631,9 +658,19 @@ export class Hud {
     // ---- top bar ---------------------------------------------------------
     const top = document.createElement("div");
     top.className = "fk-top";
+    // Plain-language tips so a first-timer learns the board by hovering (§26).
+    const STAT_TIP: Record<string, string> = {
+      followers: "FLOCK — your followers. This is your strength AND your health: fronts spend them, and losing them all eliminates you.",
+      usd: "TREASURY — cash from tithes. Spend it on buildings, land, and vans.",
+      faith: "FAITH — powers rituals (0–100, drifts to 50). Sermon builds it; the Offering trades followers for it.",
+      heat: "HEAT — how much the town suspects you (0–100). Crusade and strikes raise it. Above 60 the Concerned Parents show up to harass you.",
+      timer: "MATCH — time left. When it hits zero the biggest cult wins.",
+      leader: "LEADER — the largest cult's share of the whole town. Convert 72% to win outright.",
+    };
     const stat = (id: string, label: string, ic: string, icColor: string, cls = ""): HTMLElement => {
       const s = document.createElement("div");
       s.className = `fk-stat ${cls}`;
+      s.title = STAT_TIP[id] ?? label;
       s.innerHTML = `<i class="ic"${icColor ? ` style="color:${icColor}"` : ""}>${icon(ic, "currentColor", 16)}</i><div><span class="v" id="${id}">—</span><span class="sub"></span><span class="l">${label}</span></div>`;
       this.el[id] = s.querySelector(".v")!;
       this.el[`${id}_sub`] = s.querySelector(".sub")!;
@@ -690,7 +727,9 @@ export class Hud {
 
     // ---- SCHEME: every PvP/ops action as a clickable button (no hotkey
     //      required). Targeted ones arm a placement mode; SURRENDER is direct.
-    const schemeG = this.group("SCHEME");
+    //      Folded away by default — these are advanced tools a new player
+    //      doesn't need in their first minute (§26 ease-of-play).
+    const { group: schemeG, body: schemeBody } = this.foldGroup("SCHEME", "advanced");
     const schemeGrid = document.createElement("div");
     schemeGrid.className = "fk-scheme";
     const schemeBtn = (
@@ -719,7 +758,7 @@ export class Hud {
         }
       }, sc.armKey);
     }
-    schemeG.appendChild(schemeGrid);
+    schemeBody.appendChild(schemeGrid);
     this.el.scheme = schemeGrid;
 
     railStack.append(stanceG, ritualG, actG, schemeG);
@@ -770,6 +809,8 @@ export class Hud {
 
     const doc = document.createElement("button");
     doc.className = "fk-doc";
+    doc.title =
+      "DOCTRINE — spend milestone points (earned as your flock grows) on permanent upgrades. A glowing number means points are waiting. Picks are forever.";
     doc.innerHTML = `<i class="ic">${icon("scroll", "currentColor", 22)}</i><span class="dl">DOCTRINE</span><span class="badge" id="docbadge" style="display:none">0</span>`;
     doc.onclick = () => this.openDoctrine();
     this.el.doc = doc;
@@ -778,6 +819,8 @@ export class Hud {
     const dis = document.createElement("button");
     dis.className = "fk-doc";
     dis.id = "fk-dissent-overlay";
+    dis.title =
+      "DISSENT MAP — toggle a heat-map of unrest in your territory. Red = disgruntled tiles; too much dissent lets a chunk of your cult break away (a Schism). Cool it with the TEND stance or a Public Apology.";
     dis.innerHTML = `<i class="ic">${icon("eye", "currentColor", 22)}</i><span class="dl">DISSENT [H]</span>`;
     dis.onclick = () => this.toggleDissentOverlay();
     this.el.dissentOverlay = dis;

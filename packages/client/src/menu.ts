@@ -352,7 +352,8 @@ function renderPlay(panel: HTMLDivElement): void {
   const knob = (label: string, sel: string): string =>
     `<label style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12px;color:#cdbf9c">${label} ${sel}</label>`;
   panel.innerHTML = `
-    <div style="font-family:'Press Start 2P',monospace;font-size:8px;letter-spacing:1px;color:${DIM};text-align:center;margin-bottom:14px">CHOOSE YOUR CONGREGATION</div>
+    <div style="font-family:'Press Start 2P',monospace;font-size:8px;letter-spacing:1px;color:${DIM};text-align:center;margin-bottom:6px">CHOOSE YOUR CONGREGATION</div>
+    <div style="font-family:'VT323',monospace;font-size:15px;color:#84a23c;text-align:center;margin-bottom:14px">★ New here? The Prosperity Circle is the most forgiving — low Heat, steady money. Or just hit TUTORIAL.</div>
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:0 auto 24px">
       ${ARCH_IDS.map((id) => {
         const a = ARCH[id];
@@ -361,9 +362,9 @@ function renderPlay(panel: HTMLDivElement): void {
           <div style="font-size:15px;font-weight:600;letter-spacing:.3px;line-height:1.15">${a.label}</div>
           <div style="font-family:'Press Start 2P',monospace;font-size:7px;letter-spacing:1px;opacity:.7;margin:8px 0 10px">${a.tag}</div>
           <div style="display:flex;flex-direction:column;gap:3px;font-size:11px;color:${MUTED};text-align:left">
-            <div>R₀ <span style="float:right;color:#d8c8a6">${a.r0}</span></div>
-            <div>DEF <span style="float:right;color:#d8c8a6">${a.def}</span></div>
-            <div>WIN% <span style="float:right;color:#9bbf6a">${a.win}</span></div>
+            <div title="SPREAD — how fast this cult converts the town. Higher = more aggressive early game.">SPREAD <span style="float:right;color:#d8c8a6">${a.r0}</span></div>
+            <div title="DEFENSE — how hard your converts are to flip back. Higher = your territory sticks.">DEFENSE <span style="float:right;color:#d8c8a6">${a.def}</span></div>
+            <div title="WIN% — average win rate in balanced play. All four are tuned near 50%.">WIN% <span style="float:right;color:#9bbf6a">${a.win}</span></div>
           </div>
         </button>`;
       }).join("")}

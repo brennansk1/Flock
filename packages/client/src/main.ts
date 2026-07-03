@@ -10,21 +10,19 @@
  * Querystring: ?name=Mae&archetype=radiant&server=ws://localhost:8787
  */
 
-import { Application, Graphics, Text } from "pixi.js";
+import { Application, Graphics } from "pixi.js";
 import {
   toFloat,
   toInt,
   IntentType,
   Stance,
   MatchStatus,
-  NEUTRAL,
-  TileState,
   Terrain,
-  colorForPlayer,
   renderRecapCard,
   type Archetype,
 } from "@flock/sim";
-import { connect, type GameSession } from "./net.js";
+import { connect, type GameSession, type ClientIntent } from "./net.js";
+import { connectTutorial, startTutorial } from "./tutorial.js";
 import { MapRenderer } from "./render.js";
 import { Hud } from "./hud.js";
 import { showMenu } from "./menu.js";
@@ -48,48 +46,52 @@ async function boot(): Promise<void> {
   const name = q.get("name") || `Cultist${Math.floor(Math.random() * 1000)}`;
   const archetype = q.get("archetype") ?? "dawn";
   const server = q.get("server") ?? `ws://${location.hostname}:8787`;
+  const isTutorial = q.get("tutorial") === "1";
 
   const loading = showLoading(`Entering Mundane Falls as ${name}…`);
 
-  connect(
-    `${server}/?name=${encodeURIComponent(name)}&archetype=${archetype}`,
+  // private-room routing (§32): pass through the host/join knobs verbatim
+  let roomParams = "";
+  for (const k of ["room", "private", "bots", "size", "founding", "town"]) {
+    const v = q.get(k);
+    if (v !== null) roomParams += `&${k}=${encodeURIComponent(v)}`;
+  }
+
+  (isTutorial ? connectTutorial : connect)(
+    `${server}/?name=${encodeURIComponent(name)}&archetype=${archetype}${roomParams}`,
     (g) => {
       loading.remove();
       const map = new MapRenderer(app, g.sim.world.width, g.sim.world.height);
       map.setViewer(g.playerId);
 
-      // Town-conversion bar (top of screen): every cult's share of the
-      // population vs the unconverted remainder — the real scoreboard.
-      const bar = new Graphics();
-      const barLabel = new Text({
-        text: "",
-        // light text + dark stroke stays readable over ANY cult's bar color
-        style: {
-          fill: "#f0e6d0",
-          fontSize: 12,
-          fontFamily: "monospace",
-          fontWeight: "bold",
-          stroke: { color: "#1a1410", width: 3 },
-        },
-      });
-      barLabel.position.set(8, 4);
-      app.stage.addChild(bar);
-      app.stage.addChild(barLabel);
+      // Map-frame texture (design §02): page-wide scanlines + vignette over
+      // the canvas. Pure decoration — pointer-events:none, below the HUD.
+      const mapFx = document.createElement("div");
+      mapFx.style.cssText =
+        "position:absolute;inset:0;pointer-events:none;z-index:5;" +
+        "background:repeating-linear-gradient(0deg,rgba(0,0,0,.16) 0 1px,transparent 1px 3px)," +
+        "radial-gradient(ellipse at 50% 45%,transparent 40%,rgba(8,5,3,.6) 100%)";
+      document.getElementById("app")!.appendChild(mapFx);
 
-      // The crisp DOM HUD (§27): top bar, rails, build palette, minimap, feed.
+      // The crisp DOM HUD (§27): believer share bar, top bar, rails, build
+      // palette, minimap, feed.
       // The map is handed in as the camera so the minimap can jump + show the view.
       const hud = new Hud(g, map);
       wireInput(app, map, g, hud);
+      mountMatchControls(g);
 
-      // Center status prompt (founding / prophecy / CPA / elimination).
+      // Center status prompt (founding / prophecy / CPA / elimination) —
+      // pixel-panel idiom per the design tokens.
       const prompt = document.createElement("div");
       prompt.style.cssText =
-        "position:absolute;top:120px;left:50%;transform:translateX(-50%);z-index:21;pointer-events:none;" +
-        "font-family:'Segoe UI',sans-serif;font-size:16px;font-weight:700;letter-spacing:1px;color:#ffe6b0;" +
-        "text-shadow:0 1px 4px #000;background:rgba(20,16,12,.6);padding:6px 18px;border-radius:6px;display:none";
+        "position:absolute;top:152px;left:50%;transform:translateX(-50%);z-index:21;pointer-events:none;" +
+        "font-family:'Press Start 2P',monospace;font-size:10px;letter-spacing:1px;line-height:1.7;color:#f0b53e;" +
+        "text-align:center;max-width:70vw;background:#1a130b;border:3px solid #4a3a26;" +
+        "box-shadow:0 4px 0 #060403,inset 0 0 0 1px #6b563a;padding:11px 20px;display:none";
       document.getElementById("app")!.appendChild(prompt);
 
-      maybeShowFtue(); // first-session contextual coaching (§26)
+      if (isTutorial) startTutorial(g); // guided offline first match
+      else maybeShowFtue(); // first-session contextual coaching (§26)
 
       // FOUNDING spawn-pick overlay (§18/§26): pulsing rings on recommended
       // spawns until the player clicks one.
@@ -113,7 +115,7 @@ async function boot(): Promise<void> {
         }
         if (g.sim.tick - lastBarTick >= 5) {
           lastBarTick = g.sim.tick;
-          drawConversionBar(app, bar, barLabel, g);
+          hud.renderShareBar();
         }
         // Recap Card (§25.1): once the server's recap lands, show the shareable
         // 1080×1350 card center-stage (same renderer the share-pipeline uses).
@@ -130,68 +132,63 @@ async function boot(): Promise<void> {
   );
 }
 
+/** Rotating loading-screen tips (design §05), VT323 italic. */
+const LOAD_TIPS = [
+  "tip ▸ the saucer parks wherever it likes. losing home is an inconvenience.",
+  "tip ▸ spawn near College — you blitz, they churn. never CRUSADE with an open home.",
+  "tip ▸ Old Town + the Glow is near-unflippable. win the games you don't fight.",
+  "tip ▸ keep Heat at zero and Scandal can't touch you.",
+  "tip ▸ press ? in-match for the full controls sheet.",
+];
+
 /** Full-screen loading / connection screen (§28) with retry on failure. */
 function showLoading(message: string): { remove(): void; setError(m: string): void } {
   const root = document.getElementById("app")!;
   const div = document.createElement("div");
   div.style.cssText =
     "position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;" +
-    "gap:20px;font-family:Georgia,serif;color:#f0e6d0;z-index:60;" +
-    "background:radial-gradient(ellipse at center,#2a2018 0%,#14100c 100%)";
+    "gap:20px;font-family:'Pixelify Sans',ui-monospace,monospace;color:#efe3c6;z-index:60;" +
+    "background:#0c0905;background-image:radial-gradient(ellipse at 50% 50%,#241a10 0%,transparent 65%)";
+  const scan =
+    `<div style="position:absolute;inset:0;pointer-events:none;` +
+    `background:repeating-linear-gradient(0deg,rgba(0,0,0,.16) 0 1px,transparent 1px 3px)"></div>`;
   div.innerHTML = `
-    <div style="font-size:48px;letter-spacing:12px;text-shadow:0 0 24px #c89858">FLOCK</div>
-    <div class="fk-spin" style="width:42px;height:42px;border:4px solid #4a3c28;border-top-color:#c89858;border-radius:50%;animation:fkspin 0.9s linear infinite"></div>
-    <div id="fk-load-msg" style="font-size:14px;opacity:.75;font-style:italic">${message}</div>
-    <style>@keyframes fkspin{to{transform:rotate(360deg)}}</style>`;
+    ${scan}
+    <div style="width:38px;height:38px;border:5px solid #36291a;border-top-color:#e0a422;animation:fkLoadSpin 1s linear infinite"></div>
+    <div style="font-family:'Press Start 2P',monospace;font-size:16px;color:#efe3c6;text-shadow:3px 3px 0 #cf4b2c">CONVERTING MUNDANE FALLS…</div>
+    <div style="width:340px;height:18px;background:#160f08;box-shadow:inset 0 0 0 2px #4a3a26;padding:3px;box-sizing:border-box">
+      <div style="width:0%;height:100%;background:repeating-linear-gradient(90deg,#e0a422 0 8px,#c8862c 8px 12px);animation:fkLoadBar 9s ease-out forwards"></div>
+    </div>
+    <div style="font-size:13px;color:#a08a64">${message}</div>
+    <div id="fk-load-tip" style="font-family:'VT323',monospace;font-size:17px;color:#8a7550;font-style:italic">${LOAD_TIPS[0]}</div>
+    <style>
+      @keyframes fkLoadSpin{to{transform:rotate(360deg)}}
+      @keyframes fkLoadBar{0%{width:0%}100%{width:96%}}
+      .fk-reduced-motion [style*="fkLoadSpin"]{animation:none !important}
+      .fk-reduced-motion [style*="fkLoadBar"]{animation:none !important;width:96% !important}
+    </style>`;
   root.appendChild(div);
+  // rotate the tip line every few seconds while we connect
+  let tipIdx = 0;
+  const tipTimer = window.setInterval(() => {
+    const el = div.querySelector<HTMLElement>("#fk-load-tip");
+    if (el) el.textContent = LOAD_TIPS[(tipIdx = (tipIdx + 1) % LOAD_TIPS.length)]!;
+  }, 3200);
   return {
-    remove: () => div.remove(),
+    remove: () => {
+      clearInterval(tipTimer);
+      div.remove();
+    },
     setError: (m: string) => {
+      clearInterval(tipTimer);
       div.innerHTML = `
-        <div style="font-size:48px;letter-spacing:12px;color:#e08a6a">FLOCK</div>
-        <div style="font-size:15px;opacity:.85">⚠ ${m}</div>
-        <button onclick="location.reload()" style="padding:12px 40px;font-size:18px;background:#c89858;color:#1a1410;border:none;border-radius:6px;cursor:pointer;font-family:Georgia,serif;letter-spacing:3px">RETRY</button>
-        <a href="?" style="color:#9a8a6a;font-size:13px">← back to menu</a>`;
+        ${scan}
+        <div style="font-family:'Press Start 2P',monospace;font-size:22px;color:#efe3c6;text-shadow:3px 3px 0 #cf4b2c">FLOCK</div>
+        <div style="font-size:15px;color:#d8c8a6">⚠ ${m}</div>
+        <button onclick="location.reload()" style="padding:14px 42px;font-family:'Press Start 2P',monospace;font-size:12px;letter-spacing:2px;background:#e0a422;color:#19110a;border:0;box-shadow:0 5px 0 #060403,inset 0 0 0 3px #f3cf6a;cursor:pointer">RETRY</button>
+        <a href="?" style="color:#a08a64;font-size:13px;font-family:'VT323',monospace;font-size:17px">← back to menu</a>`;
     },
   };
-}
-
-/**
- * The proportion bar: cult-colored segments by population share, gray for the
- * unconverted town. Sorted big→small so the leader reads at a glance.
- */
-function drawConversionBar(app: Application, bar: Graphics, label: Text, g: GameSession): void {
-  const w = g.sim.world;
-  const popByOwner = new Map<number, number>();
-  let converted = 0;
-  for (let t = 0; t < w.owner.length; t++) {
-    const o = w.owner[t]!;
-    if (o === NEUTRAL || w.state[t] !== TileState.Believer) continue;
-    const pop = w.pop[t]!;
-    popByOwner.set(o, (popByOwner.get(o) ?? 0) + pop);
-    converted += pop;
-  }
-  const total = Math.max(1, g.sim.totalPop);
-  const width = app.renderer.width;
-  const H = 22;
-
-  bar.clear();
-  bar.rect(0, 0, width, H).fill(0x3a3530); // the unconverted town
-  let x = 0;
-  const shares = [...popByOwner.entries()].sort((a, z) => z[1] - a[1]);
-  for (const [owner, pop] of shares) {
-    const seg = (pop / total) * width;
-    const colorHex = parseInt(colorForPlayer(owner).slice(1), 16);
-    bar.rect(x, 0, seg, H).fill(colorHex);
-    x += seg;
-  }
-  bar.rect(0, H, width, 2).fill(0x1a1410);
-
-  const pct = ((converted / total) * 100).toFixed(1);
-  const mine = ((popByOwner.get(g.playerId) ?? 0) / total) * 100;
-  // every match is a fresh fake town (names.ts / faker corpus)
-  const townName = (g.sim.world.townName || "Mundane Falls").toUpperCase();
-  label.text = `${townName} — ${pct}% converted   (you: ${mine.toFixed(1)}% of ${total} souls)`;
 }
 
 /** Per-archetype D/F actives (left rail, §27). */
@@ -256,8 +253,23 @@ function wireInput(app: Application, map: MapRenderer, g: GameSession, hud: Hud)
     const placement = hud.ui.placement;
     if (placement) {
       hud.arm(null);
+      const owner = w.owner[center]!;
+      // pre-validate ground for build/land so a miss KEEPS the tool armed and
+      // says why, instead of silently eating the click (QA batch 1)
+      const claimable =
+        w.terrain[center] === Terrain.Grass ||
+        w.terrain[center] === Terrain.Field ||
+        w.terrain[center] === Terrain.Woods;
+      const myGround =
+        (owner === g.playerId && w.terrain[center] === Terrain.Citizen) ||
+        (w.property[center] === g.playerId && claimable);
       switch (placement.mode) {
         case "build":
+          if (!myGround && placement.building !== "compound") {
+            hud.arm(placement); // stay armed — let them try again
+            pingPrompt("Build on YOUR land — a converted tile or your staked parcel.");
+            return;
+          }
           g.sendIntent({ t: IntentType.BUILD, building: placement.building as never, tile: center });
           return;
         case "strike":
@@ -270,7 +282,39 @@ function wireInput(app: Application, map: MapRenderer, g: GameSession, hud: Hud)
           g.sendIntent({ t: IntentType.ABILITY, ability: placement.ability, target: center });
           return;
         case "property":
+          if (!claimable || w.property[center] !== 0) {
+            hud.arm(placement);
+            pingPrompt("Buy OPEN COUNTRY — unclaimed grass, field, or woods near your land.");
+            return;
+          }
           g.sendIntent({ t: IntentType.BUY_PROPERTY, tile: center } as never);
+          return;
+        // ── SCHEME placements (§13/§15/§16): button armed, this click targets
+        case "agent":
+          if (district > 0)
+            g.sendIntent({ t: IntentType.AGENT_DISPATCH, district, mission: placement.mission });
+          else pingPrompt("Agents target a DISTRICT — click inside town.");
+          return;
+        case "scandal":
+          if (owner > 0 && owner !== g.playerId)
+            g.sendIntent({ t: IntentType.PUBLISH_SCANDAL, target: owner });
+          else pingPrompt("Click a rival cult's tile to publish a scandal.");
+          return;
+        case "defection":
+          if (district > 0) g.sendIntent({ t: IntentType.COURT_DEFECTION, district });
+          else pingPrompt("Court a DISTRICT — click inside town.");
+          return;
+        case "van":
+          g.sendIntent(nearestVanIntent(g, center));
+          return;
+        case "close_front": {
+          const f = nearestFront(g, center);
+          if (f >= 0) g.sendIntent({ t: IntentType.CLOSE_FRONT, front: f });
+          else pingPrompt("You have no open front near there.");
+          return;
+        }
+        case "cancel_build":
+          g.sendIntent({ t: IntentType.CANCEL_BUILD, tile: center });
           return;
       }
     }
@@ -371,7 +415,26 @@ function wireInput(app: Application, map: MapRenderer, g: GameSession, hud: Hud)
         if (hover >= 0) g.sendIntent({ t: IntentType.STRIKE, strike: "pamphlet_bomb", target: hover });
         return;
       case "v":
+        // route your nearest van to the hovered tile; with no van yet, buy one
+        if (hover >= 0) g.sendIntent(nearestVanIntent(g, hover));
+        return;
+      case "V":
+        // shift+V: buy a NEW van at the hovered tile (capacity permitting)
         if (hover >= 0) g.sendIntent({ t: IntentType.VAN_MOVE, van: -1, path: [hover] });
+        return;
+      case "C": {
+        // shift+C: close your front nearest the hovered tile (stop the push)
+        if (hover < 0) return;
+        const f = nearestFront(g, hover);
+        if (f >= 0) g.sendIntent({ t: IntentType.CLOSE_FRONT, front: f });
+        return;
+      }
+      case "z":
+        // cancel your under-construction building at the hovered tile (50% refund)
+        if (hover >= 0) g.sendIntent({ t: IntentType.CANCEL_BUILD, tile: hover });
+        return;
+      case "F8":
+        if (confirm("Surrender this match?")) g.sendIntent({ t: IntentType.SURRENDER });
         return;
       // diplomacy on hovered cult (§16)
       case "o":
@@ -395,16 +458,88 @@ function statusPrompt(g: GameSession): string {
   const me = g.sim.players.find((p) => p.id === g.playerId);
   if (!me) return "";
   if (g.sim.foundingTicksLeft > 0) {
+    // the gate holds at the window edge until EVERY founder has placed
+    const unplaced = g.sim.players.filter((p) => !p.spawned).length;
+    if (g.sim.foundingTicksLeft === 1) {
+      return me.spawned
+        ? `WAITING FOR FOUNDERS — ${unplaced} still choosing…`
+        : "THE TOWN IS WAITING ON YOU — CLICK OPEN LAND TO FOUND";
+    }
     const secs = (g.sim.foundingTicksLeft / 10).toFixed(0);
     return me.spawned
       ? `FOUNDING — your congregation is bused in · ${secs}s`
       : `BUY YOUR FIRST PROPERTY — CLICK OPEN LAND NEAR TOWN · ${secs}s`;
   }
+  if (g.paused) return "⏸ PAUSED — the town holds still";
   if (!me.alive) return "☠ ELIMINATED — spectating";
   const prophecy = g.sim.prophecies[0];
   if (prophecy) return `⏳ PROPHECY: ${nameOf(g, prophecy.player)} — ${(prophecy.ticksLeft / 10).toFixed(0)}s`;
   if (toFloat(me.heat) >= 60) return "🚐 THE CONCERNED PARENTS ARE HERE";
   return "";
+}
+
+/**
+/** Route the player's nearest van to `tile`; buys one when they have none. */
+function nearestVanIntent(g: GameSession, tile: number): ClientIntent {
+  const mine = g.sim.vans.filter((vn) => vn.player === g.playerId);
+  if (mine.length === 0) return { t: IntentType.VAN_MOVE, van: -1, path: [tile] };
+  const W = g.sim.world.width;
+  const hx = tile % W;
+  const hy = (tile / W) | 0;
+  let best = mine[0]!;
+  let bestD = Infinity;
+  for (const vn of mine) {
+    const dx = (vn.tile % W) - hx;
+    const dy = ((vn.tile / W) | 0) - hy;
+    const d = dx * dx + dy * dy;
+    if (d < bestD) {
+      bestD = d;
+      best = vn;
+    }
+  }
+  return { t: IntentType.VAN_MOVE, van: best.id, path: [tile] };
+}
+
+/** The id of the player's front nearest `tile`, or -1 if they have none. */
+function nearestFront(g: GameSession, tile: number): number {
+  const W = g.sim.world.width;
+  const hx = tile % W;
+  const hy = (tile / W) | 0;
+  let bestF = -1;
+  let bestD = Infinity;
+  for (const f of g.sim.fronts) {
+    if (f.player !== g.playerId || f.tiles.length === 0) continue;
+    const t0 = f.tiles[0]!;
+    const dx = (t0 % W) - hx;
+    const dy = ((t0 / W) | 0) - hy;
+    const d = dx * dx + dy * dy;
+    if (d < bestD) {
+      bestD = d;
+      bestF = f.id;
+    }
+  }
+  return bestF;
+}
+
+/** Flash a transient guidance line for a mis-aimed armed action. */
+function pingPrompt(msg: string): void {
+  const el = document.getElementById("fk-ping");
+  if (el) {
+    el.textContent = msg;
+    el.style.display = "block";
+    clearTimeout((el as HTMLElement & { _t?: number })._t);
+    (el as HTMLElement & { _t?: number })._t = window.setTimeout(() => (el.style.display = "none"), 2200);
+    return;
+  }
+  const d = document.createElement("div");
+  d.id = "fk-ping";
+  d.style.cssText =
+    "position:absolute;top:150px;left:50%;transform:translateX(-50%);z-index:30;pointer-events:none;" +
+    "font-family:'Pixelify Sans',ui-monospace,monospace;font-size:13px;color:#fff3df;background:#cf4b2c;" +
+    "border:3px solid #f0b53e;box-shadow:0 4px 0 #060403;padding:8px 16px;letter-spacing:.5px";
+  d.textContent = msg;
+  document.getElementById("app")!.appendChild(d);
+  (d as HTMLElement & { _t?: number })._t = window.setTimeout(() => (d.style.display = "none"), 2200);
 }
 
 /**
@@ -422,6 +557,24 @@ function recommendedSpawns(g: GameSession): number[] {
     for (let x = 2; x < w.width - 2; x += stride) {
       const t = y * w.width + x;
       if (w.terrain[t] !== Terrain.Grass || w.property[t] !== 0) continue;
+      // a founding ring must mark a spot where the parcel actually FITS —
+      // mirror the sim's anchor test (≥60% claimable in the 5×5)
+      let fits = 0;
+      for (let dy = -2; dy <= 2; dy++) {
+        for (let dx = -2; dx <= 2; dx++) {
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx < 1 || ny < 1 || nx >= w.width - 1 || ny >= w.height - 1) continue;
+          const nt = ny * w.width + nx;
+          const tr = w.terrain[nt];
+          if (
+            w.property[nt] === 0 &&
+            (tr === Terrain.Grass || tr === Terrain.Field || tr === Terrain.Woods)
+          )
+            fits++;
+        }
+      }
+      if (fits < 15) continue;
       let reach = 0;
       for (let dy = -8; dy <= 8; dy += 2) {
         for (let dx = -8; dx <= 8; dx += 2) {
@@ -557,9 +710,9 @@ function maybeShowFtue(): void {
   let i = 0;
   const tip = document.createElement("div");
   tip.style.cssText =
-    "position:absolute;bottom:150px;left:14px;z-index:55;max-width:300px;" +
-    "background:rgba(20,16,12,.95);border:1px solid #c89858;border-radius:8px;padding:14px 20px;" +
-    "font-family:'Segoe UI',sans-serif;color:#f0e6d0;font-size:15px;text-align:center;cursor:pointer;box-shadow:0 6px 24px #000";
+    "position:absolute;bottom:150px;left:16px;z-index:55;max-width:300px;" +
+    "background:#1a130b;border:3px solid #e0a422;box-shadow:0 4px 0 #060403;padding:14px 20px;" +
+    "font-family:'Pixelify Sans',ui-monospace,monospace;color:#efe3c6;font-size:14px;text-align:center;cursor:pointer";
   const paint = (): void => {
     tip.innerHTML = `${steps[i]}<div style="font-size:11px;opacity:.55;margin-top:8px">click to continue (${i + 1}/${steps.length})</div>`;
   };
@@ -584,3 +737,40 @@ function nameOf(g: GameSession, id: number): string {
 }
 
 void boot();
+
+
+/**
+ * Top-left match controls: EXIT (every game) and PAUSE (solo vs bots only —
+ * the server confirms and ignores pause in multi-human matches).
+ */
+function mountMatchControls(g: GameSession): void {
+  const root = document.getElementById("app")!;
+  const bar = document.createElement("div");
+  bar.style.cssText = "position:absolute;top:40px;left:16px;z-index:22;display:flex;gap:6px";
+  // pixel-frame buttons (design §02 EXIT): .fk-ctl lives in the HUD stylesheet
+  const mkBtn = (glyph: string, label: string, title: string): HTMLButtonElement => {
+    const b = document.createElement("button");
+    b.className = "fk-ctl";
+    b.innerHTML = `<span class="x">${glyph}</span>${label}`;
+    b.title = title;
+    bar.appendChild(b);
+    return b;
+  };
+  const exit = mkBtn("✕", "EXIT", "leave the match and return to the menu");
+  exit.onclick = () => {
+    if (confirm("Leave the match? (your cult keeps running without you until the timer ends)")) {
+      location.search = "";
+    }
+  };
+  // solo = exactly one HUMAN seat on the wire roster (bot seats are flagged)
+  if (g.players.filter((p) => !p.bot).length === 1) {
+    const pause = mkBtn("⏸", "PAUSE", "pause the match (solo vs bots)");
+    pause.onclick = () => {
+      g.sendPause(!g.paused);
+      setTimeout(() => {
+        pause.innerHTML = g.paused ? `<span class="x">▶</span>RESUME` : `<span class="x">⏸</span>PAUSE`;
+      }, 150);
+    };
+  }
+  root.appendChild(bar);
+}

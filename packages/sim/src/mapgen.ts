@@ -23,6 +23,13 @@ import { traceGridRoads } from "./gridRoads.js";
 import { pickTownName, type Street } from "./names.js";
 import { createWorld } from "./sim.js";
 
+/** Deterministic position hash for walk jitter (no rng thread needed). */
+function pixHash32(x: number, y: number, z: number): number {
+  let h = (x * 374761393 + y * 668265263 + z * 1274126177) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return (h ^ (h >>> 16)) >>> 0;
+}
+
 /**
  * District ids (index into districtCoeffs). 0 = unzoned (terrain).
  * Zoning v2 (§2 rev. 3): the classic quarters PLUS explicit land-use zones —
@@ -96,8 +103,30 @@ const YARD_CHANCE: Record<number, number> = {
 const MIN_POPULATED_TILES = 640;
 const MIN_TOTAL_POP = 2900;
 
+/**
+ * Scale the population floors with map area (§18 pacing): the 96×96 classic
+ * carries ~2900 souls — the number the conversion-rate + match-length math is
+ * tuned around (8–20 min, DESIGN Part I). A 64×64 skirmish town shrinks
+ * proportionally (faster match), a 128×128 large town grows (longer match),
+ * so souls-per-cult stays roughly constant across sizes.
+ */
+function popFloors(width: number, height: number): { tiles: number; pop: number } {
+  const scale = (width * height) / (96 * 96);
+  return {
+    tiles: Math.max(280, Math.round(MIN_POPULATED_TILES * scale)),
+    pop: Math.max(1300, Math.round(MIN_TOTAL_POP * scale)),
+  };
+}
+
 /** Biome names accepted by `MapOpts.biomes` (order-independent, deduped). */
 export type BiomeName = "desert" | "forest" | "autumn";
+
+/**
+ * Town archetypes (§2A): a coherent package of geography + economy +
+ * signature assets. "farm" is the default and reproduces the classic
+ * generator byte-for-byte (the archetype pass is skipped entirely).
+ */
+export type TownType = "farm" | "oceanside" | "desert" | "mountain" | "lakeside";
 
 /** Map-generation options — the user-configurable knobs (§2 rev. 3). */
 export interface MapOpts {
@@ -106,6 +135,8 @@ export interface MapOpts {
    * both. Pass `[]` for a pure temperate map. (Server: FLOCK_BIOMES env.)
    */
   biomes?: BiomeName[];
+  /** Town archetype (§2A). Defaults to "farm" — the classic generator. */
+  townType?: TownType;
 }
 
 export function generateWorld(seed: number, width: number, height: number, opts: MapOpts = {}): World {
@@ -125,7 +156,11 @@ export function generateWorld(seed: number, width: number, height: number, opts:
 
     const town = layoutHighwaysAndTown(w, rng, rScale);
     layoutRail(w, rng, town); // the railroad the town was built on (§2 rev. 5)
-    paintBiomes(w, rng, town, opts.biomes ?? ["desert", "forest", "autumn"]);
+    // archetype (§2A): desert/mountain towns sit inside a dominant biome
+    const townType: TownType = opts.townType ?? "farm";
+    const dominant =
+      townType === "desert" ? Biome.Desert : townType === "mountain" ? Biome.Forest : -1;
+    paintBiomes(w, rng, town, opts.biomes ?? ["desert", "forest", "autumn"], dominant);
     const riverPath = carveRiver(w, rng, town);
     scatterExurbs(w, rng, town);
     // nature FIRST, then farming: forests must never chew through planted
@@ -136,6 +171,105 @@ export function generateWorld(seed: number, width: number, height: number, opts:
     fillFarmBelt(w, rng, town); // contiguous working farmland, not islands
     placeTownBuildings(w, rng, town);
     placeDocks(w, rng, town);
+    // RAIL SPUR (§5): a stub track branches from the main line into the
+    // industrial lobe — the works get their own siding
+    {
+      let done = false;
+      for (let t = 0; t < w.terrain.length && !done; t++) {
+        if (w.terrain[t] !== Terrain.Rail) continue;
+        const x = t % width;
+        const y = (t / width) | 0;
+        if (x < 6 || x >= width - 6) continue;
+        for (const dir of [-1, 1]) {
+          // an industrial lot within 5 rows of the line?
+          for (let step = 2; step <= 5; step++) {
+            const n = (y + dir * step) * width + x;
+            if (n < 0 || n >= w.terrain.length) break;
+            if (w.district[n] === Districts.Industrial && w.terrain[n] === Terrain.Citizen) {
+              // carve the stub up to (not into) the lot
+              let ok = true;
+              for (let s = 1; s < step; s++) {
+                const st = (y + dir * s) * width + x;
+                const tr = w.terrain[st];
+                if (tr !== Terrain.Grass && tr !== Terrain.Field && tr !== Terrain.Dirt) ok = false;
+              }
+              if (!ok) break;
+              for (let s = 1; s < step; s++) w.terrain[(y + dir * s) * width + x] = Terrain.Rail;
+              done = true;
+              break;
+            }
+          }
+          if (done) break;
+        }
+      }
+    }
+    // TRAILER COURT (§6): the fringe isn't just scattered singles — one
+    // proper court: a short dirt lane off a street with trailers flanking it
+    {
+      let courtDone = false;
+      for (let t = 0; t < w.terrain.length && !courtDone; t++) {
+        if (w.district[t] !== Districts.Trailer || w.terrain[t] !== Terrain.Citizen) continue;
+        const x = t % width;
+        const y = (t / width) | 0;
+        if (x < 6 || y < 6 || x >= width - 6 || y >= height - 6) continue;
+        // a road to hang the court off?
+        let roadDir = 0;
+        if (w.terrain[t - width] === Terrain.Road) roadDir = 1; // court runs south
+        else if (w.terrain[t + width] === Terrain.Road) roadDir = -1; // runs north
+        if (roadDir === 0) continue;
+        // room for a 4-tile lane with clear flanks?
+        let clear = true;
+        for (let s = 0; s < 4 && clear; s++) {
+          const ly = y + roadDir * s;
+          for (const lx of [x - 1, x, x + 1]) {
+            const n = ly * width + lx;
+            if (n < 0 || n >= w.terrain.length) { clear = false; break; }
+            const tr = w.terrain[n];
+            if (tr !== Terrain.Grass && tr !== Terrain.Citizen && tr !== Terrain.Field) clear = false;
+          }
+        }
+        if (!clear) continue;
+        for (let s = 0; s < 4; s++) {
+          const ly = y + roadDir * s;
+          w.terrain[ly * width + x] = Terrain.Dirt; // the court lane
+          for (const lx of [x - 1, x + 1]) {
+            const n = ly * width + lx;
+            w.terrain[n] = Terrain.Citizen;
+            w.district[n] = Districts.Trailer;
+            if (w.lot[n] === 0) w.pop[n] = 3; // a trailer household
+          }
+        }
+        courtDone = true;
+      }
+    }
+    // §2A: the archetype reshapes geography/economy; "farm" skips entirely
+    if (townType !== "farm") applyTownArchetype(w, rng, town, townType, riverPath);
+    // §2A oceanside: the harbor, not the elevator, anchors the economy —
+    // the grain elevator (and its boxcars) yields to a second cannery house
+    if (townType === "oceanside") {
+      for (let t = 0; t < w.terrain.length; t++) {
+        if (w.lot[t] === Lot.GrainElevator) w.lot[t] = Lot.Cannery;
+      }
+    }
+    // QUARRY SCAR (§11): one gravel pit gouged into deep country, off-road
+    for (let attempt = 0; attempt < 40; attempt++) {
+      const qx = 8 + nextRange(rng, width - 16);
+      const qy = 8 + nextRange(rng, height - 16);
+      const ddx = qx - town.cx;
+      const ddy = qy - town.cy;
+      if (ddx * ddx + ddy * ddy < (town.r + 14) * (town.r + 14)) continue;
+      let clear = true;
+      for (let dy = -1; dy <= 3 && clear; dy++)
+        for (let dx = -1; dx <= 4 && clear; dx++) {
+          const t = (qy + dy) * width + qx + dx;
+          if (w.terrain[t] !== Terrain.Grass || w.biome[t] === Biome.Desert) clear = false;
+        }
+      if (!clear) continue;
+      for (let dy = 0; dy <= 2; dy++)
+        for (let dx = 0; dx <= 3 - (dy === 2 ? 1 : 0); dx++)
+          w.terrain[(qy + dy) * width + qx + dx] = Terrain.Dirt;
+      break;
+    }
     // Alleys behind Main Street commerce: Horizontal dirt/gravel lanes at hy-2 and hy+3 (#1)
     {
       const hy = town.highwayY;
@@ -162,7 +296,8 @@ export function generateWorld(seed: number, width: number, height: number, opts:
     enforceRoadFrontage(w); // houses FRONT the street; interiors are yards
     infillToFloor(w, rng); // yards become modest homes until the pop floor holds
 
-    if (countPopulated(w) >= MIN_POPULATED_TILES && countTotalPop(w) >= MIN_TOTAL_POP) break;
+    const floors = popFloors(width, height);
+    if (countPopulated(w) >= floors.tiles && countTotalPop(w) >= floors.pop) break;
   }
   return w;
 }
@@ -254,8 +389,32 @@ function layoutRail(w: World, rng: RngState, town: TownShape): void {
  * nature/farm placement — farms stay out of the desert, forests grow thicker
  * in forest biome.
  */
-function paintBiomes(w: World, rng: RngState, town: TownShape, biomes: BiomeName[]): void {
+function paintBiomes(
+  w: World,
+  rng: RngState,
+  town: TownShape,
+  biomes: BiomeName[],
+  dominant: number = -1,
+): void {
   const { width, height } = w;
+  // ARCHETYPE DOMINANT BIOME (§2A): desert/mountain towns sit INSIDE their
+  // biome — one mega-blob covers the whole countryside; the town core and a
+  // working margin around it stay temperate (the oasis/valley the town holds).
+  if (dominant >= 0) {
+    const clear = town.r + 5;
+    for (let y = 1; y < height - 1; y++) {
+      for (let x = 1; x < width - 1; x++) {
+        const ddx = x - town.cx;
+        const ddy = y - town.cy;
+        const d = Math.sqrt(ddx * ddx + ddy * ddy);
+        // fringe wobble so the valley rim never reads as a circle
+        const ang = Math.atan2(ddy, ddx);
+        const rim = clear * (1 + 0.22 * Math.sin(3 * ang + 1.3) + 0.12 * Math.sin(7 * ang));
+        if (d > rim) w.biome[y * width + x] = dominant;
+      }
+    }
+    return;
+  }
   // fixed processing order keeps the rng stream deterministic per config
   const wanted = [...new Set(biomes)].sort();
   const id = (b: BiomeName): number => (b === "desert" ? Biome.Desert : b === "forest" ? Biome.Forest : Biome.Autumn);
@@ -458,6 +617,19 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
   stamp(Lot.Park, 1, 1, D.College, 1);
   stamp(Lot.WaterTower, 1, 1, D.Suburbs, 2);
 
+  // PARSONAGE (§7): every church keeps its house next door — the first
+  // orthogonal empty Citizen lot beside a church becomes a full household
+  for (let t = 0; t < w.terrain.length; t++) {
+    if (w.lot[t] !== Lot.Church && w.lot[t] !== Lot.Chapel) continue;
+    for (const n of [t - 1, t + 1, t - width, t + width]) {
+      if (n < 0 || n >= w.terrain.length) continue;
+      if (w.terrain[n] === Terrain.Citizen && w.lot[n] === 0 && (w.pop[n] ?? 0) < 3) {
+        w.pop[n] = 4; // the parsonage household
+        break;
+      }
+    }
+  }
+
   // a roadside motel out on the highway, beside the gas stations
   let placedMotel = false;
   for (let attempt = 0; attempt < 200 && !placedMotel; attempt++) {
@@ -646,6 +818,206 @@ interface TownShape {
 }
 
 /**
+ * Town archetypes (§2A): reshape geography + economy + signature assets as a
+ * coherent package. Runs AFTER the classic pipeline (so every core guarantee
+ * still holds) and only when townType !== "farm" — the default stays
+ * byte-identical to the classic generator.
+ */
+function applyTownArchetype(
+  w: World,
+  rng: RngState,
+  town: TownShape,
+  kind: TownType,
+  riverPath: number[] | null,
+): void {
+  const { width, height } = w;
+  const plantLot = (t: number, lot: Lot, district: number, pop: number): void => {
+    w.terrain[t] = Terrain.Citizen;
+    w.district[t] = district;
+    w.lot[t] = lot;
+    w.pop[t] = pop;
+  };
+
+  if (kind === "oceanside") {
+    // ---- OCEAN (§2A): a sea along the roomier map edge, wavy coastline ----
+    const side = town.cx <= width / 2 ? 1 : -1;
+    let coastBase = side === 1 ? width - 9 - nextRange(rng, 4) : 9 + nextRange(rng, 4);
+    // the river becomes the ESTUARY: if it runs on the sea's side, the coast
+    // advances past it so the channel reads as drowned river mouth, not a
+    // second waterway cluttering the beach
+    if (riverPath) {
+      let riverExtent = riverPath[0]!;
+      for (const cx of riverPath)
+        riverExtent = side === 1 ? Math.min(riverExtent, cx) : Math.max(riverExtent, cx);
+      const riverOnSeaSide = side === 1 ? riverExtent > town.cx : riverExtent < town.cx;
+      if (riverOnSeaSide) {
+        coastBase =
+          side === 1
+            ? Math.min(coastBase, Math.max(town.cx + town.r + 4, riverExtent - 3))
+            : Math.max(coastBase, Math.min(town.cx - town.r - 4, riverExtent + 3));
+      }
+    }
+    const p1 = nextRange(rng, 628) / 100;
+    const coastX: number[] = [];
+    for (let y = 0; y < height; y++) {
+      const wobble = 2.5 * Math.sin(0.07 * y + p1) + 1.4 * Math.sin(0.19 * y);
+      coastX.push(Math.round(coastBase + side * wobble));
+    }
+    for (let y = 0; y < height; y++) {
+      const cx = coastX[y]!;
+      const from = side === 1 ? cx : 0;
+      const to = side === 1 ? width : cx + 1;
+      for (let x = from; x < to; x++) {
+        const t = y * width + x;
+        // the sea swallows everything but reads as open water
+        w.terrain[t] = Terrain.Lake;
+        w.lot[t] = 0;
+        w.pop[t] = 0;
+        w.biome[t] = Biome.Ocean;
+      }
+      // beach strip: 2 tiles of sand-biome ground landward of the surf
+      for (let b = 1; b <= 2; b++) {
+        const x = cx - side * b;
+        if (x < 1 || x >= width - 1) continue;
+        const t = y * width + x;
+        if (w.terrain[t] === Terrain.Grass || w.terrain[t] === Terrain.Field) {
+          if (w.terrain[t] === Terrain.Field) w.terrain[t] = Terrain.Grass;
+          w.biome[t] = Biome.Ocean;
+        }
+      }
+    }
+    // one road becomes THE pier: keep the highway stub 4 tiles into the surf,
+    // trim every other road/rail dead into open water
+    const pierY = town.highwayY;
+    for (let y = 0; y < height; y++) {
+      const cx = coastX[y]!;
+      for (let x = 0; x < width; x++) {
+        const inSea = side === 1 ? x > cx : x < cx;
+        if (!inSea) continue;
+        const t = y * width + x;
+        if (w.terrain[t] !== Terrain.Road && w.terrain[t] !== Terrain.Rail && w.terrain[t] !== Terrain.Dirt) continue;
+        const pierReach = side === 1 ? x <= cx + 4 : x >= cx - 4;
+        if ((y === pierY || y === pierY + 1) && pierReach) continue; // the pier
+        w.terrain[t] = Terrain.Lake;
+        w.biome[t] = Biome.Ocean;
+      }
+    }
+    // lighthouse on a shore point north of the pier
+    for (let y = Math.max(4, pierY - 18); y < pierY - 4; y++) {
+      const x = coastX[y]! - side;
+      if (x < 2 || x >= width - 2) continue;
+      const t = y * width + x;
+      if (w.terrain[t] === Terrain.Grass) {
+        plantLot(t, Lot.Lighthouse, Districts.None, 1);
+        break;
+      }
+    }
+    // cannery + fish docks working the shore south of the pier
+    let cannery = 0;
+    for (let y = pierY + 3; y < Math.min(height - 4, pierY + 20) && cannery < 2; y++) {
+      const x = coastX[y]! - side * (2 + cannery);
+      if (x < 2 || x >= width - 2) continue;
+      const t = y * width + x;
+      if (w.terrain[t] === Terrain.Grass) {
+        plantLot(t, cannery === 0 ? Lot.Cannery : Lot.Dock, Districts.Trailer, 2);
+        carveDirtLane(w, t);
+        cannery++;
+      }
+    }
+    return;
+  }
+
+  if (kind === "mountain") {
+    // ---- TIMBER COUNTRY (§2A): conifer walls + a sawmill on the rail ----
+    // heavy stands wall in the valley on every side; the floor stays open.
+    // Fields already planted out in the timber get reclaimed by the stands.
+    for (let i = 0; i < 16; i++) {
+      for (let attempt = 0; attempt < 12; attempt++) {
+        const bx = nextRange(rng, width);
+        const by = nextRange(rng, height);
+        const ddx = bx - town.cx;
+        const ddy = by - town.cy;
+        const r = 7 + nextRange(rng, 5);
+        if (ddx * ddx + ddy * ddy < (town.r + r + 2) * (town.r + r + 2)) continue;
+        organicBlob(w, rng, bx, by, r, Terrain.Woods);
+        break;
+      }
+    }
+    // farmland doesn't climb the slopes: any parcel out in the forest biome
+    // reverts to forest floor (the valley-rim farms survive)
+    for (let t = 0; t < w.terrain.length; t++) {
+      if (w.biome[t] !== Biome.Forest) continue;
+      const tr = w.terrain[t];
+      if (tr === Terrain.Field || tr === Terrain.Orchard || tr === Terrain.Pasture)
+        w.terrain[t] = pixHash32(t % width, (t / width) | 0, 77) % 3 === 0 ? Terrain.Woods : Terrain.Grass;
+    }
+    // the sawmill: beside the rail line at a woods edge, with a log yard
+    for (let t = 0; t < w.terrain.length; t++) {
+      if (w.terrain[t] !== Terrain.Rail) continue;
+      const x = t % width;
+      const y = (t / width) | 0;
+      if (x < 6 || x >= width - 6) continue;
+      const ddx = x - town.cx;
+      if (Math.abs(ddx) < town.r + 4) continue; // outside town
+      const below = t + width;
+      const below2 = t + width * 2;
+      if (below2 >= w.terrain.length) continue;
+      let woodsNear = false;
+      for (let dx = -4; dx <= 4 && !woodsNear; dx++) {
+        const n = below + dx;
+        if (n >= 0 && n < w.terrain.length && w.terrain[n] === Terrain.Woods) woodsNear = true;
+      }
+      if (!woodsNear) continue;
+      if (w.terrain[below] !== Terrain.Grass || w.terrain[below + 1] !== Terrain.Grass) continue;
+      plantLot(below, Lot.Sawmill, Districts.None, 2);
+      plantLot(below + 1, Lot.Sawmill, Districts.None, 2);
+      if (w.terrain[below2] === Terrain.Grass) w.terrain[below2] = Terrain.Dirt; // the log yard
+      carveDirtLane(w, below);
+      break;
+    }
+    return;
+  }
+
+  if (kind === "lakeside") {
+    // ---- THE LAKE TOWN (§2A): a big water body right at the town's edge ----
+    const side = town.cx <= width / 2 ? 1 : -1;
+    const lakeR = 14 + nextRange(rng, 5);
+    const lx = town.cx + side * (town.r + lakeR - 2);
+    const ly = town.cy + (nextRange(rng, 2) === 0 ? -1 : 1) * nextRange(rng, 6);
+    organicBlob(w, rng, Math.max(16, Math.min(width - 17, lx)), Math.max(16, Math.min(height - 17, ly)), lakeR, Terrain.Lake);
+    if (riverPath) connectLakesToRiver(w, riverPath);
+    // resort shore: cabins + docks + a boat ramp on the town-facing shore
+    let cabins = 0;
+    let docks = 0;
+    for (let t = 0; t < w.terrain.length && (cabins < 5 || docks < 3); t++) {
+      if (w.terrain[t] !== Terrain.Grass || w.lot[t] !== 0) continue;
+      const x = t % width;
+      const y = (t / width) | 0;
+      if (x < 3 || y < 3 || x >= width - 3 || y >= height - 3) continue;
+      const waterN = w.terrain[t - width] === Terrain.Lake;
+      const waterS = w.terrain[t + width] === Terrain.Lake;
+      const waterE = w.terrain[t + 1] === Terrain.Lake;
+      const waterW = w.terrain[t - 1] === Terrain.Lake;
+      const touches = (waterN ? 1 : 0) + (waterS ? 1 : 0) + (waterE ? 1 : 0) + (waterW ? 1 : 0);
+      if (touches !== 1) continue;
+      const ddx = x - town.cx;
+      const ddy = y - town.cy;
+      if (Math.sqrt(ddx * ddx + ddy * ddy) > town.r + 24) continue;
+      if (pixHash32(x, y, 211) % 3 === 0 && docks < 3) {
+        plantLot(t, Lot.Dock, Districts.Trailer, 2);
+        carveDirtLane(w, t);
+        docks++;
+      } else if (cabins < 5) {
+        plantLot(t, 0 as Lot, Districts.Suburbs, 3); // a shore cabin household
+        carveDirtLane(w, t);
+        cabins++;
+      }
+    }
+    return;
+  }
+}
+
+/**
  * The TOWN: an organic footprint (twelve noisy boundary spokes, cosine-
  * interpolated into a lumpy edge, stretched along the highway) PLATTED with a
  * strictly axis-aligned street grid (gridRoads.ts) — real city blocks, no
@@ -790,9 +1162,10 @@ function scatterExurbs(w: World, rng: RngState, town: TownShape): void {
     const dy = y - town.cy;
     const d = Math.sqrt(dx * dx + dy * dy);
     if (d < inner || d > outer) continue;
-    // probability fades linearly from ~35% at the edge to 0 in deep country
+    // probability fades linearly from ~50% at the edge to 0 in deep country
+    // (§11: the fringe gradient must read on every compass side)
     const falloff = 1 - (d - inner) / (outer - inner);
-    if (nextRange(rng, 100) >= Math.floor(35 * falloff)) continue;
+    if (nextRange(rng, 100) >= Math.floor(50 * falloff)) continue;
     // drop a lone home one tile off the road, on the country side
     const offX = dx >= 0 ? 1 : -1;
     const offY = dy >= 0 ? 1 : -1;
@@ -952,11 +1325,11 @@ function fillFarmBelt(w: World, rng: RngState, town: TownShape): void {
       const ddy = cy + CELL_H / 2 - town.cy;
       if (ddx * ddx + ddy * ddy < inner * inner) continue; // town + spawn ring
       const roll = nextRange(rng, 12);
-      if (roll < 3) continue; // meadow cell
+      if (roll < 2) continue; // meadow cell — rarer now: the belt reads worked (QA sprint-1)
       const kind: Terrain = roll < 9 ? Terrain.Field : roll < 11 ? Terrain.Pasture : Terrain.Orchard;
       // break the lattice read (QA S1-C): every parcel gets its own extent
       // and offset inside the cell, so edges stop aligning map-wide
-      const pw = 6 + nextRange(rng, 4);
+      const pw = 7 + nextRange(rng, 3);
       const ph = 5 + nextRange(rng, 3);
       const offX = nextRange(rng, Math.max(1, CELL_W - pw));
       const offY = nextRange(rng, Math.max(1, CELL_H - ph));
@@ -1479,17 +1852,36 @@ function connectLakesToRiver(w: World, cxs: number[]): void {
     let desertTiles = 0;
     for (const t of comp) if (w.biome[t] === Biome.Desert) desertTiles++;
     if (desertTiles * 2 > comp.length) continue;
+    // rim-fray droplets aren't ponds: a tiny detached component dries up
+    // instead of carving its own outlet (QA sprint-1: parallel-staircase smear)
+    if (comp.length < 5) {
+      for (const t of comp) w.terrain[t] = Terrain.Grass;
+      continue;
+    }
     // carve from the component's lowest tile toward the river
     let start = comp[0]!;
     for (const t of comp) if (((t / width) | 0) > ((start / width) | 0)) start = t;
     let x = start % width;
     let y = (start / width) | 0;
+    // hash-jittered meander cadence: never the metronomic 3-across-1-down
+    // stair (QA sprint-1), and a forced bend caps any straight reach at 4.
+    let straight = 0;
+    let lastDown = false;
     for (let guard = 0; guard < width * 2; guard++) {
       const targetX = cxs[y]!;
       if (Math.abs(x - targetX) <= 1) break; // reached the river
       let nx = x;
       let ny = y;
-      if (guard % 4 === 3 && y < height - 2) ny++;
+      const jitter = pixHash32(x, y, 137) % 5;
+      let down = jitter < 2 && y < height - 2;
+      const sameAxis = down === lastDown;
+      straight = sameAxis ? straight + 1 : 0;
+      if (straight >= 4) {
+        down = !lastDown && y < height - 2;
+        straight = 0;
+      }
+      lastDown = down;
+      if (down) ny++;
       else nx += targetX > x ? 1 : -1;
       if (nx < 1 || nx >= width - 1 || ny >= height - 1) break;
       const t = ny * width + nx;
@@ -1841,11 +2233,12 @@ function pruneAllDeadEnds(w: World): void {
  */
 function infillToFloor(w: World, rng: RngState): void {
   let pop = countTotalPop(w);
+  const popFloor = popFloors(w.width, w.height).pop;
   const way = (t: number): boolean =>
     t >= 0 &&
     t < w.terrain.length &&
     (w.terrain[t] === Terrain.Road || w.terrain[t] === Terrain.Dirt);
-  for (let t = 0; t < w.terrain.length && pop < MIN_TOTAL_POP; t++) {
+  for (let t = 0; t < w.terrain.length && pop < popFloor; t++) {
     if (w.terrain[t] !== Terrain.Citizen || w.lot[t] !== 0) continue;
     // infill homes must have street/path access — never recreate orphans
     const x = t % w.width;

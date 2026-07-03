@@ -164,3 +164,20 @@ B7  🚫 LAUNCH INFRASTRUCTURE — external provisioning (seams exist in code)
 its frontend consumer (REST API ↔ menu.ts screens; WS protocol ↔ net.ts/hud.ts;
 sim intents ↔ HUD controls) except server `sendChat` — its missing consumer is
 tracked as **B4.4.3**, not hidden. No catch-all UI nodes remain.
+
+B8  ✔️ PLAYTEST READINESS — the 2026-07-02 sprint (rooms, civic day, safety, sims)
+├── B8.1 ✔️ Private rooms — code-gated matches + host knobs (bots/size/town/founding)
+├── B8.2 ✔️ Civic day — street-accurate resident routines (sidewalks, cars, rush hours)
+├── B8.3 ✔️ Conversion read — person figures colored by conversion state
+├── B8.4 ✔️ Ownership glow — cult buildings ringed in owner color
+├── B8.5 ✔️ Population scaling — souls ∝ map area (constant density)
+├── B8.6 ✔️ Tone guardrail — real cults/religions blocked from names
+├── B8.7 ✔️ Van routing — manual VAN_MOVE controls (v / shift+V)
+├── B8.8 ✔️ Ecumenical Pact — PACT_PICK simmed + doctrine-grid UI (§16)
+├── B8.9 ✔️ QoL controls — close front (c), cancel build (z), surrender (F8)
+├── B8.10 ✔️ Sim campaign — duration/balance/tier-ladder/pacing harness
+├── B8.11 ⬜ Emote relay — accepted MINOR, post-playtest
+└── B8.12 ⬜ Settings sync — accepted MINOR, per-device localStorage today
+├── B8.13 ✔️ HUD redesign — "Interface Testament v3.0" pixel design system, menu + HUD + loading
+└── B8.14 ✔️ Founding gate + solo pause — match waits for all founders; ⏸/✕ controls top-left
+├── B8.15 ✔️ All-clickable — SCHEME panel gives every PvP/ops action a button (no hotkey needed)

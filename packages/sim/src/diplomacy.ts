@@ -55,6 +55,13 @@ export function breakAlliance(s: SimState, x: PlayerId, y: PlayerId): void {
   const [a, b] = pairKey(x, y);
   const idx = s.alliances.findIndex((al) => al.a === a && al.b === b);
   if (idx >= 0) s.alliances.splice(idx, 1);
+  // Ecumenical Pact grants die with the alliance (§16)
+  for (const p of s.players) {
+    if ((p.id === x && p.pactWith === y) || (p.id === y && p.pactWith === x)) {
+      p.pactNode = "";
+      p.pactWith = 0;
+    }
+  }
 }
 
 /**

@@ -3,12 +3,18 @@
  * contrast is the look, §30). Everything here is feed/banner/ping, never a
  * modal (§29): the only modal in the game is the end-of-match Recap Card.
  *
- * Layout (desktop; rails collapse on narrow viewports via CSS):
- *   top bar     followers (cap + arrow) · $ (/sec) · faith dial · heat gauge ·
- *               timer + leader %
- *   left rail   stance trio (1/2/3) · rituals (Q/W/E/R) · actives (D/F) · sig (G)
- *   bottom      build palette (click → placement mode) · doctrine (badge) · minimap
- *   right rail   player list (ally/mark) · drama feed (the kill-feed)
+ * Visual language (Claude Design handoff, "Interface Testament v3.0"):
+ * pixelated 1970s cult-revival — Press Start 2P / Pixelify Sans / VT323,
+ * harvest-gold chrome, 3px #4a3a26 pixel borders, hard 0 4px 0 #060403 drops,
+ * square corners everywhere. The player's own archetype accent re-dresses
+ * armed/selected states, the signature power and the doctrine badge.
+ *
+ * Layout (desktop; rails collapse via the ◄/► pixel toggles):
+ *   share bar   believer share of the town, own cult first (top:0, 26px)
+ *   top bar     FLOCK · TREASURY · FAITH · HEAT · MATCH · LEADER
+ *   left rail   STANCE (1/2/3) · RITUALS (Q/W/E/R) · POWERS (D/F/G)
+ *   bottom      BUILD tray (click → placement mode) · DOCTRINE (badge) · minimap
+ *   right rail  CONGREGATIONS (ally/mark) · key buildings · DRAMA FEED · chat
  *
  * The HUD reads the predicted sim each update() (≈10 Hz) and writes intents
  * through the session. Build/strike buttons arm a placement mode that main.ts's
@@ -23,6 +29,8 @@ import {
   Stance,
   MatchStatus,
   Terrain,
+  TileState,
+  NEUTRAL,
   Lot,
   Landmark,
   doctrinePointsAvailable,
@@ -49,7 +57,15 @@ export type PlacementKind =
   | { mode: "strike"; strike: string }
   | { mode: "ritual"; ritual: string }
   | { mode: "ability"; ability: string }
-  | { mode: "property" };
+  | { mode: "property" }
+  // ── SCHEME actions (§13/§15/§16): every one is fully clickable, no hotkey
+  //    required. Each arms a target mode; main.ts's map-click resolves it.
+  | { mode: "agent"; mission: "deprogram" | "scandal" } // click a district
+  | { mode: "scandal" } //                                click an enemy cult
+  | { mode: "defection" } //                             click a district
+  | { mode: "van" } //                                   click a tile
+  | { mode: "close_front" } //                           click near a front
+  | { mode: "cancel_build" }; //                         click your building
 
 /** The slice of the map camera the HUD needs (minimap jump + viewport rect). */
 export interface Camera {
@@ -103,21 +119,21 @@ const SIGNATURE: Record<string, PowerDef> = {
 };
 
 const RITUALS = [
-  { id: "sermon", key: "Q", label: "Sermon", targeted: false, desc: "Spend Faith for a town-wide +5% conversion buff." },
-  { id: "midnight_festival", key: "W", label: "Festival", targeted: true, desc: "Place a 2× neutral-conversion aura. Click a tile to anchor it." },
-  { id: "the_offering", key: "E", label: "Offering", targeted: true, desc: "Sacrifice followers in a district for a Faith surge. Click to choose." },
-  { id: "day_of_atonement", key: "R", label: "Atonement", targeted: false, desc: "Freeze your fronts; purge dissent ×4 for a while." },
+  { id: "sermon", key: "Q", label: "SERMON", targeted: false, desc: "Spend Faith for a town-wide +5% conversion buff." },
+  { id: "midnight_festival", key: "W", label: "FESTIVAL", targeted: true, desc: "Place a 2× neutral-conversion aura. Click a tile to anchor it." },
+  { id: "the_offering", key: "E", label: "OFFERING", targeted: true, desc: "Sacrifice followers in a district for a Faith surge. Click to choose." },
+  { id: "day_of_atonement", key: "R", label: "ATONEMENT", targeted: false, desc: "Freeze your fronts; purge dissent ×4 for a while." },
 ] as const;
 
 const BUILDS = [
-  { id: "compound", key: "B", label: "Compound", desc: "Your HQ. Raises the follower cap and anchors territory." },
-  { id: "watchtower", key: "T", label: "Watchtower", desc: "5× fort defense + reveals enemy agents nearby." },
-  { id: "collection_plate", key: "C", label: "Plate", desc: "Tithe node. Couriers carry its income — and can be robbed." },
-  { id: "broadcast_tower", key: "Y", label: "Broadcast", desc: "Required for Propaganda Strikes (K)." },
-  { id: "hotline_center", key: "U", label: "Hotline", desc: "75% chance to intercept incoming strikes." },
-  { id: "print_shop", key: "H", label: "Print Shop", desc: "Cheaper pamphlets — boosts conversion pressure." },
-  { id: "garage", key: "J", label: "Garage", desc: "Raises your Recruitment Van capacity." },
-  { id: "supplement_lab", key: "L", label: "Lab", desc: "Converts Faith into steady income (Radiant)." },
+  { id: "compound", key: "B", label: "COMPOUND", ic: "house", desc: "Your HQ. Raises the follower cap and anchors territory." },
+  { id: "watchtower", key: "T", label: "TOWER", ic: "tower", desc: "5× fort defense + reveals enemy agents nearby." },
+  { id: "collection_plate", key: "C", label: "PLATE", ic: "plate", desc: "Tithe node. Couriers carry its income — and can be robbed." },
+  { id: "broadcast_tower", key: "Y", label: "BROADCAST", ic: "antenna", desc: "Required for Propaganda Strikes (K)." },
+  { id: "hotline_center", key: "U", label: "HOTLINE", ic: "phone", desc: "75% chance to intercept incoming strikes." },
+  { id: "print_shop", key: "H", label: "PRINT SHOP", ic: "press", desc: "Cheaper pamphlets — boosts conversion pressure." },
+  { id: "garage", key: "J", label: "GARAGE", ic: "van", desc: "Raises your Recruitment Van capacity." },
+  { id: "supplement_lab", key: "L", label: "LAB", ic: "flask", desc: "Converts Faith into steady income (Radiant)." },
 ] as const;
 
 /** Ritual Faith costs (base; Sermon gains Faith instead of spending it). */
@@ -128,11 +144,97 @@ const RITUAL_FAITH: Record<string, number> = {
   day_of_atonement: KIT.atonement.cost,
 };
 
+/**
+ * SCHEME actions — the PvP/ops verbs, each a clickable button. `arm` sets a
+ * placement mode resolved by the next map click; `surrender` fires directly.
+ * Hotkeys still work but are never required.
+ */
+const SCHEME: {
+  label: string;
+  key: string;
+  ic: string;
+  title: string;
+  arm?: PlacementKind;
+  armKey?: string;
+  surrender?: boolean;
+}[] = [
+  { label: "PAMPHLET", key: "K", ic: "press", title: "Pamphlet Bomb — a propaganda strike on a tile (needs a Broadcast Tower). Click, then click the target.", arm: { mode: "strike", strike: "pamphlet_bomb" }, armKey: "strike:pamphlet_bomb" },
+  { label: "EXPOSÉ", key: "K", ic: "antenna", title: "Prime-Time Exposé — wide propaganda strike. Click, then click the target.", arm: { mode: "strike", strike: "prime_time_expose" }, armKey: "strike:prime_time_expose" },
+  { label: "MANIFESTO", key: "K", ic: "scroll", title: "Manifesto Drop — the big one. Click, then click the target.", arm: { mode: "strike", strike: "manifesto_drop" }, armKey: "strike:manifesto_drop" },
+  { label: "DEPROGRAM", key: "A", ic: "eye", title: "Dispatch an Agent to deprogram a district (raid). Click, then click a district you're pressing.", arm: { mode: "agent", mission: "deprogram" }, armKey: "agent:deprogram" },
+  { label: "SNOOP", key: "X", ic: "eye", title: "Dispatch an Agent to gather scandal evidence in a district. Click, then click a district.", arm: { mode: "agent", mission: "scandal" }, armKey: "agent:scandal" },
+  { label: "EXPOSE", key: "P", ic: "flame", title: "Publish a Scandal against a rival cult. Click, then click one of their tiles.", arm: { mode: "scandal" }, armKey: "scandal" },
+  { label: "COURT", key: "M", ic: "coin", title: "Court a district to defect to you. Click, then click a contested district.", arm: { mode: "defection" }, armKey: "defection" },
+  { label: "VAN", key: "V", ic: "van", title: "Route your nearest Recruitment Van to a tile (buys one if you have none). Click, then click a tile.", arm: { mode: "van" }, armKey: "van" },
+  { label: "CLOSE", key: "⇧C", ic: "flame", title: "Close your nearest front to stop the push. Click, then click near the front.", arm: { mode: "close_front" }, armKey: "close_front" },
+  { label: "CANCEL", key: "Z", ic: "press", title: "Cancel a building under construction for a 50% refund. Click, then click the building.", arm: { mode: "cancel_build" }, armKey: "cancel_build" },
+  { label: "SURRENDER", key: "F8", ic: "flame", title: "Surrender the match — your cult stops fighting.", surrender: true },
+];
+
 const STANCES = [
-  { id: Stance.Tend, key: "1", label: "TEND", hint: "defend + heal dissent" },
-  { id: Stance.Spread, key: "2", label: "SPREAD", hint: "balanced growth" },
-  { id: Stance.Crusade, key: "3", label: "CRUSADE", hint: "max pressure, +Heat" },
+  { id: Stance.Tend, key: "1", label: "TEND", col: "#6f9b6a", ic: "candle", hint: "defend + heal dissent" },
+  { id: Stance.Spread, key: "2", label: "SPREAD", col: "#d8a83a", ic: "mega", hint: "balanced growth" },
+  { id: Stance.Crusade, key: "3", label: "CRUSADE", col: "#cf4b2c", ic: "flame", hint: "max pressure, +Heat" },
 ] as const;
+
+/** Archetype accents (design handoff §01): own cult re-dresses the HUD. */
+const ARCH_ACCENT: Record<string, { a: string; b: string }> = {
+  dawn: { a: "#df5a2b", b: "#f0b53e" },
+  radiant: { a: "#84a23c", b: "#c4dd72" },
+  circle: { a: "#e0a422", b: "#f3cf6a" },
+  visitors: { a: "#4fa3ad", b: "#8fd6dd" },
+};
+
+/** Drama-feed color keys (design FEED_COL). */
+const FEED_COL: Record<string, string> = {
+  scandal: "#cf4b2c",
+  judas: "#b8332b",
+  prophecy: "#e0a422",
+  ally: "#84a23c",
+  cap: "#9bbf6a",
+  dead: "#8a7550",
+  strike: "#df5a2b",
+  schism: "#7a3da8",
+};
+
+/** 8×8 pixel-art glyph bitmaps (design GLYPH). */
+const GLYPH: Record<string, readonly string[]> = {
+  people: ["01100110", "01100110", "00000000", "11111111", "11111111", "11111111", "10111101", "10111101"],
+  coin: ["00111100", "01100110", "11011011", "11011011", "11011011", "11011011", "01100110", "00111100"],
+  heart: ["01100110", "11111111", "11111111", "11111111", "01111110", "00111100", "00011000", "00000000"],
+  flame: ["00010000", "00011000", "00111100", "01111110", "01111110", "11111111", "11111111", "01111110"],
+  clock: ["00111100", "01000010", "10011001", "10011101", "10010001", "10000001", "01000010", "00111100"],
+  crown: ["10000001", "10100101", "10100101", "11111111", "11111111", "11111111", "00000000", "11111111"],
+  candle: ["00011000", "00011000", "00111100", "00011000", "00111100", "00111100", "00111100", "01111110"],
+  mega: ["00000011", "00001111", "00111111", "11111111", "11111111", "00111111", "00001111", "00000011"],
+  house: ["00011000", "00111100", "01111110", "11111111", "11011011", "11011011", "11000011", "11011011"],
+  tower: ["01111110", "01011010", "00111100", "00111100", "00111100", "00111100", "01111110", "01111110"],
+  plate: ["00011000", "00000000", "10000001", "11000011", "01111110", "00111100", "00000000", "00000000"],
+  antenna: ["00011000", "00011000", "10111010", "01111100", "00111000", "00111000", "00111000", "01111100"],
+  phone: ["11000011", "11000011", "01000010", "00111100", "00111100", "01000010", "11000011", "11000011"],
+  press: ["11111111", "10000001", "11111111", "00111100", "11111111", "11111111", "11111111", "11111111"],
+  van: ["00000000", "01111110", "11111111", "11111111", "11111111", "11111111", "01011010", "00100100"],
+  flask: ["00111100", "00100100", "00100100", "00100100", "01000010", "01011010", "11111111", "01111110"],
+  scroll: ["01111110", "11111111", "11011011", "11111111", "11011011", "11111111", "11111111", "01111110"],
+  bolt: ["00011100", "00111000", "01110000", "11111110", "00011111", "00001110", "00011100", "00110000"],
+  eye: ["00000000", "00111100", "01111110", "11011011", "11011011", "01111110", "00111100", "00000000"],
+  ufo: ["00011000", "00111100", "01111110", "11111111", "00111100", "01000010", "10000001", "00000000"],
+  leaf: ["00010000", "00110010", "01100110", "01001100", "11011000", "01110000", "00010000", "00010000"],
+  star: ["00010000", "00010000", "11111111", "00111100", "01111110", "01100110", "11000011", "00000000"],
+};
+
+/** Render an 8×8 GLYPH as a crisp inline SVG (design icon()). */
+function icon(name: string, color: string, px: number): string {
+  const rows = GLYPH[name] ?? [];
+  let cells = "";
+  for (let y = 0; y < rows.length; y++) {
+    const row = rows[y] ?? "";
+    for (let x = 0; x < row.length; x++) {
+      if (row.charAt(x) === "1") cells += `<rect x="${x}" y="${y}" width="1.05" height="1.05" fill="${color}"/>`;
+    }
+  }
+  return `<svg width="${px}" height="${px}" viewBox="0 0 8 8" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges" style="display:block;flex:none">${cells}</svg>`;
+}
 
 /** Human labels for the hover chip (place identity, §2). */
 const LOT_NAMES: Record<number, string> = {
@@ -201,70 +303,137 @@ function fmtTime(ticks: number): string {
 }
 
 const HUD_CSS = `
-.fk-hud{position:absolute;inset:0;pointer-events:none;font-family:'Segoe UI',system-ui,sans-serif;color:#f0e6d0;z-index:20}
-.fk-hud button{pointer-events:auto;cursor:pointer;font-family:inherit}
-.fk-top{position:absolute;top:26px;left:50%;transform:translateX(-50%);display:flex;gap:18px;
-  background:rgba(20,16,12,.82);border:1px solid #5a4a30;border-radius:8px;padding:7px 16px;
-  backdrop-filter:blur(3px);align-items:center;white-space:nowrap}
-.fk-stat{display:flex;flex-direction:column;align-items:center;min-width:64px;line-height:1.1}
-.fk-stat .v{font-size:17px;font-weight:700}
-.fk-stat .l{font-size:9px;letter-spacing:1px;opacity:.6;text-transform:uppercase}
-.fk-heat .v{color:#ff7a4a}
-.fk-rail{position:absolute;left:10px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:10px;width:128px}
-.fk-grp{background:rgba(20,16,12,.78);border:1px solid #5a4a30;border-radius:8px;padding:7px}
-.fk-grp h4{margin:0 0 5px;font-size:9px;letter-spacing:1.5px;opacity:.55;text-transform:uppercase}
-.fk-btn{display:flex;justify-content:space-between;align-items:center;width:100%;box-sizing:border-box;
-  background:#241c14;color:#f0e6d0;border:1px solid #4a3c28;border-radius:4px;padding:5px 7px;font-size:12px;margin:2px 0}
-.fk-btn:hover{background:#33271a;border-color:#7a5a30}
-.fk-btn .k{font-size:9px;opacity:.5;border:1px solid #5a4a30;border-radius:3px;padding:0 3px;margin-left:5px}
-.fk-btn.on{background:#c89858;color:#1a1410;border-color:#e6be8a;font-weight:700}
-.fk-btn.cd{opacity:.55;filter:grayscale(.5)}
+.fk-hud{position:absolute;inset:0;pointer-events:none;font-family:'Pixelify Sans',ui-monospace,monospace;color:#efe3c6;z-index:20;--fk-acc:#e0a422;--fk-acc2:#f3cf6a}
+.fk-hud button{pointer-events:auto;cursor:pointer;font-family:inherit;border:0;color:#efe3c6;background:none;padding:0}
+.fk-hud .ic{display:block;flex:none;line-height:0}
+@keyframes fkHeat{0%,100%{text-shadow:0 0 0 transparent}50%{text-shadow:0 0 9px currentColor}}
+@keyframes fkDrop{from{transform:translate(-50%,-16px);opacity:0}to{transform:translate(-50%,0);opacity:1}}
+@keyframes fkIn{from{opacity:0;transform:translateX(10px)}to{opacity:1;transform:none}}
+@keyframes fkBlink{50%{opacity:.3}}
+@keyframes fkFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}
+/* ---- believer share bar (top:0, OpenFront-style) ---- */
+.fk-share{position:absolute;top:0;left:0;right:0;height:26px;display:flex;background:#0e0a05;border-bottom:2px solid #4a3a26;box-shadow:0 2px 0 rgba(0,0,0,.5);font-size:11px;font-weight:600;z-index:6;overflow:hidden}
+.fk-share .seg{height:100%;display:flex;align-items:center;justify-content:center;gap:5px;overflow:hidden;box-shadow:inset -1px 0 0 rgba(0,0,0,.45);color:#f3ead4;white-space:nowrap;flex:none}
+.fk-share .seg.me{color:#19110a}
+.fk-share .seg .snm{overflow:hidden;text-overflow:ellipsis;max-width:110px}
+.fk-share .seg .spc{opacity:.8}
+/* ---- top stat strip ---- */
+.fk-top{position:absolute;top:36px;left:50%;transform:translateX(-50%);display:flex;gap:2px;background:#1a130b;border:3px solid #4a3a26;box-shadow:0 4px 0 #060403,inset 0 0 0 1px #6b563a;z-index:6;white-space:nowrap}
+.fk-stat{display:flex;align-items:center;gap:9px;padding:9px 15px;border-right:1px solid #36291a;line-height:1}
+.fk-stat:last-child{border-right:0}
+.fk-stat .v{font-family:'VT323',monospace;font-size:25px;letter-spacing:.5px;color:#efe3c6}
+.fk-stat .sub{font-family:'VT323',monospace;font-size:13px;color:#8a7550;margin-left:2px}
+.fk-stat .l{display:block;font-family:'Press Start 2P',monospace;font-size:7px;letter-spacing:1px;color:#8a7550;margin-top:3px}
+.fk-heat .ic{color:#c0744a}
+.fk-heat .v{color:#caa07a}
+.fk-heat.hot .ic{color:var(--fk-acc2)}
+.fk-heat.hot .v{color:#ff7a3a;animation:fkHeat 1s infinite}
+/* ---- pixel panels ---- */
+.fk-grp{background:#1a130b;border:3px solid #4a3a26;box-shadow:0 4px 0 #060403;padding:9px}
+.fk-grp h4{margin:0 0 8px;font-family:'Press Start 2P',monospace;font-size:7px;letter-spacing:1px;color:#8a7550;font-weight:400;text-transform:uppercase}
+/* ---- rail buttons ---- */
+.fk-btn{display:flex;align-items:center;gap:8px;width:100%;box-sizing:border-box;padding:7px 9px;font-size:12px;font-weight:500;letter-spacing:.3px;text-align:left;color:#efe3c6;background:#241c12;box-shadow:inset 0 0 0 1px #36291a,0 3px 0 #060403;margin:3px 0}
+.fk-btn:hover{box-shadow:inset 0 0 0 1px #6b563a,0 3px 0 #060403}
+.fk-btn .lb{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fk-btn .k{font-family:'Press Start 2P',monospace;font-size:8px;color:#a08a64;background:#0e0a05;padding:3px 4px;box-shadow:inset 0 0 0 1px #4a3a26;flex:none}
+.fk-btn .cost{font-family:'VT323',monospace;font-size:15px;color:#9bbf6a;flex:none;white-space:nowrap}
+.fk-btn.cd{opacity:.7}
+.fk-btn.cd .cost{color:#e6be8a}
 .fk-btn.cant{opacity:.4;filter:grayscale(.8)}
-.fk-btn.arm{outline:2px solid #ffd36a;outline-offset:1px}
-.fk-btn .cost{font-size:9px;opacity:.75;margin-left:5px;white-space:nowrap}
-.fk-btn.cant .cost{color:#e08a6a;opacity:1}
-.fk-btn .cd-t{font-size:9px;color:#e6be8a;margin-left:5px}
-.fk-bottom{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);display:flex;gap:10px;align-items:flex-end}
-.fk-builds{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;background:rgba(20,16,12,.78);
-  border:1px solid #5a4a30;border-radius:8px;padding:8px;width:420px}
-.fk-doc{position:relative;background:#241c14;border:1px solid #5a4a30;border-radius:8px;color:#f0e6d0;
-  padding:10px 14px;font-size:12px;align-self:stretch}
-.fk-doc .badge{position:absolute;top:-6px;right:-6px;background:#ffcf4a;color:#1a1410;border-radius:50%;
-  width:18px;height:18px;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center}
-.fk-mini{background:rgba(20,16,12,.78);border:1px solid #5a4a30;border-radius:8px;padding:6px;line-height:0}
-.fk-mini canvas{image-rendering:pixelated;border-radius:3px}
-.fk-right{position:absolute;right:10px;top:60px;width:236px;display:flex;flex-direction:column;gap:10px;max-height:80vh}
-.fk-players{background:rgba(20,16,12,.78);border:1px solid #5a4a30;border-radius:8px;padding:7px;overflow:auto}
-.fk-prow{display:flex;align-items:center;gap:6px;font-size:12px;padding:3px 2px;border-radius:4px}
-.fk-prow .sw{width:11px;height:11px;border-radius:2px;flex:none}
+.fk-btn.arm{background:var(--fk-acc);color:#19110a;box-shadow:inset 0 0 0 2px var(--fk-acc2),0 3px 0 #060403}
+.fk-btn.arm .ic,.fk-btn.arm .k,.fk-btn.arm .cost{color:#19110a}
+/* stances: colored icon, selected = colored bg + ink text */
+.fk-stance{font-size:13px;font-weight:600;letter-spacing:.5px;padding:8px 9px}
+.fk-stance .ic{color:var(--st-col)}
+.fk-stance.on{background:var(--st-col);color:#19110a;box-shadow:inset 0 0 0 2px var(--st-col),0 3px 0 #060403}
+.fk-stance.on .ic,.fk-stance.on .k{color:#19110a}
+/* powers: D/F rows + G signature in the cult accent */
+.fk-pow .ic{color:var(--fk-acc2)}
+.fk-sig{background:var(--fk-acc);color:#19110a;font-weight:700;letter-spacing:.5px;padding:9px;box-shadow:inset 0 0 0 2px var(--fk-acc2),0 3px 0 #060403}
+.fk-sig:hover{box-shadow:inset 0 0 0 2px var(--fk-acc2),0 3px 0 #060403}
+.fk-sig .ic,.fk-sig .k,.fk-sig .cost{color:#19110a}
+/* ---- rails + collapse toggles ---- */
+.fk-rail{position:absolute;left:16px;top:50%;transform:translateY(-50%);display:flex;align-items:center;gap:6px;z-index:6}
+.fk-rail-stack{width:182px;display:flex;flex-direction:column;gap:11px;max-height:calc(100vh - 140px);overflow:auto}
+.fk-collapse{width:20px;height:66px;display:flex;align-items:center;justify-content:center;font-family:'Press Start 2P',monospace;font-size:9px;color:#e0a422;background:#1a130b;border:3px solid #4a3a26;box-shadow:0 4px 0 #060403;padding:0;flex:none}
+.fk-collapse.h{width:66px;height:20px}
+.fk-right{position:absolute;right:16px;top:74px;display:flex;align-items:flex-start;gap:6px;z-index:6}
+.fk-right-stack{width:236px;display:flex;flex-direction:column;gap:11px;max-height:calc(100vh - 130px)}
+.fk-players{overflow:auto;max-height:230px}
+.fk-prow{display:flex;align-items:center;gap:7px;font-size:12px;padding:4px 5px}
+.fk-prow.me{background:color-mix(in srgb,var(--fk-acc) 15%,transparent);box-shadow:inset 0 0 0 1px var(--fk-acc)}
+.fk-prow.dead{opacity:.45}
+.fk-prow .sw{width:13px;height:13px;flex:none;box-shadow:inset 0 0 0 1px rgba(0,0,0,.5)}
 .fk-prow .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.fk-prow .act{pointer-events:auto;cursor:pointer;font-size:10px;opacity:.6;border:1px solid #4a3c28;border-radius:3px;padding:0 4px}
-.fk-prow .act:hover{opacity:1;background:#33271a}
-.fk-feed{background:rgba(20,16,12,.78);border:1px solid #5a4a30;border-radius:8px;padding:7px;overflow:auto;flex:1;
-  font-size:11px;line-height:1.45}
-.fk-feed .e{opacity:0;animation:fkfade .4s forwards;padding:1px 0}
-@keyframes fkfade{to{opacity:1}}
-.fk-banner{position:absolute;top:90px;left:50%;transform:translateX(-50%);background:rgba(120,30,30,.92);
-  border:1px solid #ff8a6a;border-radius:6px;padding:10px 24px;font-size:18px;font-weight:700;letter-spacing:1px;
-  animation:fkdrop .3s ease-out;text-shadow:0 1px 2px #000}
-@keyframes fkdrop{from{transform:translate(-50%,-12px);opacity:0}to{transform:translate(-50%,0);opacity:1}}
-.fk-heat.hot .v{animation:fkpulse 1s infinite}
-@keyframes fkpulse{50%{text-shadow:0 0 10px #ff5a2a}}
-@media(max-width:900px){.fk-rail{width:96px}.fk-right{width:150px}.fk-builds{width:240px}}
-.fk-hoverchip{position:absolute;left:10px;bottom:12px;background:rgba(20,16,12,.85);border:1px solid #5a4a30;
-  border-radius:6px;padding:5px 10px;font-size:11px;line-height:1.5;max-width:220px;pointer-events:none}
-.fk-hoverchip .pl{font-weight:700;font-size:12px}
-.fk-hoverchip .st{opacity:.65}
-.fk-chatin{pointer-events:auto;width:100%;box-sizing:border-box;background:#241c14;color:#f0e6d0;
-  border:1px solid #4a3c28;border-radius:4px;padding:5px 7px;font-size:12px;font-family:inherit}
-.fk-chatin:focus{outline:none;border-color:#c89858;background:#2a2118}
-.fk-chatin::placeholder{color:#f0e6d0;opacity:.55}
+.fk-prow .tg{font-size:13px;flex:none}
+.fk-prow .tl{font-family:'VT323',monospace;font-size:17px;color:#c4ad82;min-width:34px;text-align:right}
+.fk-prow .hold{color:#a08a64;font-size:11px}
+.fk-prow .act{pointer-events:auto;cursor:pointer;font-size:10px;color:#a08a64;background:#0e0a05;box-shadow:inset 0 0 0 1px #4a3a26;padding:1px 5px;flex:none}
+.fk-prow .act:hover{color:#efe3c6;box-shadow:inset 0 0 0 1px #6b563a}
+/* ---- drama feed ---- */
+.fk-feed{overflow:auto;flex:1;min-height:110px;font-size:12px;line-height:1.35;display:flex;flex-direction:column}
+.fk-feed-h{font-family:'Press Start 2P',monospace;font-size:7px;letter-spacing:1px;color:#cf4b2c;margin-bottom:8px;animation:fkBlink 1.4s infinite}
+.fk-feed .e{display:flex;align-items:flex-start;gap:7px;color:#d8c8a6;animation:fkIn .35s ease-out;padding:2px 0}
+.fk-feed .e .kq{width:9px;height:9px;flex:none;margin-top:3px;box-shadow:0 0 0 1px rgba(0,0,0,.4)}
+.fk-feed .act{pointer-events:auto;cursor:pointer;text-decoration:underline;color:#c4dd72}
+/* ---- bottom tray ---- */
+.fk-bottom{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:6px;z-index:6}
+.fk-tray{display:flex;gap:9px;align-items:stretch;background:#1a130b;border:3px solid #4a3a26;box-shadow:0 4px 0 #060403;padding:8px 9px}
+.fk-builds-wrap{display:flex;flex-direction:column;gap:6px}
+.fk-builds-lbl{font-family:'Press Start 2P',monospace;font-size:7px;letter-spacing:1px;color:#8a7550}
+.fk-builds{display:flex;gap:5px}
+.fk-build{display:block;width:58px;box-sizing:border-box;padding:7px 5px;text-align:center;color:#efe3c6;background:#241c12;box-shadow:inset 0 0 0 1px #36291a,0 3px 0 #060403}
+.fk-build:hover{box-shadow:inset 0 0 0 1px #6b563a,0 3px 0 #060403}
+.fk-build .r1{display:flex;align-items:center;justify-content:center;gap:4px}
+.fk-build .ic{color:var(--fk-acc2)}
+.fk-build .k{font-family:'Press Start 2P',monospace;font-size:8px;color:#a08a64;background:#0e0a05;padding:3px 4px;box-shadow:inset 0 0 0 1px #4a3a26}
+.fk-build .cost{display:block;font-family:'VT323',monospace;font-size:13px;color:#9bbf6a;text-align:center;margin-top:3px;line-height:1}
+.fk-build.arm{background:var(--fk-acc);color:#19110a;box-shadow:inset 0 0 0 2px var(--fk-acc2),0 3px 0 #060403}
+.fk-build.arm .ic,.fk-build.arm .k,.fk-build.arm .cost{color:#19110a}
+.fk-build.cant{opacity:.4;filter:grayscale(.8)}
+.fk-scheme{display:grid;grid-template-columns:1fr 1fr;gap:4px}
+.fk-scm{display:flex;align-items:center;gap:5px;box-sizing:border-box;padding:5px 6px;text-align:left;color:#efe3c6;background:#241c12;box-shadow:inset 0 0 0 1px #36291a,0 3px 0 #060403;cursor:pointer;border:0}
+.fk-scm:hover{box-shadow:inset 0 0 0 1px #cf4b2c,0 3px 0 #060403}
+.fk-scm .ic{color:#df5a2b;flex:none}
+.fk-scm .lb{flex:1;font-family:'Pixelify Sans',ui-monospace,monospace;font-size:10px;font-weight:600;letter-spacing:.3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fk-scm .k{font-family:'Press Start 2P',monospace;font-size:7px;color:#a08a64;background:#0e0a05;padding:2px 3px;box-shadow:inset 0 0 0 1px #4a3a26;flex:none}
+.fk-scm.arm{background:#cf4b2c;color:#fff3df;box-shadow:inset 0 0 0 2px #f0b53e,0 3px 0 #060403}
+.fk-scm.arm .ic,.fk-scm.arm .k{color:#fff3df}
+.fk-scm.wide{grid-column:span 2;justify-content:center}
+.fk-scm.wide .lb{flex:none}
+.fk-doc{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:12px 16px;color:#efe3c6;background:#241c12;box-shadow:inset 0 0 0 2px #4a3a26,0 4px 0 #060403}
+.fk-doc:hover{box-shadow:inset 0 0 0 2px #6b563a,0 4px 0 #060403}
+.fk-doc .ic{color:var(--fk-acc2)}
+.fk-doc .dl{font-size:12px;font-weight:600;letter-spacing:.5px;margin-top:4px}
+.fk-doc .badge{position:absolute;top:-9px;right:-9px;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-family:'Press Start 2P',monospace;font-size:9px;color:#19110a;background:#f0b53e;box-shadow:0 2px 0 #060403;animation:fkFloat 1.6s infinite}
+.fk-mini{display:flex;align-items:center}
+.fk-mini canvas{width:118px;height:75px;image-rendering:pixelated;box-shadow:inset 0 0 0 1px #4a3a26}
+/* ---- banner (freeze-frame moments, §25.3) ---- */
+.fk-banner{position:absolute;top:96px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:12px;background:#cf4b2c;color:#fff3df;border:3px solid #f0b53e;box-shadow:0 5px 0 #060403,inset 0 0 0 2px #8a2a18;padding:12px 26px;font-family:'Press Start 2P',monospace;font-size:13px;letter-spacing:1px;animation:fkDrop .3s ease-out;text-shadow:2px 2px 0 #7a1f10;z-index:7;max-width:70vw}
+.fk-banner .bx{font-size:18px;flex:none}
+/* ---- help square ---- */
+.fk-helpbtn{position:absolute;top:40px;right:16px;width:40px;height:40px;display:flex;align-items:center;justify-content:center;font-family:'Press Start 2P',monospace;font-size:13px;color:#e0a422;background:#1a130b;border:3px solid #4a3a26;box-shadow:0 4px 0 #060403;cursor:help;padding:0;z-index:6}
+.fk-helpbtn:hover{border-color:#e0a422}
+/* ---- hover chip + chat ---- */
+.fk-hoverchip{position:absolute;left:16px;bottom:16px;background:#1a130b;border:3px solid #4a3a26;box-shadow:0 4px 0 #060403;padding:6px 10px;font-size:12px;line-height:1.5;max-width:220px;pointer-events:none;z-index:6}
+.fk-hoverchip .pl{font-weight:700}
+.fk-hoverchip .st{color:#a08a64;font-family:'VT323',monospace;font-size:15px}
+.fk-chatin{pointer-events:auto;width:100%;box-sizing:border-box;background:#241c12;color:#efe3c6;border:0;box-shadow:inset 0 0 0 1px #36291a,0 3px 0 #060403;padding:7px 9px;font-size:12px;font-family:'Pixelify Sans',ui-monospace,monospace}
+.fk-chatin:focus{outline:none;box-shadow:inset 0 0 0 1px var(--fk-acc),0 3px 0 #060403;background:#2a2014}
+.fk-chatin::placeholder{color:#8a7550}
+/* match controls (EXIT / PAUSE, mounted from main.ts) */
+.fk-ctl{display:flex;align-items:center;gap:7px;font-family:'Pixelify Sans',ui-monospace,monospace;font-size:12px;font-weight:600;letter-spacing:.5px;color:#efe3c6;background:#1a130b;border:3px solid #4a3a26;box-shadow:0 4px 0 #060403;padding:9px 13px;cursor:pointer}
+.fk-ctl:hover{background:#2a1812;border-color:#cf4b2c}
+.fk-ctl .x{color:#cf4b2c;font-size:14px;line-height:1}
 /* accessibility (§28): reduced motion kills pulses/animations; mute hides chat */
 .fk-reduced-motion .fk-heat.hot .v{animation:none}
-.fk-reduced-motion .fk-feed .e{animation:none;opacity:1}
+.fk-reduced-motion .fk-feed .e{animation:none}
+.fk-reduced-motion .fk-feed-h{animation:none}
 .fk-reduced-motion .fk-banner{animation:none}
+.fk-reduced-motion .fk-doc .badge{animation:none}
 .fk-mute-chat .fk-chat{display:none}
 .fk-mute-chat .fk-chatin{display:none}
+@media(max-width:1100px){.fk-rail-stack{width:150px}.fk-right-stack{width:190px}.fk-build{width:50px}}
 `;
 
 /**
@@ -273,11 +442,13 @@ const HUD_CSS = `
  * `stat()` setters typed.
  */
 interface ElCache {
+  share: HTMLElement;
   followers: HTMLElement;
   usd: HTMLElement;
   faith: HTMLElement;
   heat: HTMLElement;
   heat_box: HTMLElement;
+  heat_sub: HTMLElement;
   timer: HTMLElement;
   leader: HTMLElement;
   stanceGroup: HTMLElement;
@@ -303,7 +474,7 @@ export class Hud {
   private prev = { followers: 0, usd: 0, tick: 0 };
   private usdPerSec = 0;
   private folTrend = 0;
-  private feed: { tick: number; text: string }[] = [];
+  private feed: { tick: number; text: string; tag: string }[] = [];
   private seen = { scandals: 0, prophecies: 0, betrayals: 0, alliances: 0, dead: new Set<number>(), threats: new Set<string>() };
   private banner: { text: string; until: number } | null = null;
   private lastMiniTick = -999;
@@ -313,6 +484,8 @@ export class Hud {
   private hoverPlace!: HTMLElement;
   private hoverStreet!: HTMLElement;
   private lastHover = -2;
+  /** archetype whose accent vars are currently applied to the root. */
+  private accentFor = "";
   /** Global Enter → focus the chat box (unless already typing somewhere). */
   private readonly focusChatKey = (ev: KeyboardEvent): void => {
     if (ev.key !== "Enter") return;
@@ -334,8 +507,8 @@ export class Hud {
     this.root = document.createElement("div");
     this.root.className = "fk-hud";
     this.mini = document.createElement("canvas");
-    this.mini.width = Math.min(120, g.sim.world.width);
-    this.mini.height = Math.min(120, g.sim.world.height);
+    this.mini.width = 118;
+    this.mini.height = 75;
     this.miniCtx = this.mini.getContext("2d")!;
     // click the minimap to jump the camera there (fast navigation on big maps)
     if (this.camera) {
@@ -363,6 +536,21 @@ export class Hud {
   /** Arm a targeted action; the next map click resolves it (main.ts). */
   arm(p: PlacementKind | null): void {
     this.ui.placement = p;
+  }
+
+  /** The data-scheme key for an armed placement, so the button can light up. */
+  private schemeKey(p: PlacementKind | null): string | null {
+    if (!p) return null;
+    switch (p.mode) {
+      case "strike": return `strike:${p.strike}`;
+      case "agent": return `agent:${p.mission}`;
+      case "scandal": return "scandal";
+      case "defection": return "defection";
+      case "van": return "van";
+      case "close_front": return "close_front";
+      case "cancel_build": return "cancel_build";
+      default: return null;
+    }
   }
 
   /**
@@ -404,10 +592,15 @@ export class Hud {
     this.hoverChip.style.display = "block";
   }
 
-  private btn(label: string, key: string | null, onClick: () => void): HTMLButtonElement {
+  /** Row button: [icon] label ·· (cost) [key chip]. */
+  private btn(label: string, key: string | null, onClick: () => void, opts: { ic?: string; cls?: string; cost?: boolean } = {}): HTMLButtonElement {
     const b = document.createElement("button");
-    b.className = "fk-btn";
-    b.innerHTML = `<span>${label}</span>${key ? `<span class="k">${key}</span>` : ""}`;
+    b.className = `fk-btn${opts.cls ? ` ${opts.cls}` : ""}`;
+    b.innerHTML =
+      `${opts.ic ? `<i class="ic">${icon(opts.ic, "currentColor", 17)}</i>` : ""}` +
+      `<span class="lb">${label}</span>` +
+      `${opts.cost ? `<span class="cost"></span>` : ""}` +
+      `${key ? `<span class="k">${key}</span>` : ""}`;
     b.onclick = onClick;
     return b;
   }
@@ -419,103 +612,170 @@ export class Hud {
     return d;
   }
 
+  /** ◄/► pixel collapse toggle wired to show/hide a rail stack. */
+  private collapse(stack: HTMLElement, openChar: string, closedChar: string, horizontal = false): HTMLButtonElement {
+    const b = document.createElement("button");
+    b.className = `fk-collapse${horizontal ? " h" : ""}`;
+    b.textContent = openChar;
+    b.title = "collapse / expand";
+    b.onclick = () => {
+      const open = stack.style.display !== "none";
+      stack.style.display = open ? "none" : "";
+      b.textContent = open ? closedChar : openChar;
+    };
+    return b;
+  }
+
   private build(): void {
-    // ---- top bar -------------------------------------------------------
+    // ---- believer share bar (top:0) --------------------------------------
+    const share = document.createElement("div");
+    share.className = "fk-share";
+    this.el.share = share;
+    this.root.appendChild(share);
+
+    // ---- top bar ---------------------------------------------------------
     const top = document.createElement("div");
     top.className = "fk-top";
-    const stat = (id: string, label: string, cls = ""): HTMLElement => {
+    const stat = (id: string, label: string, ic: string, icColor: string, cls = ""): HTMLElement => {
       const s = document.createElement("div");
       s.className = `fk-stat ${cls}`;
-      s.innerHTML = `<span class="v" id="${id}">—</span><span class="l">${label}</span>`;
+      s.innerHTML = `<i class="ic"${icColor ? ` style="color:${icColor}"` : ""}>${icon(ic, "currentColor", 16)}</i><div><span class="v" id="${id}">—</span><span class="sub"></span><span class="l">${label}</span></div>`;
       this.el[id] = s.querySelector(".v")!;
+      this.el[`${id}_sub`] = s.querySelector(".sub")!;
       if (cls) this.el[`${id}_box`] = s;
       return s;
     };
     top.append(
-      stat("followers", "Followers"),
-      stat("usd", "Treasury"),
-      stat("faith", "Faith"),
-      stat("heat", "Heat", "fk-heat"),
-      stat("timer", "Match"),
-      stat("leader", "Leader"),
+      stat("followers", "FLOCK", "people", "#cdbf9c"),
+      stat("usd", "TREASURY", "coin", "#e8c45a"),
+      stat("faith", "FAITH", "heart", "#d98aa0"),
+      stat("heat", "HEAT", "flame", "", "fk-heat"),
+      stat("timer", "MATCH", "clock", "#bdb39a"),
+      stat("leader", "LEADER", "crown", "#e8c45a"),
     );
+    this.el.faith_sub!.textContent = "/100";
     this.root.appendChild(top);
 
-    // ---- left rail -----------------------------------------------------
+    // ---- left rail: stance / rituals / powers + collapse ------------------
     const rail = document.createElement("div");
     rail.className = "fk-rail";
+    const railStack = document.createElement("div");
+    railStack.className = "fk-rail-stack";
 
-    const stanceG = this.group("Stance");
+    const stanceG = this.group("STANCE");
     for (const s of STANCES) {
-      const b = this.btn(s.label, s.key, () => this.send({ t: "SET_STANCE", stance: s.id }));
+      const b = this.btn(s.label, s.key, () => this.send({ t: "SET_STANCE", stance: s.id }), { ic: s.ic, cls: "fk-stance" });
       b.title = s.hint;
       b.dataset.stance = s.id;
+      b.style.setProperty("--st-col", s.col);
       stanceG.appendChild(b);
     }
     this.el.stanceGroup = stanceG;
 
-    const ritualG = this.group("Rituals");
+    const ritualG = this.group("RITUALS");
     for (const r of RITUALS) {
-      const b = this.btn(r.label, r.key, () =>
-        r.targeted ? this.arm({ mode: "ritual", ritual: r.id }) : this.send({ t: "RITUAL", ritual: r.id as never }),
+      const b = this.btn(
+        r.label,
+        r.key,
+        () => (r.targeted ? this.arm({ mode: "ritual", ritual: r.id }) : this.send({ t: "RITUAL", ritual: r.id as never })),
+        { cost: true },
       );
       b.dataset.cd = r.id;
       const fc = RITUAL_FAITH[r.id] ?? 0;
       b.title = `${r.label} — ${r.desc}${fc ? ` (costs ${fc} Faith)` : " (free)"}`;
-      const cost = document.createElement("span");
-      cost.className = "cost";
-      cost.textContent = fc ? `${fc}✛` : "";
-      b.appendChild(cost);
       ritualG.appendChild(b);
     }
     this.el.ritualGroup = ritualG;
 
-    const actG = this.group("Powers");
-    this.el.actD = this.btn("—", "D", () => this.fireActive("D"));
-    this.el.actF = this.btn("—", "F", () => this.fireActive("F"));
-    this.el.actG = this.btn("—", "G", () => this.fireSignature());
-    for (const el of [this.el.actD, this.el.actF, this.el.actG]) {
-      const cost = document.createElement("span");
-      cost.className = "cost";
-      el.appendChild(cost);
-    }
+    const actG = this.group("POWERS");
+    this.el.actD = this.btn("—", "D", () => this.fireActive("D"), { ic: "eye", cls: "fk-pow", cost: true });
+    this.el.actF = this.btn("—", "F", () => this.fireActive("F"), { ic: "flask", cls: "fk-pow", cost: true });
+    this.el.actG = this.btn("—", "G", () => this.fireSignature(), { ic: "bolt", cls: "fk-sig", cost: true });
     actG.append(this.el.actD, this.el.actF, this.el.actG);
 
-    rail.append(stanceG, ritualG, actG);
+    // ---- SCHEME: every PvP/ops action as a clickable button (no hotkey
+    //      required). Targeted ones arm a placement mode; SURRENDER is direct.
+    const schemeG = this.group("SCHEME");
+    const schemeGrid = document.createElement("div");
+    schemeGrid.className = "fk-scheme";
+    const schemeBtn = (
+      label: string,
+      key: string,
+      ic: string,
+      title: string,
+      onClick: () => void,
+      armKey?: string,
+    ): void => {
+      const b = document.createElement("button");
+      b.className = label === "SURRENDER" ? "fk-scm wide" : "fk-scm";
+      b.title = title;
+      b.innerHTML = `<i class="ic">${icon(ic, "currentColor", 15)}</i><span class="lb">${label}</span><span class="k">${key}</span>`;
+      b.onclick = onClick;
+      if (armKey) b.dataset.scheme = armKey;
+      schemeGrid.appendChild(b);
+    };
+    for (const sc of SCHEME) {
+      schemeBtn(sc.label, sc.key, sc.ic, sc.title, () => {
+        if (sc.arm) {
+          if (JSON.stringify(this.ui.placement) === JSON.stringify(sc.arm)) this.arm(null);
+          else this.arm(sc.arm as PlacementKind);
+        } else if (sc.surrender) {
+          if (confirm("Surrender this match? Your cult stops fighting.")) this.send({ t: "SURRENDER" } as never);
+        }
+      }, sc.armKey);
+    }
+    schemeG.appendChild(schemeGrid);
+    this.el.scheme = schemeGrid;
+
+    railStack.append(stanceG, ritualG, actG, schemeG);
+    rail.append(railStack, this.collapse(railStack, "◄", "►"));
     this.root.appendChild(rail);
 
-    // ---- bottom: builds + doctrine + minimap ---------------------------
+    // ---- bottom tray: builds + doctrine + minimap (collapsible) ------------
     const bottom = document.createElement("div");
     bottom.className = "fk-bottom";
+    const tray = document.createElement("div");
+    tray.className = "fk-tray";
 
+    const buildsWrap = document.createElement("div");
+    buildsWrap.className = "fk-builds-wrap";
+    buildsWrap.innerHTML = `<div class="fk-builds-lbl">BUILD ▸ tap a tool, then a tile</div>`;
     const builds = document.createElement("div");
     builds.className = "fk-builds";
+    const buildBtn = (label: string, key: string, ic: string, title: string, onClick: () => void): HTMLButtonElement => {
+      const b = document.createElement("button");
+      b.className = "fk-build";
+      b.title = title;
+      b.innerHTML = `<div class="r1"><i class="ic">${icon(ic, "currentColor", 16)}</i><span class="k">${key}</span></div><span class="cost"></span>`;
+      b.onclick = onClick;
+      return b;
+    };
     for (const bd of BUILDS) {
-      const b = this.btn(bd.label, bd.key, () => this.armBuild(bd.id, bd.key));
+      const b = buildBtn(bd.label, bd.key, bd.ic, `${bd.label} — ${bd.desc} (click, then click a tile to place)`, () =>
+        this.armBuild(bd.id, bd.key),
+      );
       b.dataset.build = bd.id;
-      b.title = `${bd.label} — ${bd.desc} (click, then click a tile to place)`;
-      const cost = document.createElement("span");
-      cost.className = "cost";
-      b.appendChild(cost);
       builds.appendChild(b);
     }
     // BUY LAND (§18 rev.): claim a parcel of open country to expand onto
-    const land = this.btn("Buy Land", "N", () => {
-      if (this.ui.placement?.mode === "property") this.arm(null);
-      else this.arm({ mode: "property" });
-    });
+    const land = buildBtn(
+      "BUY LAND",
+      "N",
+      "leaf",
+      "Buy Land — claim a parcel of open country for your compound to grow into (click, then click open ground)",
+      () => {
+        if (this.ui.placement?.mode === "property") this.arm(null);
+        else this.arm({ mode: "property" });
+      },
+    );
     land.dataset.land = "1";
-    land.title = "Buy Land — claim a parcel of open country for your compound to grow into (click, then click open ground)";
-    const landCost = document.createElement("span");
-    landCost.className = "cost";
-    land.appendChild(landCost);
     builds.appendChild(land);
+    buildsWrap.appendChild(builds);
     this.el.builds = builds;
 
     const doc = document.createElement("button");
-    doc.className = "fk-doc fk-btn";
-    doc.style.cssText += "flex-direction:column;justify-content:center";
-    doc.innerHTML = `DOCTRINE<span class="badge" id="docbadge" style="display:none">0</span>`;
+    doc.className = "fk-doc";
+    doc.innerHTML = `<i class="ic">${icon("scroll", "currentColor", 22)}</i><span class="dl">DOCTRINE</span><span class="badge" id="docbadge" style="display:none">0</span>`;
     doc.onclick = () => this.openDoctrine();
     this.el.doc = doc;
     this.el.docBadge = doc.querySelector("#docbadge")!;
@@ -524,18 +784,21 @@ export class Hud {
     miniWrap.className = "fk-mini";
     miniWrap.appendChild(this.mini);
 
-    bottom.append(builds, doc, miniWrap);
+    tray.append(buildsWrap, doc, miniWrap);
+    bottom.append(this.collapse(tray, "▼", "▲", true), tray);
     this.root.appendChild(bottom);
 
-    // ---- right rail: players + feed ------------------------------------
+    // ---- right rail: congregations + civics + drama feed + chat ------------
     const right = document.createElement("div");
     right.className = "fk-right";
+    const rightStack = document.createElement("div");
+    rightStack.className = "fk-right-stack";
     const players = document.createElement("div");
-    players.className = "fk-players";
+    players.className = "fk-grp fk-players";
     this.el.players = players;
     const feed = document.createElement("div");
-    feed.className = "fk-feed";
-    feed.innerHTML = `<div style="opacity:.5;font-size:9px;letter-spacing:1px">DRAMA FEED</div>`;
+    feed.className = "fk-grp fk-feed";
+    feed.innerHTML = `<div class="fk-feed-h">● DRAMA FEED</div>`;
     this.el.feed = feed;
 
     // chat input (§27/§30): Enter focuses (global listener), Enter sends,
@@ -568,7 +831,8 @@ export class Hud {
     civicsBox.innerHTML = `<h4>Key Buildings</h4>`;
     this.el.civics = civicsBox;
 
-    right.append(players, civicsBox, feed, chatIn);
+    rightStack.append(players, civicsBox, feed, chatIn);
+    right.append(this.collapse(rightStack, "►", "◄"), rightStack);
     this.root.appendChild(right);
 
     // place-identity chip (bottom-left): what & where the cursor is over.
@@ -586,12 +850,12 @@ export class Hud {
     this.hoverChip = chip;
     this.root.appendChild(chip);
 
-    // help button (top-right) → controls reference
+    // help square (top-right) → controls reference
     const help = document.createElement("button");
-    help.className = "fk-btn";
+    help.className = "fk-helpbtn";
     help.textContent = "?";
-    help.title = "Controls & how to play";
-    help.style.cssText = "position:absolute;top:30px;right:10px;width:34px;height:34px;font-size:18px;border-radius:50%;padding:0";
+    help.title =
+      "Controls — 1/2/3 stance · Q/W/E/R rituals · D/F powers · G signature · B/T/C/Y/U/H/J/L build · N buy land · Esc cancel (click for the full sheet)";
     help.onclick = () => this.toggleHelp();
     this.root.appendChild(help);
   }
@@ -606,17 +870,17 @@ export class Hud {
     const panel = document.createElement("div");
     panel.className = "fk-help";
     panel.style.cssText =
-      "position:absolute;inset:0;z-index:45;display:flex;align-items:center;justify-content:center;background:rgba(10,8,6,.8);pointer-events:auto";
-    panel.innerHTML = `<div style="background:rgba(20,16,12,.97);border:1px solid #5a4a30;border-radius:10px;padding:22px 28px;max-width:520px;line-height:1.8;font-size:14px">
-      <div style="font-size:18px;letter-spacing:2px;margin-bottom:10px">HOW TO PLAY</div>
-      <b>Goal</b> — convert the town. Watch the bar up top; reach the win % to dominate.<br/>
-      <b>Map</b> — click a tile to open a front there · drag to pan · wheel to zoom · click the minimap to jump.<br/>
-      <b>Stance</b> — 1 Tend (defend) · 2 Spread (grow) · 3 Crusade (push hard, +Heat).<br/>
-      <b>Rituals</b> — Q Sermon · W Festival · E Offering · R Atonement (spend Faith).<br/>
-      <b>Powers</b> — D / F archetype actives · G signature (your big play).<br/>
-      <b>Build</b> — click a palette button then a tile, or press B/T/C/Y/U/H/J/L. Greyed = can't afford.<br/>
-      <b>Scheme</b> — A raid · X snoop · P publish scandal · K strike · V van · O/I alliances · Esc cancels.<br/>
-      <div style="opacity:.55;margin-top:10px;font-size:12px">click anywhere to close</div>
+      "position:absolute;inset:0;z-index:45;display:flex;align-items:center;justify-content:center;background:rgba(10,7,4,.82);pointer-events:auto";
+    panel.innerHTML = `<div style="background:#1a130b;border:3px solid #6b563a;box-shadow:0 8px 0 #060403,inset 0 0 0 2px #36291a;padding:22px 28px;max-width:540px;line-height:1.8;font-size:14px;color:#d8c8a6">
+      <div style="font-family:'Press Start 2P',monospace;font-size:13px;letter-spacing:1px;color:#efe3c6;margin-bottom:12px">HOW TO PLAY</div>
+      <b style="color:#e0a422">Goal</b> — convert the town. Watch the bar up top; reach the win % to dominate.<br/>
+      <b style="color:#e0a422">Map</b> — click a tile to open a front there · drag to pan · wheel to zoom · click the minimap to jump.<br/>
+      <b style="color:#e0a422">Stance</b> — 1 Tend (defend) · 2 Spread (grow) · 3 Crusade (push hard, +Heat).<br/>
+      <b style="color:#e0a422">Rituals</b> — Q Sermon · W Festival · E Offering · R Atonement (spend Faith).<br/>
+      <b style="color:#e0a422">Powers</b> — D / F archetype actives · G signature (your big play).<br/>
+      <b style="color:#e0a422">Build</b> — click a palette button then a tile, or press B/T/C/Y/U/H/J/L. Greyed = can't afford.<br/>
+      <b style="color:#e0a422">Scheme</b> — A raid · X snoop · P publish scandal · K strike · V van · O/I alliances · Esc cancels.<br/>
+      <div style="color:#8a7550;margin-top:10px;font-family:'VT323',monospace;font-size:16px">▸ click anywhere to close</div>
     </div>`;
     panel.onclick = () => panel.remove();
     this.root.appendChild(panel);
@@ -651,8 +915,8 @@ export class Hud {
   }
 
   /** Push a drama-feed line and (for big moments) a freeze-frame banner (§25.3). */
-  private pushFeed(text: string, banner = false): void {
-    this.feed.unshift({ tick: this.g.sim.tick, text });
+  private pushFeed(text: string, banner = false, tag = "cap"): void {
+    this.feed.unshift({ tick: this.g.sim.tick, text, tag });
     if (this.feed.length > 40) this.feed.pop();
     if (banner) this.banner = { text, until: this.g.sim.tick + 25 };
   }
@@ -664,32 +928,32 @@ export class Hud {
     const published = s.scandals.filter((x) => x.published).length;
     if (published > this.seen.scandals) {
       for (const sc of s.scandals.filter((x) => x.published).slice(this.seen.scandals)) {
-        this.pushFeed(`📰 ${name(sc.attacker)} EXPOSED ${name(sc.victim)}`, true);
+        this.pushFeed(`${name(sc.attacker)} EXPOSED ${name(sc.victim)}`, true, "scandal");
       }
       this.seen.scandals = published;
     }
     if (s.prophecies.length > this.seen.prophecies) {
       for (const pr of s.prophecies.slice(this.seen.prophecies)) {
-        this.pushFeed(`⏳ ${name(pr.player)} declared a PROPHECY`, true);
+        this.pushFeed(`${name(pr.player)} declared a PROPHECY`, true, "prophecy");
       }
       this.seen.prophecies = s.prophecies.length;
     }
     const traitors = s.players.filter((p) => p.traitor).length;
     if (traitors > this.seen.betrayals) {
       for (const p of s.players.filter((x) => x.traitor).slice(this.seen.betrayals)) {
-        this.pushFeed(`🗡 JUDAS — ${name(p.id)} betrayed an ally`, true);
+        this.pushFeed(`JUDAS — ${name(p.id)} betrayed an ally`, true, "judas");
       }
       this.seen.betrayals = traitors;
     }
     if (s.alliances.length > this.seen.alliances) {
       const al = s.alliances[s.alliances.length - 1]!;
-      this.pushFeed(`🤝 ${name(al.a)} allied with ${name(al.b)}`);
+      this.pushFeed(`${name(al.a)} allied with ${name(al.b)}`, false, "ally");
       this.seen.alliances = s.alliances.length;
     }
     for (const p of s.players) {
       if (p.spawned && !p.alive && !this.seen.dead.has(p.id)) {
         this.seen.dead.add(p.id);
-        this.pushFeed(`☠ ${name(p.id)} was eliminated`);
+        this.pushFeed(`${name(p.id)} was eliminated`, false, "dead");
       }
     }
 
@@ -705,7 +969,7 @@ export class Hud {
       if (this.seen.threats.has(key)) continue;
       this.seen.threats.add(key);
       const label = st.type === "pamphlet_bomb" ? "PAMPHLET BOMB" : st.type === "prime_time_expose" ? "PRIME-TIME EXPOSÉ" : "MANIFESTO DROP";
-      this.pushFeed(`⚠ INCOMING ${label} from ${name(st.player)}!`, true);
+      this.pushFeed(`INCOMING ${label} from ${name(st.player)}!`, true, "strike");
     }
     // scandal evidence reaching the 50% notify threshold on me (§15.2)
     for (const sc of s.scandals) {
@@ -713,7 +977,46 @@ export class Hud {
       const key = `scandal:${sc.attacker}`;
       if (this.seen.threats.has(key)) continue;
       this.seen.threats.add(key);
-      this.pushFeed(`⚠ ${name(sc.attacker)} is digging up dirt on you…`, true);
+      this.pushFeed(`${name(sc.attacker)} is digging up dirt on you…`, true, "scandal");
+    }
+  }
+
+  /**
+   * BELIEVER SHARE BAR (design §02): each cult's share of the town's souls —
+   * own cult first, then rivals descending, then the unconverted remainder.
+   * Called from main.ts at the same 5-tick cadence the old Pixi bar used.
+   */
+  renderShareBar(): void {
+    const s = this.g.sim;
+    const w = s.world;
+    const popByOwner = new Map<number, number>();
+    for (let t = 0; t < w.owner.length; t++) {
+      const o = w.owner[t]!;
+      if (o === NEUTRAL || w.state[t] !== TileState.Believer) continue;
+      popByOwner.set(o, (popByOwner.get(o) ?? 0) + w.pop[t]!);
+    }
+    const total = Math.max(1, s.totalPop);
+    const meId = this.g.playerId;
+    const nameOf = (id: number): string => this.g.players.find((p) => p.id === id)?.name ?? `Cult #${id}`;
+    const segs: { color: string; pct: number; label: string; me: boolean }[] = [];
+    segs.push({ color: colorForPlayer(meId), pct: ((popByOwner.get(meId) ?? 0) / total) * 100, label: nameOf(meId), me: true });
+    const rivals = [...popByOwner.entries()].filter(([id]) => id !== meId).sort((a, z) => z[1] - a[1]);
+    for (const [id, pop] of rivals) {
+      segs.push({ color: colorForPlayer(id), pct: (pop / total) * 100, label: nameOf(id), me: false });
+    }
+    const restPct = Math.max(0, 100 - segs.reduce((t, sg) => t + sg.pct, 0));
+    segs.push({ color: "#3a2e1c", pct: restPct, label: "unconverted", me: false });
+    const html = segs
+      .map(
+        (sg) =>
+          `<div class="seg${sg.me ? " me" : ""}" style="width:${sg.pct.toFixed(3)}%;background:${sg.color}">${
+            sg.pct >= 9 ? `<span class="snm">${esc(sg.label)}</span><span class="spc">${Math.round(sg.pct)}%</span>` : ""
+          }</div>`,
+      )
+      .join("");
+    if (this.el.share.dataset.h !== html) {
+      this.el.share.innerHTML = html;
+      this.el.share.dataset.h = html;
     }
   }
 
@@ -721,6 +1024,14 @@ export class Hud {
     const s = this.g.sim;
     const me = this.me();
     if (!me) return;
+
+    // apply the cult's accent (armed/selected states, signature, badge)
+    if (this.accentFor !== me.archetype) {
+      this.accentFor = me.archetype;
+      const acc = ARCH_ACCENT[me.archetype] ?? ARCH_ACCENT["circle"]!;
+      this.root.style.setProperty("--fk-acc", acc.a);
+      this.root.style.setProperty("--fk-acc2", acc.b);
+    }
 
     // derive $/sec + follower trend at sim rate
     if (s.tick !== this.prev.tick) {
@@ -740,7 +1051,9 @@ export class Hud {
     this.el.faith.textContent = `${toFloat(me.faith).toFixed(0)}`;
     const heat = toFloat(me.heat);
     this.el.heat.textContent = `${heat.toFixed(0)}`;
-    this.el.heat_box?.classList.toggle("hot", heat >= 50);
+    const hot = heat >= 50;
+    this.el.heat_box?.classList.toggle("hot", hot);
+    this.el.heat_sub.textContent = hot ? "◆" : "";
     this.el.timer.textContent = s.timerTicks > 0 ? fmtTime(s.timerTicks - s.tick) : fmtTime(s.tick);
 
     const leader = [...s.players].filter((p) => p.spawned).sort((a, b) => b.ownedTiles - a.ownedTiles)[0];
@@ -759,10 +1072,15 @@ export class Hud {
       const id = b.dataset.cd!;
       const cd = me.cooldowns[id] ?? 0;
       const fc = RITUAL_FAITH[id] ?? 0;
+      // Sermon requires calm (§9): visibly locked during CRUSADE instead of
+      // silently no-oping — the tutorial harness caught this dead-end.
+      const crusadeLock = id === "sermon" && me.stance === Stance.Crusade;
       b.classList.toggle("cd", cd > 0);
-      b.classList.toggle("cant", cd <= 0 && fc > 0 && faith < fc);
+      b.classList.toggle("cant", crusadeLock || (cd <= 0 && fc > 0 && faith < fc));
       const costEl = b.querySelector<HTMLElement>(".cost");
-      if (costEl) costEl.textContent = cd > 0 ? `${Math.ceil(cd / 10)}s` : fc ? `${fc}✛` : "";
+      if (costEl)
+        costEl.textContent = crusadeLock ? "calm!" : cd > 0 ? `${Math.ceil(cd / 10)}s` : fc ? `${fc}✛` : "free";
+      if (crusadeLock) b.title = "SERMON — preaching needs calm: switch to TEND or SPREAD first.";
     });
 
     // powers: labels, live costs, affordability greying, cooldown countdowns —
@@ -774,7 +1092,7 @@ export class Hud {
       { el: this.el.actG, def: SIGNATURE[me.archetype]!, key: "G", role: "your signature, the big play" },
     ] as const;
     for (const { el, def, key, role } of powers) {
-      el.querySelector("span")!.textContent = def.label;
+      el.querySelector<HTMLElement>(".lb")!.textContent = def.label;
       const cd = def.cd ? (me.cooldowns[def.cd] ?? 0) : 0;
       const c = def.cost?.(me);
       const needUsd = c?.usd ?? 0;
@@ -810,6 +1128,14 @@ export class Hud {
       const costEl = b.querySelector<HTMLElement>(".cost");
       if (costEl) costEl.textContent = fmtMoney(cost);
     });
+
+    // SCHEME buttons: light up whichever action is armed
+    if (this.el.scheme) {
+      const armedKey = this.schemeKey(this.ui.placement);
+      this.el.scheme.querySelectorAll<HTMLElement>("[data-scheme]").forEach((b) => {
+        b.classList.toggle("arm", b.dataset.scheme === armedKey);
+      });
+    }
 
     // BUY LAND: live escalating price + affordability
     {
@@ -858,18 +1184,24 @@ export class Hud {
       if (al.a === this.g.playerId) allies.add(al.b);
       if (al.b === this.g.playerId) allies.add(al.a);
     }
-    const html = rows
-      .map((p) => {
-        const nm = esc(this.g.players.find((q) => q.id === p.id)?.name ?? `Cult #${p.id}`);
-        const me = p.id === this.g.playerId;
-        const tags = `${p.traitor ? "🗡" : ""}${allies.has(p.id) ? "🤝" : ""}${!p.alive ? "☠" : ""}`;
-        const acts = me || !p.alive ? "" : `<span class="act" data-ally="${p.id}" title="${allies.has(p.id) ? "break the alliance" : "propose an alliance"}">${allies.has(p.id) ? "✕" : "ally"}</span>`;
-        return `<div class="fk-prow" style="${me ? "background:rgba(200,152,88,.18)" : ""}">
+    const html =
+      `<h4>Congregations</h4>` +
+      rows
+        .map((p) => {
+          const nm = esc(this.g.players.find((q) => q.id === p.id)?.name ?? `Cult #${p.id}`);
+          const me = p.id === this.g.playerId;
+          const tags = `${p.traitor ? "🗡" : ""}${allies.has(p.id) ? "🤝" : ""}${!p.alive ? "☠" : ""}`;
+          const acts =
+            me || !p.alive
+              ? ""
+              : `<span class="act" data-ally="${p.id}" title="${allies.has(p.id) ? "break the alliance" : "propose an alliance"}">${allies.has(p.id) ? "✕" : "ally"}</span>`;
+          return `<div class="fk-prow${me ? " me" : ""}${!p.alive ? " dead" : ""}">
           <span class="sw" style="background:${colorForPlayer(p.id)}"></span>
-          <span class="nm" title="${nm}">${nm} ${tags}</span>
-          <span style="opacity:.6;font-size:11px" title="households held">${p.ownedTiles}</span>${acts}</div>`;
-      })
-      .join("");
+          <span class="nm" title="${nm}">${nm}</span>
+          <span class="tg">${tags}</span>
+          <span class="tl" title="households held">${p.ownedTiles}</span>${acts}</div>`;
+        })
+        .join("");
     if (this.el.players.dataset.h !== html) {
       this.el.players.innerHTML = html;
       this.el.players.dataset.h = html;
@@ -884,23 +1216,26 @@ export class Hud {
   }
 
   private renderFeed(s: SimState): void {
+    const kq = (col: string): string => `<span class="kq" style="background:${col}"></span>`;
     const offers = s.allianceOffers
       .filter((o) => o.to === this.g.playerId)
       .map((o) => {
         const nm = esc(this.g.players.find((p) => p.id === o.from)?.name ?? `Cult #${o.from}`);
-        return `<div class="e" style="color:#9be6c0">✉ ${nm} offers alliance — <span class="act" data-accept="${o.from}" style="pointer-events:auto;cursor:pointer;text-decoration:underline">accept</span></div>`;
+        return `<div class="e">${kq(FEED_COL["ally"]!)}<span>✉ ${nm} offers alliance — <span class="act" data-accept="${o.from}">accept</span></span></div>`;
       })
       .join("");
-    const lines = this.feed.map((f) => `<div class="e">${f.text}</div>`).join("");
+    const lines = this.feed
+      .map((f) => `<div class="e">${kq(FEED_COL[f.tag] ?? "#a08a64")}<span>${f.text}</span></div>`)
+      .join("");
     // chat (server-moderated) — hidden when muted via the .fk-mute-chat class
     const chat = this.g.chat
       .slice(-8)
       .map((c) => {
         const nm = this.g.players.find((p) => p.id === c.from)?.name ?? `Cult #${c.from}`;
-        return `<div class="e fk-chat" style="opacity:.85">💬 ${esc(nm)}: ${esc(c.msg)}</div>`;
+        return `<div class="e fk-chat">${kq("#8a7550")}<span style="color:#a08a64">💬 ${esc(nm)}: ${esc(c.msg)}</span></div>`;
       })
       .join("");
-    const html = `<div style="opacity:.5;font-size:9px;letter-spacing:1px">DRAMA FEED</div>${offers}${lines}${chat}`;
+    const html = `<div class="fk-feed-h">● DRAMA FEED</div>${offers}${lines}${chat}`;
     if (this.el.feed.dataset.h !== html) {
       this.el.feed.innerHTML = html;
       this.el.feed.dataset.h = html;
@@ -916,7 +1251,8 @@ export class Hud {
       if (!existing) {
         const b = document.createElement("div");
         b.className = "fk-banner";
-        b.textContent = this.banner.text;
+        // feed text is pre-escaped (names run through esc()), safe for innerHTML
+        b.innerHTML = `<span class="bx">‼</span><span>${this.banner.text}</span>`;
         this.root.appendChild(b);
       }
     } else if (existing) {
@@ -996,11 +1332,11 @@ export class Hud {
           : esc(this.g.players.find((p) => p.id === holder)?.name ?? `Cult #${holder}`);
       const sw =
         holder === 0
-          ? `<span class="sw" style="background:#4a4440"></span>`
+          ? `<span class="sw" style="background:#4a3a26"></span>`
           : `<span class="sw" style="background:${colorForPlayer(holder)}"></span>`;
-      html += `<div class="fk-prow" data-civic="${lot}" style="cursor:pointer;pointer-events:auto;${mine ? "background:rgba(200,152,88,.18)" : ""}" title="${esc(CIVIC_EFFECTS[lot] ?? "")}">
+      html += `<div class="fk-prow${mine ? " me" : ""}" data-civic="${lot}" style="cursor:pointer;pointer-events:auto" title="${esc(CIVIC_EFFECTS[lot] ?? "")}">
         ${sw}<span class="nm">${NAMES[lot] ?? "?"}</span>
-        <span style="opacity:.6;font-size:10px">${holder === 0 ? "unclaimed" : holderName}</span></div>`;
+        <span class="hold">${holder === 0 ? "unclaimed" : holderName}</span></div>`;
     }
     if (this.el.civics.dataset.h !== html) {
       this.el.civics.innerHTML = html;
@@ -1025,6 +1361,14 @@ export class Hud {
   }
 }
 
+/** Doctrine columns (design B.I.T.E.): branch accent + pixel glyph. */
+const DOC_COLS: { br: string; title: string; accent: string; ic: string }[] = [
+  { br: "B", title: "BEHAVIOR", accent: "#df5a2b", ic: "tower" },
+  { br: "I", title: "INFORMATION", accent: "#4fa3ad", ic: "eye" },
+  { br: "T", title: "THOUGHT", accent: "#e0a422", ic: "mega" },
+  { br: "E", title: "EMOTIONAL", accent: "#84a23c", ic: "heart" },
+];
+
 /**
  * Doctrine picker (§28): the 4-column BITE grid as a transient panel (not a
  * blocking modal — click-away closes it). Real numbers shown per node.
@@ -1034,41 +1378,57 @@ function showDoctrinePanel(g: GameSession): void {
   const me = g.sim.players.find((p) => p.id === g.playerId);
   if (!me) return;
   const pts = doctrinePointsAvailable(me);
-  const COLS: [string, string, string[]][] = [
-    ["B", "BEHAVIOR", ["B1 Tithing Drill +10% tithe", "B2 Uniforms +15% home def", "B3 Curfew −dissent", "B4 Total Discipline"]],
-    ["I", "INFORMATION", ["I1 Newsletter +Heat vis", "I2 Wiretap intercept", "I3 Strong Signal strikes", "I4 Total Surveillance"]],
-    ["T", "THOUGHT", ["T1 Better Pamphlets +10% R₀", "T2 Loaded Language", "T3 Us vs Them", "T4 Sacred Science"]],
-    ["E", "EMOTIONAL", ["E1 Welcome Basket −30%", "E2 Love Bombing", "E3 Shunning", "E4 Unshakeable"]],
-  ];
+  const NODES: Record<string, string[]> = {
+    B: ["Tithing Drill +10% tithe", "Uniforms +15% home def", "Curfew −dissent", "Total Discipline"],
+    I: ["Newsletter +Heat vis", "Wiretap intercept", "Strong Signal strikes", "Total Surveillance"],
+    T: ["Better Pamphlets +10% R₀", "Loaded Language", "Us vs Them", "Sacred Science"],
+    E: ["Welcome Basket −30%", "Love Bombing", "Shunning", "Unshakeable"],
+  };
   const panel = document.createElement("div");
   panel.className = "fk-doc-panel";
   panel.style.cssText =
     "position:absolute;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;" +
-    "background:rgba(10,8,6,.7);font-family:'Segoe UI',sans-serif;color:#f0e6d0";
-  const grid = COLS.map(([br, title, nodes]) => {
-    const cells = nodes
+    "background:rgba(10,7,4,.82);font-family:'Pixelify Sans',ui-monospace,monospace;color:#efe3c6";
+  const grid = DOC_COLS.map((col) => {
+    const cells = (NODES[col.br] ?? [])
       .map((label, i) => {
-        const node = `${br}${i + 1}`;
+        const node = `${col.br}${i + 1}`;
         const have = me.doctrine.includes(node);
-        const bg = have ? "#c89858;color:#1a1410" : "#241c14";
-        return `<button class="fk-doc-node" data-node="${node}" ${have ? "disabled" : ""}
-          style="display:block;width:100%;margin:4px 0;padding:8px;text-align:left;font-size:11px;
-          background:${bg};border:1px solid #5a4a30;border-radius:4px;cursor:${have ? "default" : "pointer"}">${label}</button>`;
+        const style = have
+          ? `background:${col.accent};color:#19110a;box-shadow:inset 0 0 0 2px ${col.accent},0 3px 0 #060403;cursor:default`
+          : `background:#241c12;color:#efe3c6;box-shadow:inset 0 0 0 1px #36291a,0 3px 0 #060403;cursor:pointer`;
+        return `<button class="fk-doc-node" data-node="${node}"
+          style="display:block;width:100%;margin:0 0 5px;padding:8px 9px;text-align:left;border:0;font-family:inherit;${style}">
+          <div style="font-weight:700;font-size:12px;letter-spacing:.5px">${node}</div>
+          <div style="font-size:11px;opacity:.82;margin-top:2px;line-height:1.2">${label}</div></button>`;
       })
       .join("");
-    return `<div style="width:190px"><h4 style="margin:0 0 6px;letter-spacing:1px;font-size:11px;opacity:.7">${title}</h4>${cells}</div>`;
+    return `<div style="width:196px">
+      <div style="font-family:'Press Start 2P',monospace;font-size:8px;letter-spacing:1px;color:${col.accent};margin-bottom:8px;display:flex;align-items:center;gap:6px">${icon(col.ic, col.accent, 11)}${col.title}</div>
+      ${cells}</div>`;
   }).join("");
-  panel.innerHTML = `<div style="background:rgba(20,16,12,.96);border:1px solid #5a4a30;border-radius:10px;padding:18px">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-      <b style="letter-spacing:2px">DOCTRINE — BITE</b><span style="opacity:.7">${pts} point${pts === 1 ? "" : "s"} available</span>
+  panel.innerHTML = `<div style="background:#1a130b;border:3px solid #6b563a;box-shadow:0 8px 0 #060403,inset 0 0 0 2px #36291a;padding:22px">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:24px;margin-bottom:16px">
+      <div style="font-family:'Press Start 2P',monospace;font-size:13px;letter-spacing:1px;color:#efe3c6">DOCTRINE ▸ B.I.T.E.</div>
+      <div style="font-family:'VT323',monospace;font-size:20px;color:#f0b53e">${pts} POINT${pts === 1 ? "" : "S"}</div>
     </div><div style="display:flex;gap:12px">${grid}</div>
-    <div style="margin-top:12px;opacity:.5;font-size:11px;text-align:center">click a node to commit · irreversible · click outside to close</div></div>`;
+    <div style="text-align:center;margin-top:14px;font-size:12px;color:#8a7550">irreversible · real numbers · click outside to close · <b>shift-click an owned node to share it with your ally (§16 pact)</b></div></div>`;
   panel.onclick = (e) => {
     if (e.target === panel) panel.remove();
   };
   panel.querySelectorAll<HTMLElement>("[data-node]").forEach((b) => {
-    b.onclick = () => {
-      g.sendIntent({ t: "DOCTRINE_PICK", node: b.dataset.node! } as ClientIntent);
+    b.onclick = (ev) => {
+      const node = b.dataset.node!;
+      const meNow = g.sim.players.find((p) => p.id === g.playerId);
+      if ((ev as MouseEvent).shiftKey) {
+        // Ecumenical Pact (§16): share an OWNED node with your ally
+        if (meNow?.doctrine.includes(node)) {
+          g.sendIntent({ t: "PACT_PICK", node } as ClientIntent);
+        }
+        return;
+      }
+      if (meNow?.doctrine.includes(node)) return; // owned: pick is a no-op
+      g.sendIntent({ t: "DOCTRINE_PICK", node } as ClientIntent);
       setTimeout(() => {
         panel.remove();
         showDoctrinePanel(g); // reopen to reflect the pick

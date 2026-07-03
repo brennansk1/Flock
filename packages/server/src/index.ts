@@ -195,7 +195,26 @@ async function main(): Promise<void> {
     };
     ws.send(JSON.stringify({ type: "auth", token: session, account: summary }));
 
-    lobby.join(ws, account, archetype);
+    // private rooms (§32): ?room=CODE joins one, ?private=1 hosts one —
+    // hosts may also pass bots/size/founding/town knobs for playtesting
+    const room = q.get("room");
+    const createPrivate = q.get("private") === "1";
+    const config: { botCount?: number; worldSize?: number; foundingTicks?: number; townType?: string } = {};
+    for (const [param, key] of [
+      ["bots", "botCount"],
+      ["size", "worldSize"],
+      ["founding", "foundingTicks"],
+    ] as const) {
+      const v = q.get(param);
+      if (v !== null) config[key] = Number(v);
+    }
+    const town = q.get("town");
+    if (town !== null) config.townType = town;
+    lobby.join(ws, account, archetype, {
+      ...(room !== null ? { room } : {}),
+      createPrivate,
+      ...(createPrivate ? { config } : {}),
+    });
   }
 
   http.listen(PORT, () => {

@@ -14,6 +14,8 @@ export interface WirePlayer {
   id: number;
   name: string;
   archetype: "dawn" | "radiant" | "circle" | "visitors";
+  /** true for AI seats (bots + established churches) — humans never set it. */
+  bot?: boolean;
 }
 
 /** Account summary handed to the client at connect (§22/§28 profile bits). */
@@ -71,7 +73,11 @@ export type ServerMsg =
       type: "results";
       results: MatchResult[];
     }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  /** private-room handshake: the shareable invite code (§32) */
+  | { type: "room"; code: string }
+  /** solo-game pause state (server-confirmed) */
+  | { type: "paused"; value: boolean };
 
 export interface MatchResult {
   player: number;
@@ -85,4 +91,7 @@ export interface MatchResult {
 export type ClientMsg =
   | { type: "intent"; intent: Intent }
   /** Client asks for a fresh snapshot after detecting a StateHash divergence. */
-  | { type: "resync" };
+  | { type: "resync" }
+  /** Solo-vs-bots pause control (ignored in multi-human matches). */
+  | { type: "pause" }
+  | { type: "resume" };

@@ -122,8 +122,17 @@ export class MatchWorker {
   private nextPlayerId = 1;
   private endedAnnounced = false;
   private autoPlaced = false;
+  /** solo-game pause (client-requested; auto-resumes when a second human joins) */
+  private paused = false;
+  /** ticks spent holding the founding gate for unplaced humans */
+  private foundingHeld = 0;
+  private readonly foundingTicksTotal: number;
   /** replay = seed + every Turn (§33: replays are just intent logs) */
   private readonly replayTurns: Turn[] = [];
+
+  /** Private room: joinable only by code, never by public matchmaking. */
+  readonly isPrivate: boolean;
+  readonly roomCode: string;
 
   constructor(
     balanceRaw: RawBalance,
@@ -133,11 +142,15 @@ export class MatchWorker {
     foundingTicks = 200,
     churchCount = 0,
     capacity = 4,
+    extra: { isPrivate?: boolean; roomCode?: string; townType?: string } = {},
   ) {
     this.balanceRaw = balanceRaw;
     this.balance = loadBalance(balanceRaw);
     this.seed = seed;
     this.matchId = `m_${(seed >>> 0).toString(36)}`;
+    this.isPrivate = extra.isPrivate ?? false;
+    this.roomCode = extra.roomCode ?? "";
+    this.foundingTicksTotal = Math.max(1, foundingTicks);
     this.capacity = Math.min(4, capacity); // hard cap: 4 cults per town (§18 rev.)
     // Separate RNG streams: seedSlice feeds the sim's randomness through the
     // turn stream (replays stay pure intent logs, §33); botRng drives Drifter
@@ -155,6 +168,8 @@ export class MatchWorker {
             ? []
             : ((process.env.FLOCK_BIOMES?.split(",").map((b) => b.trim()) as ("desert" | "forest")[] | undefined) ??
               ["desert", "forest"]),
+        // town archetype (§2A): private hosts can pick the world type
+        townType: (extra.townType ?? "farm") as "farm" | "oceanside" | "desert" | "mountain" | "lakeside",
       }),
       spawns: [],
       foundingTicks, // FOUNDING spawn-pick window (§18)
@@ -184,6 +199,10 @@ export class MatchWorker {
 
   /** Attach a connecting client; assigns a player id and spawns them in. */
   addClient(ws: WebSocket, name: string, archetype: WirePlayer["archetype"], accountId = ""): void {
+    if (this.paused) {
+      this.paused = false; // a second founder arrives: the town wakes up
+      this.broadcast({ type: "paused", value: false });
+    }
     const playerId = this.addPlayer(name, archetype, false);
     this.clients.set(playerId, { playerId, ws, accountId, windowStart: 0, windowCount: 0 });
     if (accountId) this.accountOf.set(playerId, accountId);
@@ -278,7 +297,7 @@ export class MatchWorker {
   /** Shared join path: roster + sim player + SPAWN through the turn stream. */
   private addPlayer(name: string, archetype: WirePlayer["archetype"], autoSpawn: boolean): number {
     const playerId = this.nextPlayerId++;
-    this.roster.push({ id: playerId, name, archetype });
+    this.roster.push({ id: playerId, name, archetype, ...(autoSpawn ? { bot: true } : {}) });
     // Players enter the sim via the same door as everyone: an intent in the
     // turn stream. Late join == late spawn, deterministically.
     this.sim.players.push(newPlayer(playerId, archetype, this.balance));
@@ -318,6 +337,14 @@ export class MatchWorker {
       this.send(slot.ws, { type: "snapshot", snapshot: toSnapshot(this.sim), players: this.roster });
       return;
     }
+    // PAUSE (solo vs bots only): the lockstep clock stops for one human
+    if (type === "pause" || type === "resume") {
+      if (this.clients.size === 1 && this.sim.status === MatchStatus.Live) {
+        this.paused = type === "pause";
+        this.broadcast({ type: "paused", value: this.paused });
+      }
+      return;
+    }
     if (type !== "intent") return;
     const intent = (msg as { intent?: Intent }).intent;
     if (!intent || typeof intent.t !== "string") return;
@@ -344,13 +371,29 @@ export class MatchWorker {
   }
 
   private tick(): void {
-    // FOUNDING expiry: auto-place anyone who never clicked a spawn (§18).
-    if (this.sim.foundingTicksLeft === 1 && !this.autoPlaced) {
-      this.autoPlaced = true;
-      for (let i = 0; i < this.sim.players.length; i++) {
-        const p = this.sim.players[i]!;
-        if (!p.spawned) {
-          this.pending.push({ t: IntentType.SPAWN, player: p.id, tile: spawnTileFor(this.sim.world, i) });
+    if (this.paused) return; // solo pause: the town holds still
+    // FOUNDING window edge: bots break ground now; HUMANS hold the gate —
+    // the match will not begin until every player has placed (sim holds the
+    // countdown at 1). An AFK human is auto-placed after a 2× backstop so a
+    // lobby can never be held hostage.
+    if (this.sim.foundingTicksLeft === 1) {
+      const humanIds = new Set(this.clients.keys());
+      if (!this.autoPlaced) {
+        this.autoPlaced = true;
+        for (let i = 0; i < this.sim.players.length; i++) {
+          const p = this.sim.players[i]!;
+          if (!p.spawned && !humanIds.has(p.id)) {
+            this.pending.push({ t: IntentType.SPAWN, player: p.id, tile: spawnTileFor(this.sim.world, i) });
+          }
+        }
+      }
+      this.foundingHeld++;
+      if (this.foundingHeld > this.foundingTicksTotal * 2) {
+        for (let i = 0; i < this.sim.players.length; i++) {
+          const p = this.sim.players[i]!;
+          if (!p.spawned) {
+            this.pending.push({ t: IntentType.SPAWN, player: p.id, tile: spawnTileFor(this.sim.world, i) });
+          }
         }
       }
     }

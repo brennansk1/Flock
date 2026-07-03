@@ -190,3 +190,21 @@ test("congregation score sums members' best match results into a ladder", async 
   assert.equal(ladder[0]!.congregation.id, created.id);
   assert.equal(ladder[0]!.score, 18);
 });
+
+test("moderation: real cults, religions, and figures default to Sect (§30)", () => {
+  const bad = [
+    "Heaven's Gate", "peoples temple", "J0nestown", "NXIVM Elite",
+    "Scientology 2", "The Branch Davidians", "Church of Christ",
+    "Islamic Brotherhood", "Temple of Buddha", "Mormon Underground",
+    "jehovahs witnesses", "Aum Shinrikyo",
+  ];
+  for (const name of bad) {
+    const v = moderateName(name);
+    assert.equal(v.ok, false, `should reject: ${name}`);
+  }
+  const fine = ["Order of the Radiant Dawn", "The Velvet Circle", "Starlight Fellowship", "Mundane Falls Bowling League"];
+  for (const name of fine) {
+    const v = moderateName(name);
+    assert.equal(v.ok, true, `should allow: ${name}`);
+  }
+});

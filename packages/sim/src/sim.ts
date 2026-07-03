@@ -705,12 +705,18 @@ export function applyIntent(s: SimState, intent: Intent, b: Balance): void {
       const r = b.property.parcelRadius;
       const anchor = findParcelAnchor(s, intent.tile, r);
       if (anchor < 0) {
-        // degenerate world with no open country anywhere near (hand-built
-        // test grids): fall back to the classic congregation-blob founding
-        const claimed = claimBlob(s, p.id, intent.tile, 3);
-        if (claimed > 0) {
-          p.ownedTiles += claimed;
-          p.spawned = true;
+        // On a real map a click with no parcel anchor (deep in town, on
+        // water…) is simply REJECTED — the founding prompt keeps asking and
+        // the player picks again. The classic congregation-blob founding
+        // survives ONLY for degenerate hand-built test grids, where there is
+        // no open country at all: a blob spawn on a real map left the player
+        // "bused in" with no compound, no land, and no vision.
+        if (s.world.width <= 32) {
+          const claimed = claimBlob(s, p.id, intent.tile, 3);
+          if (claimed > 0) {
+            p.ownedTiles += claimed;
+            p.spawned = true;
+          }
         }
         break;
       }
@@ -945,8 +951,22 @@ export function applyIntent(s: SimState, intent: Intent, b: Balance): void {
       p.alive = false;
       break;
 
-    // CHAT/EMOTE are relayed by the server, never simulated. PACT_PICK lands
-    // with the Ecumenical Pact UI (§16).
+    case IntentType.PACT_PICK: {
+      // Ecumenical Pact (§16): share one doctrine node you OWN with your
+      // ally — they enjoy its effect while the alliance holds. Re-picking
+      // replaces the previous gift.
+      const al = s.alliances.find((x) => x.a === p.id || x.b === p.id);
+      if (!al) break;
+      const allyId = al.a === p.id ? al.b : al.a;
+      const ally = s.players.find((pl) => pl.id === allyId);
+      if (!ally || !ally.alive) break;
+      if (!p.doctrine.includes(intent.node)) break; // only share what you own
+      ally.pactNode = intent.node;
+      ally.pactWith = p.id;
+      break;
+    }
+
+    // CHAT/EMOTE are relayed by the server, never simulated.
     default:
       break;
   }
@@ -1311,9 +1331,18 @@ export function step(s: SimState, turn: Turn, b: Balance): SimState {
   // Intents apply in their given (server-bundled) order for determinism.
   for (const intent of turn.intents) applyIntent(s, intent, b);
 
-  // FOUNDING (§18): spawn picks land, but the town holds its breath.
-  if (s.foundingTicksLeft > 0) {
+  // FOUNDING (§18): spawn picks land, but the town holds its breath. The
+  // window counts down to its last tick, then HOLDS there until every founder
+  // has broken ground — the match never begins with an unplaced player. (The
+  // server auto-places bots at the window edge and AFK humans at a hard cap,
+  // so the hold always resolves.)
+  if (s.foundingTicksLeft > 1) {
     s.foundingTicksLeft--;
+    s.tick++;
+    return s;
+  }
+  if (s.foundingTicksLeft === 1) {
+    if (s.players.every((p) => p.spawned)) s.foundingTicksLeft = 0;
     s.tick++;
     return s;
   }

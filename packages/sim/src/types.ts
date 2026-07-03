@@ -60,6 +60,8 @@ export const Biome = {
   Desert: 1,
   Forest: 2,
   Autumn: 3,
+  /** Ocean/coast band (§2A oceanside archetype): sand shores, no willows. */
+  Ocean: 4,
 } as const;
 export type Biome = (typeof Biome)[keyof typeof Biome];
 
@@ -134,6 +136,11 @@ export const Lot = {
   Dam: 30,
   WaterTower: 31,
   Substation: 32,
+  /** Coastal keystones (§2A oceanside archetype). */
+  Lighthouse: 33,
+  Cannery: 34,
+  /** Timber keystone (§2A mountain archetype). */
+  Sawmill: 35,
 } as const;
 export type Lot = (typeof Lot)[keyof typeof Lot];
 
@@ -220,6 +227,11 @@ export interface PlayerState {
   prophecyUsed: boolean;
   /** Doctrine (§10): picked node ids (e.g. "B1", "T4"). Irreversible. */
   doctrine: string[];
+  /** Ecumenical Pact (§16): a doctrine node shared BY the ally — revoked when
+   * the alliance ends. Empty string = none. */
+  pactNode: string;
+  /** Who granted the pact node (their ally's player id; 0 = none). */
+  pactWith: PlayerId;
   /** High-water follower count — doctrine points come from milestones (§10). */
   maxFollowers: Fixed;
   /** E4 UNSHAKEABLE: one mass-apostasy negation per match (§10). */

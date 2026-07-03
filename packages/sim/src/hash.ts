@@ -112,6 +112,8 @@ export function hashState(s: SimState): string {
     f.u32(p.channelTicks);
     f.u32(p.parcels);
     f.str(p.doctrine.join(","));
+    f.str(p.pactNode);
+    f.u32(p.pactWith);
     const cdKeys = Object.keys(p.cooldowns).sort();
     f.u32(cdKeys.length);
     for (const k of cdKeys) {

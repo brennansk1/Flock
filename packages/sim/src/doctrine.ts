@@ -23,7 +23,7 @@ export const DOCTRINE_NODES = [
 export type DoctrineNode = (typeof DOCTRINE_NODES)[number];
 
 export function hasDoctrine(p: PlayerState, node: DoctrineNode): boolean {
-  return p.doctrine.includes(node);
+  return p.doctrine.includes(node) || p.pactNode === node;
 }
 
 /** Points earned so far from the player's high-water follower count. */

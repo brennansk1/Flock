@@ -30,6 +30,8 @@ export function newPlayer(
     atonementTicks: 0,
     prophecyUsed: false,
     doctrine: [],
+    pactNode: "",
+    pactWith: 0,
     maxFollowers: b.economy.startFollowers,
     e4Spent: false,
     judasTicks: 0,

@@ -13,6 +13,36 @@ const BLOCKLIST = [
   "kike", "spic", "chink", "retard", "slut", "whore",
 ];
 
+/**
+ * Tone guardrail (§30): FLOCK is satire about FICTIONAL cults. Names that
+ * reference real cults/new-religious movements, their leaders and tragedies,
+ * or major real-world religions and figures default to "Sect #id" — the game
+ * never wears a real group's name. Matched on the same normalized substring
+ * channel as the profanity list.
+ */
+const REAL_WORLD_BLOCKLIST = [
+  // real cults / NRMs, their leaders, compounds, and tragedies
+  "jonestown", "peoplestemple", "jimjones", "heavensgate", "applewhite",
+  "branchdavidian", "davidkoresh", "waco", "mansonfamily", "charlesmanson",
+  "helterskelter", "aumshinrikyo", "shokoasahara", "nxivm", "keithraniere",
+  "rajneesh", "osho", "rajneeshpuram", "scientolog", "dianetics", "hubbard",
+  "moonies", "unificationchurch", "sunmyungmoon", "ordersolartemple",
+  "solartemple", "childrenofgod", "thefamilyinternational", "movementforthe",
+  "twelvetribes", "fldsheavens", "flds", "warrenjeffs", "strongcity",
+  "aleistercult", "raelian", "raelism", "synanon", "lovehaswon",
+  // major religions, denominations, institutions, figures, texts
+  "christian", "christianity", "catholic", "protestant", "baptist",
+  "methodist", "lutheran", "orthodoxchurch", "evangelical", "pentecostal",
+  "jesus", "christ", "yahweh", "jehovah", "godalmighty", "holyspirit",
+  "vatican", "pope", "islam", "muslim", "muhammad", "mohammed", "allah",
+  "quran", "koran", "sunni", "shia", "judaism", "jewish", "torah", "talmud",
+  "rabbi", "synagogue", "buddhis", "buddha", "dalailama", "hindu", "krishna",
+  "shiva", "vishnu", "sikh", "guru nanak", "gurunanak", "mormon",
+  "latterdaysaint", "josephsmith", "jehovahswitness", "watchtowersociety",
+  "amish", "mennonite", "quaker", "hasidic", "opusdei", "bahai", "zoroastr",
+  "shinto", "wicca", "satanictemple", "churchofsatan",
+];
+
 const LEET: Record<string, string> = { "0": "o", "1": "i", "3": "e", "4": "a", "5": "s", "7": "t", "@": "a", $: "s", "!": "i" };
 
 /** Normalize for matching: lowercase, de-leet, strip non-letters, collapse runs. */
@@ -28,6 +58,12 @@ function normalize(s: string): string {
 export function containsProfanity(s: string): boolean {
   const n = normalize(s);
   return BLOCKLIST.some((w) => n.includes(normalize(w)));
+}
+
+/** True when a name invokes a real cult, religion, or religious figure (§30). */
+export function referencesRealWorld(s: string): boolean {
+  const n = normalize(s);
+  return REAL_WORLD_BLOCKLIST.some((w) => n.includes(normalize(w)));
 }
 
 export interface NameVerdict {
@@ -51,7 +87,7 @@ export function moderateName(raw: string): NameVerdict {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 24);
-  if (cleaned.length === 0 || containsProfanity(cleaned)) {
+  if (cleaned.length === 0 || containsProfanity(cleaned) || referencesRealWorld(cleaned)) {
     return { ok: false, display: cleaned.length === 0 ? "Pilgrim" : "Sect" };
   }
   return { ok: true, display: cleaned };

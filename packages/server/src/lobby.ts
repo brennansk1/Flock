@@ -110,8 +110,28 @@ export async function persistMatch(store: Store, info: MatchEndInfo): Promise<Ma
   return record;
 }
 
+/** Per-match creation overrides — the private-host knobs (§32). */
+export interface MatchConfig {
+  worldSize?: number;
+  botCount?: number;
+  foundingTicks?: number;
+  townType?: string;
+}
+
+/** How a connection wants to be routed. */
+export interface JoinRequest {
+  /** join an existing private room by code */
+  room?: string;
+  /** host a fresh private room (with optional config) */
+  createPrivate?: boolean;
+  config?: MatchConfig;
+}
+
+const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no 0/O/1/I/L
+
 export class LobbyDirector {
   private readonly matches = new Map<string, MatchWorker>();
+  private readonly byCode = new Map<string, MatchWorker>();
   readonly metrics = new Metrics();
   private seedCounter = (Date.now() ^ (process.pid << 16)) >>> 0;
 
@@ -122,36 +142,92 @@ export class LobbyDirector {
     private readonly opts: LobbyOptions = DEFAULTS,
   ) {}
 
-  /** Route an authenticated player into a match, creating one if needed. */
-  join(ws: WebSocket, account: Account, archetype: WirePlayer["archetype"]): MatchWorker {
-    const match = this.findJoinable() ?? this.createMatch();
+  /**
+   * Route an authenticated player into a match. Public flow finds/creates a
+   * public match; `room` joins a private room by code; `createPrivate` hosts
+   * one. Returns null when a room code doesn't resolve (caller informs the
+   * client and closes).
+   */
+  join(
+    ws: WebSocket,
+    account: Account,
+    archetype: WirePlayer["archetype"],
+    req: JoinRequest = {},
+  ): MatchWorker | null {
+    let match: MatchWorker;
+    if (req.room) {
+      const code = req.room.toUpperCase().trim();
+      const found = this.byCode.get(code);
+      if (!found || !found.isJoinable()) {
+        ws.send(
+          JSON.stringify({
+            type: "error",
+            message: found ? "that room is full or already finished" : "no room with that code",
+          }),
+        );
+        ws.close();
+        this.metrics.inc("room_join_failed");
+        return null;
+      }
+      match = found;
+    } else if (req.createPrivate) {
+      match = this.createMatch(req.config ?? {}, true);
+    } else {
+      match = this.findJoinable() ?? this.createMatch();
+    }
     match.addClient(ws, account.name, archetype, account.id);
+    if (match.isPrivate) {
+      // hand the host/joiner the shareable code
+      ws.send(JSON.stringify({ type: "room", code: match.roomCode }));
+    }
     this.metrics.inc("players_joined");
     this.metrics.set("matches_live", this.matches.size);
-    log("info", "player joined match", { matchId: match.matchId, account: account.id, archetype });
+    log("info", "player joined match", {
+      matchId: match.matchId,
+      account: account.id,
+      archetype,
+      private: match.isPrivate,
+    });
     return match;
   }
 
   private findJoinable(): MatchWorker | null {
-    for (const m of this.matches.values()) if (m.isJoinable()) return m;
+    for (const m of this.matches.values()) if (!m.isPrivate && m.isJoinable()) return m;
     return null;
   }
 
-  private createMatch(): MatchWorker {
+  private newRoomCode(): string {
+    for (;;) {
+      let code = "";
+      let n = (this.seedCounter = (this.seedCounter * 1664525 + 1013904223) >>> 0);
+      for (let i = 0; i < 5; i++) {
+        code += CODE_ALPHABET[n % CODE_ALPHABET.length];
+        n = (n / CODE_ALPHABET.length) | 0;
+      }
+      if (!this.byCode.has(code)) return code;
+    }
+  }
+
+  private createMatch(cfg: MatchConfig = {}, isPrivate = false): MatchWorker {
     const seed = (this.seedCounter = (this.seedCounter * 1664525 + 1013904223) >>> 0);
+    const clampInt = (v: number | undefined, lo: number, hi: number, dflt: number): number =>
+      Number.isFinite(v) ? Math.max(lo, Math.min(hi, Math.round(v!))) : dflt;
+    const roomCode = isPrivate ? this.newRoomCode() : "";
     const m = new MatchWorker(
       this.balanceRaw,
       seed,
-      this.opts.worldSize,
-      this.opts.botCount,
-      this.opts.foundingTicks,
+      clampInt(cfg.worldSize, 64, 160, this.opts.worldSize),
+      clampInt(cfg.botCount, 0, 3, this.opts.botCount),
+      clampInt(cfg.foundingTicks, 100, 1200, this.opts.foundingTicks),
       this.opts.churchCount,
       this.opts.capacity,
+      { isPrivate, roomCode, ...(cfg.townType !== undefined ? { townType: cfg.townType } : {}) },
     );
     m.setOnEnd((info) => void this.persistResult(info).catch((e) => log("error", "persist failed", { err: String(e) })));
     this.matches.set(m.matchId, m);
-    this.metrics.inc("matches_created");
-    log("info", "match created", { matchId: m.matchId, seed });
+    if (isPrivate) this.byCode.set(roomCode, m);
+    this.metrics.inc(isPrivate ? "private_matches_created" : "matches_created");
+    log("info", "match created", { matchId: m.matchId, seed, private: isPrivate, code: roomCode || undefined });
     return m;
   }
 
@@ -159,6 +235,8 @@ export class LobbyDirector {
     this.metrics.inc("matches_ended");
     const record = await persistMatch(this.store, info);
     await this.recomputeProphets();
+    const ended = this.matches.get(info.matchId);
+    if (ended?.roomCode) this.byCode.delete(ended.roomCode);
     this.matches.delete(info.matchId);
     this.metrics.set("matches_live", this.matches.size);
     log("info", "match persisted", { matchId: info.matchId, participants: record.participants.length });

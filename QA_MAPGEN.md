@@ -21,9 +21,12 @@ Companions: [ASSETS.md](./ASSETS.md) (what exists), [BUILD_MANIFEST.md](./BUILD_
 2. **Multiple seeds.** Generation bugs hide in seed variance. Minimum **5
    seeds** (use 11, 21, 42, 77, 99) at 96×96, plus one `biomes: []` and one
    `biomes: ["desert"]`-only world.
-3. **Both altitudes.** Every check runs at LOD 1 (full map — does it read?)
-   AND LOD 3 (28×20-tile crops — does it hold up?). An asset can pass one and
-   fail the other; both must pass.
+3. **Two views, one detail level.** The map is a **fixed 8 px/tile, single
+   LOD** — zooming only magnifies the same pixels; there is no up-close detail
+   pass. Still check each subject **two ways**: the **full map** (does the town
+   read as a whole?) AND a **magnified crop** (does the 8px asset hold up
+   enlarged?). The crop must show the *same* pixels, only bigger; both views
+   must pass.
 4. **Determinism is sacred.** Any fix must keep `npm test` green (77+ sim
    tests) — same seed ⇒ same map, floors ≥640 populated tiles / ≥2900 souls,
    road orthogonality, keystone + rail presence, home frontage, farm share.
@@ -60,8 +63,9 @@ of the static map.
 | `MONOTONE` | Exists once/uniformly; realism needs variants or distribution |
 | `DENSITY` | Right asset, wrong frequency (too many / too few / too regular) |
 
-Severity: **S1** breaks the aerial-photo illusion at LOD 1 · **S2** breaks it
-at LOD 3 · **S3** polish. Report format, one line per finding:
+Severity: **S1** a structural break obvious at a glance in the full map · **S2**
+a flaw noticeable on close inspection of a crop · **S3** polish. Report format,
+one line per finding:
 
 ```
 [TAG/S?] subsystem · asset — what & where (seed, shot) → proposed generator fix
@@ -94,7 +98,7 @@ Walk every seed's full map, then downtown + one fringe crop.
 
 ## 2. Zoning & districts
 
-- [ ] At LOD 1, can you point at downtown, the commercial strip, ResHigh,
+- [ ] In the full map, can you point at downtown, the commercial strip, ResHigh,
       low-density residential, industrial, old town, trailer fringe without
       the debug layer? Any two districts indistinguishable → `MONOTONE`.
 - [ ] **Adjacency sanity**: industrial touches rail/highway, not the school;
@@ -186,7 +190,7 @@ station, gas station, elevator, depot) in at least 3 seeds.
       shapes + occasional autumn/dead tree; single bush shape; rock outcrops
       one arrangement.
 - [ ] **Terrain**: grass elevation tinting visible but subtle; check the
-      map doesn't band or grid-artifact at LOD 1 (`MISGEN` if visible lattice).
+      map doesn't band or grid-artifact in the full map (`MISGEN` if visible lattice).
 
 ## 8. Town edges & outskirts
 
@@ -209,7 +213,7 @@ station, gas station, elevator, depot) in at least 3 seeds.
 - [ ] Chimney smoke only on some houses; welcome signs, streetlights,
       utility poles all obeying their placement rules (poles rural-side only).
 - [ ] People dots: commute along streets, cluster at civic buildings; nobody
-      standing in water/on rail (`MISPLACED` check at LOD 3).
+      standing in water/on rail (`MISPLACED` check on a close crop).
 
 ## 10. Wilderness & gameplay surfaces (don't break the game)
 
@@ -238,7 +242,7 @@ station, gas station, elevator, depot) in at least 3 seeds.
 
 ## QA report (filled by the executing agent)
 
-### LOD 1 pass — first + second sweep (2026-07-02, seeds 11/21/42/77/99 + biome variants)
+### Full-map pass — first + second sweep (2026-07-02, seeds 11/21/42/77/99 + biome variants)
 
 Filed on sweep 1, all fixed and re-verified on sweep 2:
 
@@ -261,11 +265,11 @@ Filed on sweep 1, all fixed and re-verified on sweep 2:
   fully connected; remaining orphan bodies on seeds 1/21/42/77/123 are
   **OPEN** — next action of this pass.
 
-S2/S3 carried to the LOD 2–3 passes: forest-biome ecotone ungraded, creek-
+S2/S3 carried to the crop passes: forest-biome ecotone ungraded, creek-
 parallel lanes, desert-band parcel dithering, tree/bush monotony, outlet
 channels hugging the map edge.
 
-### LOD 3 pass + remaining LOD 1 sweeps (2026-07-02, seeds 11/21/42/77/99 + biome variants)
+### Crop pass + remaining full-map sweeps (2026-07-02, seeds 11/21/42/77/99 + biome variants)
 
 All remaining findings fixed and verified:
 
@@ -278,5 +282,76 @@ All remaining findings fixed and verified:
 - [MONOTONE/S2] architecture · monotone houses — all houses had the exact same 6x6 gable footprint and uniform walls → FIXED: drawHouse now hash-selects between Classic Gable, Two-Story taller block, and L-Plan wing offset, and maps 3 distinct wall tones per district.
 - [MONOTONE/S2] architecture · generic shops — Lot.Shop lacked storefront dressing → FIXED: added custom Shop rendering with awning colors (red/blue/green), flat-parapet variants, and corner-entrance doors.
 - [MONOTONE/S2] vegetation · tree and crop grading — abrupt forest edge and identical trees/crops → FIXED: forest ecotone (forestRing 1..3) now grades into meadow; lone trees hash-select pine/shrub/autumn/dead variants.
+
+### Standards pass — Sprint 0 baseline (2026-07-02, seeds 11/21/42/77/99 + biome variants, vs STANDARDS_MAPGEN.md)
+
+Filed for the sprint queue:
+
+- [MONOTONE/S1] §8A/§6/§7 · downtown & ResHigh blocks — one repeated window-grid
+  tile texture tiles into monolithic masses; individual buildings not legible;
+  blocks fully built including interiors (downtown crop, seed 11) → subdivide
+  block faces into distinct buildings (varied widths/heights/wall tones,
+  roofline breaks), keep interiors as courtyard/alley/parking.
+- [MISGEN/S2] §3 · river shape — long diagonal reaches render as perfectly
+  regular staircases (seeds 11 SE reach, 42, 99) → jitter run lengths + meander
+  bulges in the diagonal walk.
+- [DENSITY/S2] §9 · farm belt — large bare-grass swaths inside the rural band
+  (seeds 11/21/42, worst W/S of town on 21) → raise belt fill with
+  pasture/hay-meadow filler parcels, spawn-ring gate intact.
+- [MISGEN/S2] §1 · grass macro-noise — quantized rectangular tonal patches
+  visible at crop zoom (residential crop, seed 11 top) → interpolate octaves.
+- [MONOTONE/S2] §9 · pasture — dotted-outline parcels read as confetti; cattle
+  and troughs illegible at crop zoom → stronger worn-meadow fill + cattle
+  contrast.
+- [MISPLACED/S2] §4/§13 · parked vehicle half-on travel lane at a rural 2-lane
+  (countryside crop, seed 11) → clamp parked-car hash off road tiles.
+- [MISSING/S2-3] §7/§11 · parsonage, school bus, ballfield backstop+bleachers,
+  motel pool, laundromat/barber, elevator office shed, junkyard, quarry scar,
+  billboards, sewage lagoon — none generate yet (all seeds).
+- [TOOLING] tools/qa_screenshots.mjs — district-id constants stale and edge
+  finder returns downtown for all four compass edges; industrial/edge crops
+  never captured → fix ids, rewrite edge finder before Sprint 2 verification.
+
+Sections §2A (town archetypes) and §8A (block layout engine) are build items
+queued as Sprints 4 and 2 respectively.
+
+### Standards pass — Sprints 1–5 (2026-07-02, seeds 11/21/42/77/99 + biome variants + archetypes)
+
+All Sprint-0 findings fixed and re-verified on a fresh sweep; tests green (77/77):
+
+- [FIXED] hydrology · outlet smear — rim-fray droplets each carved a parallel
+  staircase outlet; droplets (<5 tiles) now dry up, and the outlet walk runs a
+  hash-jittered meander (bend forced ≤4). Verified: single organic channel.
+- [FIXED] §8A · downtown/ResHigh monolith — drawBlock now segments contiguous
+  rows into individual attached buildings (1–3 tiles) with per-building wall
+  tone, cornice/parapet accent, window rhythm, party-wall seams, downtown
+  storefront glass strips, rooftop vents. Verified on downtown crops.
+- [FIXED] §8A · house alignment — classic-gable homes fronting an E/W street
+  turn their ridge parallel to it, door on the street side.
+- [FIXED] §1 · grass artifacts — 8×8 block mottle replaced with smooth noise
+  contours; per-tile column bank shading replaced with per-pixel slope.
+- [FIXED] §9 · farm belt gaps — skip rate halved + parcels widened; pasture
+  reworked (worn grazed ground, herds, always-visible troughs, stock tanks).
+- [FIXED] §3 · creek tone — narrow channels render lighter/greener than river.
+- [ADDED] §7/§9/§11 · school bus, ballfield backstop + bleachers, tractor at
+  barns, roadside produce stand, highway billboards, trailer-fringe junk/
+  salvage dressing, parsonage beside churches, quarry scar, exurb density up.
+- [ADDED] §2A · town archetypes — `MapOpts.townType`: farm (default,
+  byte-identical path), oceanside (sea + beach + estuary + pier + lighthouse +
+  cannery), desert (oasis town in a dominant desert, adobe homes), mountain
+  (conifer-walled valley + sawmill on the rail), lakeside (big lake at the
+  town edge + shore cabins/docks). New: Biome.Ocean, Lot.Lighthouse/Cannery/
+  Sawmill. Verified seeds 11 + 42 per archetype.
+- [CHANGED] §14 · single LOD — the zoom detail channel is permanently off:
+  every render is the same 8px pixels, magnified. (Detail plumbing retained
+  but never activated.)
+- [ADDED — Sprint 6] trailer court (dirt court lane + flanking trailers),
+  laundromat/barber shop variants, motel pool, elevator office shed, signal
+  mast at the highway crossing, rail spur into the industrial lobe, wheel-line
+  irrigation, horse pasture variant, house garages, desert dry washes, autumn
+  ecotone grading, oceanside grain-elevator→cannery keystone swap.
+- Residual (deferred, annotated in STANDARDS_MAPGEN.md): true elevation field,
+  mesa/gorge/boardwalk landforms, Alpine/Wetland biomes, full 5-seed archetype
+  gate, marquee/sign lettering.
 
 > _Baseline note (pre-pass): the world read ~60% real. Fixed lake outlets, zoning colors, house shape/color variety, shop awning/parapet variety, dam/millpond, in-town water tower, marshes, curb cuts, and dirt alleys. Visual tests and sim tests pass. The rendered map now fully passes for an aerial photo of a rural American town within the 8px style._

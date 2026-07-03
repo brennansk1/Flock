@@ -37,6 +37,8 @@ export interface WirePlayer {
   id: number;
   name: string;
   archetype: "dawn" | "radiant" | "circle" | "visitors";
+  /** true for AI seats — used for the solo-pause affordance. */
+  bot?: boolean;
 }
 export interface WireAccount {
   id: string;
@@ -64,7 +66,9 @@ type ServerMsg =
   | { type: "chat"; from: number; channel: string; msg: string }
   | { type: "recap"; recap: MatchRecap }
   | { type: "results"; results: MatchResult[] }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string }
+  | { type: "room"; code: string }
+  | { type: "paused"; value: boolean };
 
 /** Post-match XP/Relic ticker + provisional rating (§20/§22). */
 export interface MatchResult {
@@ -96,6 +100,9 @@ export interface GameSession {
   results?: MatchResult[];
   sendIntent(intent: ClientIntent): void;
   sendChat(msg: string): void;
+  /** solo-vs-bots pause (server-confirmed via the `paused` message). */
+  paused: boolean;
+  sendPause(value: boolean): void;
 }
 
 /** A locally-authored intent waiting to be confirmed by a server Turn. */
@@ -184,6 +191,8 @@ export function connect(url: string, onReady: (g: GameSession) => void, hooks: C
           playerId: msg.playerId,
           players: [...msg.players],
           chat: [],
+          paused: false,
+          sendPause: (value: boolean) => ws.send(JSON.stringify({ type: value ? "pause" : "resume" })),
           ...(pendingAccount ? { account: pendingAccount } : {}),
           sendIntent: (intent) => {
             const full = { ...intent, player: msg.playerId } as Intent;
@@ -261,6 +270,19 @@ export function connect(url: string, onReady: (g: GameSession) => void, hooks: C
         console.error("[server]", msg.message);
         hooks.onError?.(msg.message);
         break;
+      case "paused":
+        if (session) session.paused = msg.value;
+        break;
+      case "room": {
+        // surface the invite code in the chat log (renders in the HUD feed)
+        session?.chat.push({ from: 0, msg: `Private room — invite code: ${msg.code}` });
+        try {
+          sessionStorage.setItem("flock.room", msg.code);
+        } catch {
+          /* ignore */
+        }
+        break;
+      }
     }
   };
 }

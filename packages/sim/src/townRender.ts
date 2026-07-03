@@ -28,6 +28,7 @@ import {
   type World,
 } from "./types.js";
 import { toFloat } from "./fixed.js";
+import { watchtowerSees } from "./buildings.js";
 import {
   hexToRgb,
   shade,
@@ -84,36 +85,6 @@ const ICONS: Record<Building["type"], string[]> = {
     "..####..",
     ".##oo##.",
     ".######.",
-  ],
-  hotline_center: [
-    "........",
-    ".##..##.",
-    ".#o##o#.",
-    "..####..",
-    "...##...",
-    "..####..",
-    ".######.",
-    "........",
-  ],
-  print_shop: [
-    "........",
-    ".######.",
-    ".#oooo#.",
-    ".#o##o#.",
-    ".#oooo#.",
-    ".#o##o#.",
-    ".######.",
-    "..*..*..",
-  ],
-  garage: [
-    "........",
-    ".######.",
-    ".#oooo#.",
-    ".######.",
-    ".#o##o#.",
-    ".######.",
-    "..#..#..",
-    "........",
   ],
   supplement_lab: [
     "...##...",
@@ -266,6 +237,7 @@ const DEFAULT_COLORS = {
 
 const C = { ...DEFAULT_COLORS };
 let currentSeason = "summer";
+let currentTimeOfDay = "day";
 
 /** Town building styles: [body, roof, accent]. */
 const LOT_STYLE: Record<number, [RGB, RGB, RGB]> = {
@@ -390,6 +362,8 @@ export interface RenderOpts {
   season?: "spring" | "summer" | "fall" | "winter";
   /** Time of day variant for map lighting. Defaults to "day". */
   timeOfDay?: "dawn" | "day" | "dusk" | "night";
+  /** Overlay per-district dissent heatmap. */
+  showDissent?: boolean;
 }
 
 export interface RenderedFrame {
@@ -416,6 +390,7 @@ export function renderTown(sim: SimState, opts: RenderOpts = {}): RenderedFrame 
   const season = opts.season ?? "summer";
   const timeOfDay = opts.timeOfDay ?? "day";
   currentSeason = season;
+  currentTimeOfDay = timeOfDay;
 
   // Reset global color palette to default state
   Object.assign(C, DEFAULT_COLORS);
@@ -516,7 +491,28 @@ export function renderTown(sim: SimState, opts: RenderOpts = {}): RenderedFrame 
     if (lx < 0 || ly < 0 || lx >= logW || ly >= logH) return;
     const bx = lx * S;
     const by = ly * S;
-    const litRgb = applyLighting(rgb);
+    let finalColor = rgb;
+    if (opts.showDissent) {
+      const tx = (gx / TILE_PX) | 0;
+      const ty = (gy / TILE_PX) | 0;
+      const t = ty * w.width + tx;
+      if (t >= 0 && t < w.dissent.length) {
+        const owner = w.owner[t]!;
+        if (owner !== NEUTRAL) {
+          const dissVal = toFloat(w.dissent[t]!); // 0 to 100
+          if (dissVal > 0) {
+            const wRed = Math.min(0.7, (dissVal / 100) * 0.7);
+            const redColor: RGB = [255, 50, 50];
+            finalColor = [
+              Math.floor(rgb[0] * (1 - wRed) + redColor[0] * wRed),
+              Math.floor(rgb[1] * (1 - wRed) + redColor[1] * wRed),
+              Math.floor(rgb[2] * (1 - wRed) + redColor[2] * wRed),
+            ];
+          }
+        }
+      }
+    }
+    const litRgb = applyLighting(finalColor);
     for (let sy = 0; sy < S; sy++) {
       let o = ((by + sy) * W + bx) * 4;
       for (let sx = 0; sx < S; sx++) {
@@ -2721,6 +2717,8 @@ function drawHouse(
   adobe = false, // §2A desert archetype: clay walls + earthen roofs
 ): void {
   castShadow(x0, y0, put);
+  const houseLit = currentTimeOfDay === "night" && pixHash(t, 42) % 10 < 6;
+  const houseWindow = houseLit ? C.windowLit : C.windowDark;
   const roof =
     currentSeason === "winter" ? hexToRgb("#ffffff")
     : adobe ? [hexToRgb("#b08252"), hexToRgb("#9a6e44")][pixHash(t, 40) % 2]!
@@ -2760,7 +2758,7 @@ function drawHouse(
     const doorY = flip ? 2 : 5;
     put(x0 + wallX[2]!, y0 + doorY, C.door);
     put(x0 + wallX[2]!, y0 + doorY + 1 > y0 + 6 ? y0 + 6 : y0 + doorY + 1, C.door);
-    put(x0 + wallX[2]!, y0 + (flip ? 5 : 2), C.windowDark);
+    put(x0 + wallX[2]!, y0 + (flip ? 5 : 2), houseWindow);
     return;
   }
 
@@ -2793,8 +2791,8 @@ function drawHouse(
     put(x0 + doorX, y0 + 5, C.door);
     put(x0 + doorX, y0 + 6, C.door);
     // Window: y=3 (upper), y=5 (lower)
-    put(x0 + (flip ? 4 : 3), y0 + 3, C.windowDark);
-    put(x0 + (flip ? 5 : 2), y0 + 5, C.windowDark);
+    put(x0 + (flip ? 4 : 3), y0 + 3, houseWindow);
+    put(x0 + (flip ? 5 : 2), y0 + 5, houseWindow);
 
     if (detail) {
       const S = detail.S;
@@ -2836,7 +2834,7 @@ function drawHouse(
       // Door (recessed corner): x=4, y=5
       put(x0 + 4, y0 + 5, C.door);
       // Window: wing center x=2, y=5
-      put(x0 + 2, y0 + 5, C.windowDark);
+      put(x0 + 2, y0 + 5, houseWindow);
       // Chimney: x=5, y=0..1
       put(x0 + 5, y0, shade(roof, 0.6));
       put(x0 + 5, y0 + 1, shade(roof, 0.6));
@@ -2870,7 +2868,7 @@ function drawHouse(
       // Door (recessed corner): x=3, y=5
       put(x0 + 3, y0 + 5, C.door);
       // Window: wing center x=5, y=5
-      put(x0 + 5, y0 + 5, C.windowDark);
+      put(x0 + 5, y0 + 5, houseWindow);
       // Chimney: x=2, y=0..1
       put(x0 + 2, y0, shade(roof, 0.6));
       put(x0 + 2, y0 + 1, shade(roof, 0.6));
@@ -2921,7 +2919,7 @@ function drawHouse(
       put(gxr + (flip ? 1 : 0), y0 + 6, shade(garage, 0.75));
     }
     const winX = flip ? 4 : 2;
-    put(x0 + winX, y0 + 5, C.windowDark);
+    put(x0 + winX, y0 + 5, houseWindow);
 
     if (detail) {
       const S = detail.S;
@@ -2953,6 +2951,8 @@ function drawTrailerHome(
   detail: Detail | null = null,
 ): void {
   castShadow(x0, y0, put);
+  const trailerLit = currentTimeOfDay === "night" && pixHash(t, 42) % 10 < 7;
+  const trailerWindow = trailerLit ? C.windowLit : C.windowDark;
   const flip = pixHash(t, 2) & 1; // hitch end left/right
   const tin = hexToRgb("#c4c8cc");
   const tinShade = hexToRgb("#9b9fa3");
@@ -2968,7 +2968,7 @@ function drawTrailerHome(
   const doorX = flip ? 5 : 2;
   put(x0 + doorX, y0 + 5, C.door);
   const winX = flip ? 2 : 5;
-  put(x0 + winX, y0 + 4, C.windowDark);
+  put(x0 + winX, y0 + 4, trailerWindow);
   put(x0 + (flip ? 7 : 0), y0 + 6, C.rock); // propane tank by the hitch end
 
   // awning + junk-yard dressing for trailer fringe
@@ -3572,7 +3572,8 @@ function drawUnits(sim: SimState, viewer: number, fog: Uint8Array | null, put: P
     sprite(x + 4, y + 4, UNIT_SPRITES.picket, hexToRgb("#ff66ff"));
   }
   for (const a of sim.agents) {
-    if (a.player === viewer && a.phase !== "travel") {
+    const revealed = a.player === viewer || (a.victim === viewer && (a.exposedTicks > 0 || watchtowerSees(sim, viewer, a.tile)));
+    if (revealed && a.phase !== "travel") {
       const [x, y] = tilePx(a.tile);
       sprite(x + 4, y + 4, UNIT_SPRITES.agent, hexToRgb("#33354d"));
     }

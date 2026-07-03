@@ -22,14 +22,16 @@ import {
   type RawBalance,
   type Intent,
   type BotState,
+  type Archetype,
 } from "@flock/sim";
 import type { GameSession, ConnectHooks } from "./net.js";
+import { getSettings } from "./settings.js";
 import rawBalance from "../../../balance.json";
 
 /** One world for every player, forever: the tutorial town. */
 const TUTORIAL_SEED = 42;
 const WORLD = 64;
-const FOUNDING_TICKS = 60; // ~6s window, then the gate holds for the player
+const FOUNDING_TICKS = 120; // ~12s window — gives new players time to read Step 2
 const TPS_MS = 100;
 
 const RIVAL_ID = 2;
@@ -44,18 +46,25 @@ export function connectTutorial(
   onReady: (g: GameSession) => void,
   _hooks: ConnectHooks = {},
 ): void {
+  const q = new URLSearchParams(location.search);
+  const playerArch = (q.get("archetype") ?? "dawn") as Archetype;
+  const playerName = q.get("name") ?? "Novice";
   const balance = loadBalance(rawBalance as RawBalance);
   const world = generateWorld(TUTORIAL_SEED, WORLD, WORLD, { townType: "farm" });
+  const settings = getSettings();
   const sim = createSim({
     seed: TUTORIAL_SEED,
     balance,
     world,
     spawns: [
-      { id: 1, archetype: "dawn" },
+      { id: 1, archetype: playerArch },
       { id: RIVAL_ID, archetype: "radiant" },
     ],
     foundingTicks: FOUNDING_TICKS,
     dominationPermille: 720,
+    disableCouriers: settings.disableCouriers,
+    disableCPA: settings.disableCPA,
+    disableSchisms: settings.disableSchisms,
   });
 
   const pending: Intent[] = [];
@@ -69,8 +78,8 @@ export function connectTutorial(
     balance,
     playerId: 1,
     players: [
-      { id: 1, name: "You", archetype: "dawn" },
-      { id: RIVAL_ID, name: "The Radiant Path", archetype: "radiant", bot: true },
+      { id: 1, name: playerName, archetype: playerArch },
+      { id: RIVAL_ID, name: "The Sleeper Cult", archetype: "radiant", bot: true },
     ],
     chat: [{ from: 0, msg: "TUTORIAL — offline practice town. Nothing here is ranked." }],
     paused: false,
@@ -132,72 +141,95 @@ const me = (g: GameSession) => g.sim.players.find((pl) => pl.id === 1);
 const STEPS: TutStep[] = [
   {
     title: "WELCOME TO MUNDANE FALLS",
-    body: "A quiet town of unconverted souls — and you, a cult leader with a folding table and a dream. This is a private practice town: no other players, no rankings, one sleepy rival. Click NEXT.",
+    body: "A quiet town of unconverted souls — and you, a cult leader with a folding table and a dream. Your goal: convert more of the town than the rival bot before time runs out. This is a private practice session: offline, unranked, the same for everyone. Click NEXT.",
   },
   {
     title: "FOUND YOUR COMPOUND",
-    body: "Click one of the GLOWING RINGS on the open land near town. Your cult buys the parcel, the First Compound rises, and your congregation is bused in.",
-    hint: "The rings pulse on OPEN LAND just outside the streets — not inside town, not on water.",
+    body: "Click one of the GLOWING RINGS on the open land near town. Your cult buys the parcel, the First Compound rises, and your congregation is bused in. Check the top bar once you're in: FLOCK size, TREASURY, FAITH, HEAT, and the share strip at the very top — grow your slice to win.",
+    hint: "The rings pulse on OPEN LAND just outside the streets — not inside town, not on water. You have ~12 seconds.",
     done: (g) => !!me(g)?.spawned,
   },
   {
-    title: "READ THE ROOM",
-    body: "Top bar: your FLOCK, TREASURY, FAITH, HEAT, the match clock, and the LEADER share. The colored strip at the very top is the whole town's soul-count — grow your slice. Click NEXT.",
+    title: "YOUR HUD AT A GLANCE",
+    body: "The colored bar at the very top shows everyone's town share — grow your slice to win. Below it: FLOCK size, TREASURY ($), FAITH (✛), and HEAT (⚠). Keep Heat below 60 or the Concerned Parents Association will harass your compound. Click NEXT.",
     glow: ".fk-top",
   },
   {
     title: "OPEN A FRONT",
-    body: "Conversion happens along FRONTS. Click a spot at the EDGE OF TOWN near your compound to commit your followers there.",
-    hint: "Click ON the houses at the town edge closest to your compound — a dotted region marks the front.",
-    done: (g) => g.sim.fronts.some((f) => f.player === 1),
+    body: "Conversion happens along FRONTS. Once the founding window closes, click on the MAP near the EDGE OF TOWN closest to your compound — a dotted border marks your active front.",
+    hint: "Click directly on the town tiles at the edge nearest your compound. The founding window must close first (watch the top-center message).",
+    done: (g) => g.sim.foundingTicksLeft === 0 && g.sim.fronts.some((f) => f.player === 1),
   },
   {
     title: "PREACH — CAST SERMON",
-    body: "Rituals build or spend FAITH. Click SERMON in the RITUALS panel (or press Q) — a free faith boost with a short cooldown. Preaching needs calm: it only works in TEND or SPREAD.",
+    body: "Rituals build or spend FAITH. Click SERMON in the RITUALS panel (or press Q) — it's free and gives a short conversion boost. Short cooldown, cast it often.",
     glow: '[data-cd="sermon"]',
     done: (g) => ((me(g)?.cooldowns ?? {})["sermon"] ?? 0) > 0,
   },
   {
     title: "SET YOUR TEMPO — CRUSADE",
-    body: "Stances trade growth for pressure. Click CRUSADE (or press 3): maximum conversion, but HEAT climbs, the town notices — and you can't Sermon mid-Crusade. Ease back to SPREAD when it runs hot.",
+    body: "Press 3 or click CRUSADE — maximum conversion pressure. Watch Heat climb. Now press 2 to switch back to SPREAD before the next step (if Heat hits 60, the town retaliates). TEND (1) heals dissent and cools things down fastest.",
     glow: '[data-stance="crusade"]',
     done: (g) => me(g)?.stance === Stance.Crusade,
   },
   {
+    title: "UNLEASH YOUR POWER",
+    body: "Each archetype has unique abilities. Click the first button in the CULT POWERS panel (or press D) to activate your archetype's active power (Street Prophet, Juice Cleanse, Seminar Blitz, or Crop Circle). We've granted you the cash to try it.",
+    glow: ".fk-pow",
+    enter: (g) => money(g, 60_000),
+    done: (g) => {
+      const p = me(g);
+      if (!p) return false;
+      const cds = ["street_prophet", "juice_cleanse", "seminar_blitz", "crop_circle"];
+      return cds.some((c) => (p.cooldowns[c] ?? 0) > 0);
+    },
+  },
+  {
     title: "PASS THE PLATE",
-    body: "We wired $30,000 to your treasury (tutorial magic). In the BUILD tray, click PLATE, then click a tile INSIDE YOUR STAKED PARCEL (the ground around your compound) — Collection Plates tithe the converted.",
-    hint: "The plate must sit on YOUR land: the staked parcel around your compound, or any tile you\u2019ve converted. If you miss, the tool stays armed — just click again.",
+    body: "$30,000 wired to your treasury. In the BUILD tray, click PLATE, then click any tile on YOUR LAND (the area staked around your compound, shown with a faint border) — Collection Plates tithe your converted followers.",
+    hint: "Place the plate on YOUR land: your staked compound area or any tile you've converted. The tool stays armed on a miss — just click again.",
     glow: '[data-build="collection_plate"]',
     enter: (g) => money(g, 30_000),
     done: (g) => g.sim.buildings.some((b) => b.player === 1 && b.type === "collection_plate"),
   },
   {
     title: "BUY LAND",
-    body: "Compounds need room. Click BUY LAND in the tray, then click open country beside your parcel — your empire grows one deed at a time.",
-    hint: "Aim for unclaimed GRASS or FIELD right next to your stakes — not town streets, not water.",
+    body: "Compounds need room to grow. Click BUY LAND in the tray, then click ONE parcel of open country right beside your compound — you'll deed it and expand your reach.",
+    hint: "Aim for unclaimed GRASS or FIELD directly adjacent to your stakes — not town streets or water.",
     glow: "[data-land]",
     enter: (g) => money(g, 30_000),
     done: (g) => (me(g)?.parcels ?? 0) >= 2,
   },
   {
     title: "SEND THE VAN",
-    body: "Recruitment Vans convert as they roll. In SCHEME, click VAN, then click a street in town. Long routes earn more — and get robbed more.",
-    hint: "Any road tile in town works — the van buys itself and starts rolling.",
+    body: "Recruitment Vans roll through town and convert as they go. In the SCHEME panel, click VAN, then click any road tile in town. Longer routes convert more households — and attract more thieves.",
+    hint: "Click VAN in the SCHEME panel, then click any road tile inside town. The van is bought automatically.",
     glow: '[data-scheme="van"]',
     enter: (g) => money(g, 40_000),
     done: (g) => g.sim.vans.some((v) => v.player === 1),
   },
   {
     title: "RAISE A WATCHTOWER",
-    body: "Rivals raid. Click TOWER in the BUILD tray and place it on your land — 5× fort defense, and it unmasks enemy agents.",
-    hint: "Same rule as the plate: YOUR parcel or converted tiles only.",
+    body: "The Sleeper Cult could flip your tiles while you're not watching. A Watchtower makes your land 5× harder to steal and reveals enemy agents operating in your territory. Click TOWER in BUILD and place it on your land.",
+    hint: "Same placement rule as the plate: your staked parcel or any converted tile.",
     glow: '[data-build="watchtower"]',
     enter: (g) => money(g, 30_000),
     done: (g) => g.sim.buildings.some((b) => b.player === 1 && b.type === "watchtower"),
   },
   {
+    title: "MANAGE DISSENT & HEAT",
+    body: "Conversion along fronts exposes your followers to ATTRITION. Captured tiles build DISSENT in that district (which can trigger a SCHISM split, if enabled). High global HEAT (>60) alerts the Concerned Parents Association (CPA) to picket you with minivans (if enabled). Switch to TEND stance (1) now to cool dissent and Heat.",
+    glow: '[data-stance="tend"]',
+    done: (g) => me(g)?.stance === Stance.Tend,
+  },
+  {
+    title: "DISSENT OVERLAY",
+    body: "You can visualize per-district dissent directly on the map. Press H or click the DISSENT button in the bottom tray to toggle the red heatmap overlay. Try toggling it now to see where dissent is concentrated, then click NEXT.",
+    glow: "#fk-dissent-overlay",
+  },
+  {
     title: "WRITE THE DOCTRINE",
-    body: "Your flock hit a milestone (another tutorial gift) — you have a DOCTRINE point. Click DOCTRINE and pick any node in the B.I.T.E. grid. Picks are permanent.",
+    body: "Tutorial gift: a DOCTRINE point. Open the DOCTRINE panel and choose any node — each permanently upgrades your cult. The four tracks (Behavior, Information, Thought, Emotion) shape your long-term strategy. Picks are forever.",
     glow: ".fk-doc",
     enter: (g) => {
       const p = me(g);
@@ -208,13 +240,13 @@ const STEPS: TutStep[] = [
   },
   {
     title: "CONVERT THE TOWN",
-    body: "Everything at once now: keep a front open, stay in CRUSADE or SPREAD, cast SERMON when it's free. Convert 30 HOUSEHOLDS to finish your training.",
-    hint: "Open fronts where the town touches your territory. Watch the LEADER % climb — Sermon whenever it\u2019s free.",
+    body: "Everything at once: keep a front open, stay in CRUSADE or SPREAD, cast SERMON when it cools down. Reach 30 owned tiles to finish your training.",
+    hint: "Open fronts where the town edge touches your territory. Watch the LEADER % strip up top — cast Sermon whenever it's free.",
     done: (g) => (me(g)?.ownedTiles ?? 0) >= 30,
   },
   {
     title: "YOU ARE READY",
-    body: "That's the loop: found → press fronts → manage heat → tithe → expand → armor up → doctrine. The real town has real rivals — scheme accordingly. Click NEXT to return to the menu.",
+    body: "That's the loop! Remember the three ways to win a match: (1) DOMINATION: control 72% of the town's tiles; (2) DOCTRINAL: hold 100 Faith for 90s, then capture and channel at the Megachurch landmark; (3) ECONOMIC: reach the USD target (for Prosperity Circle). Rivals will strike back — scheme wisely. Click FINISH to return to the menu.",
   },
 ];
 
@@ -265,14 +297,23 @@ export function startTutorial(g: GameSession): void {
       <div class="done" id="fk-tut-done">✓ nicely done</div>
       <div id="fk-tut-hint" style="display:none;padding:0 15px 12px;font-family:'VT323',monospace;font-size:17px;line-height:1.3;color:#e0a422"></div>
       <div class="ft">
-        <button class="ghost" id="fk-tut-skip">${last ? "" : "SKIP TUTORIAL"}</button>
+        <button class="ghost" id="fk-tut-skip">${last ? "" : "SKIP"}</button>
         ${gated ? "" : `<button id="fk-tut-next">${last ? "FINISH" : "NEXT"}</button>`}
+      </div>
+      <div id="fk-tut-skip-confirm" style="display:none;padding:0 15px 12px;font-size:13px;color:#efe3c6">
+        Exit tutorial? <button id="fk-tut-skip-yes" style="margin-left:8px;font-family:'Pixelify Sans',monospace;font-size:12px;font-weight:700;padding:4px 12px;border:0;cursor:pointer;background:#cf4b2c;color:#fff;box-shadow:0 2px 0 #060403">YES, EXIT</button>
+        <button id="fk-tut-skip-no" style="margin-left:6px;font-family:'Pixelify Sans',monospace;font-size:12px;padding:4px 12px;border:0;cursor:pointer;background:#241c12;color:#a08a64;box-shadow:inset 0 0 0 1px #4a3a26,0 2px 0 #060403">KEEP GOING</button>
       </div>`;
     const skip = card.querySelector<HTMLButtonElement>("#fk-tut-skip")!;
     if (last) skip.style.display = "none";
     skip.onclick = () => {
-      if (confirm("Skip the tutorial and return to the menu?")) location.search = "";
+      const conf = card.querySelector<HTMLElement>("#fk-tut-skip-confirm");
+      if (conf) conf.style.display = conf.style.display === "block" ? "none" : "block";
     };
+    const skipYes = card.querySelector<HTMLButtonElement>("#fk-tut-skip-yes");
+    if (skipYes) skipYes.onclick = () => (location.search = "");
+    const skipNo = card.querySelector<HTMLButtonElement>("#fk-tut-skip-no");
+    if (skipNo) skipNo.onclick = () => { const conf = card.querySelector<HTMLElement>("#fk-tut-skip-confirm"); if (conf) conf.style.display = "none"; };
     const next = card.querySelector<HTMLButtonElement>("#fk-tut-next");
     if (next) next.onclick = () => (last ? (location.search = "") : advance());
     setGlow(s.glow);

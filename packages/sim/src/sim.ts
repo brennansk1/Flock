@@ -61,7 +61,6 @@ import {
   proposeAlliance,
   acceptAlliance,
   breakAlliance,
-  courtDefection,
   stepSchism,
 } from "./diplomacy.js";
 import { pickDoctrine, titheMult, ownDissentMult, loveBombCostMult, strikeCostMult, tryAbsorbMassApostasy } from "./doctrine.js";
@@ -171,6 +170,9 @@ export function createSim(opts: {
   timerTicks?: number;
   /** Revelation mode (§18/§19): alternate victory paths active */
   revelationMode?: boolean;
+  disableCouriers?: boolean;
+  disableCPA?: boolean;
+  disableSchisms?: boolean;
   /** FOUNDING spawn-pick window in ticks (§18); 0 = skip straight to LIVE */
   foundingTicks?: number;
 }): SimState {
@@ -200,6 +202,9 @@ export function createSim(opts: {
     auras: [],
     prophecies: [],
     revelationMode: opts.revelationMode ?? false,
+    disableCouriers: opts.disableCouriers ?? false,
+    disableCPA: opts.disableCPA ?? false,
+    disableSchisms: opts.disableSchisms ?? false,
     buildings: [],
     couriers: [],
     vans: [],
@@ -241,10 +246,9 @@ export function followerCap(p: PlayerState, b: Balance, s?: SimState): Fixed {
   return cap;
 }
 
-/** Ritual Faith cost after Print Shop −25% (§6) and Fairground festival 50% (§12). */
+/** Ritual Faith cost after Fairground festival 50% (§12). */
 function ritualFaithCost(s: SimState, p: PlayerState, base: number, festival = false): Fixed {
   let cost = fromInt(base);
-  if (hasPrintShop(s, p.id)) cost = mul(cost, fp(0.75));
   if (festival && ownsLandmark(s, p.id, Landmark.Fairground)) cost = mul(cost, fp(0.5));
   return cost;
 }
@@ -629,7 +633,7 @@ function applyAbility(s: SimState, p: PlayerState, b: Balance, intent: Intent): 
       const ty = (t / w.width) | 0;
       for (const bd of s.buildings) {
         if (bd.player === p.id) continue;
-        if (bd.type !== "broadcast_tower" && bd.type !== "hotline_center") continue;
+        if (bd.type !== "broadcast_tower") continue;
         const bx = bd.tile % w.width;
         const by = (bd.tile / w.width) | 0;
         if ((bx - tx) * (bx - tx) + (by - ty) * (by - ty) <= r2) {
@@ -928,7 +932,6 @@ export function applyIntent(s: SimState, intent: Intent, b: Balance): void {
       break;
 
     case IntentType.COURT_DEFECTION:
-      courtDefection(s, p, intent.district);
       break;
 
     case IntentType.PUBLISH_SCANDAL:
@@ -1050,6 +1053,7 @@ function stepEconomy(s: SimState, b: Balance): void {
     if (p.stance === Stance.Crusade)
       heat = add(heat, mul(mul(b.stances.crusade.heatPerS, b.archetypes[p.archetype].heat), dt));
     heat = sub(heat, mul(b.heat.decay, dt));
+    if (p.atonementTicks > 0) heat = sub(heat, mul(fp(0.35), dt)); // Apology vents Heat fast!
     if (ownsLandmark(s, p.id, Landmark.TownHall)) heat = sub(heat, mul(fp(0.25), dt));
     // Sheriff takeover: complaints get lost in the filing (§13 rev.)
     if (controlsCivic(civics, Lot.Sheriff, p.id)) heat = sub(heat, mul(b.civics.sheriffHeatDecay, dt));
@@ -1349,13 +1353,13 @@ export function step(s: SimState, turn: Turn, b: Balance): SimState {
 
   stepEconomy(s, b);
   stepBuildings(s, b); // construction, downtime, supplement labs (§6)
-  stepCouriers(s, b); //  courier economy (§3.2)
+  if (!s.disableCouriers) stepCouriers(s, b); //  courier economy (§3.2)
   stepVans(s, b); //      vans: movement, robbery, agent screening (§7)
   stepAgents(s, b); //    raids + scandal evidence (§13, §15.2)
   resolveConversion(s, b);
   stepStrikes(s, b); //   charge → warn → land (§8)
-  stepCPA(s, b); //       the Concerned Parents Association (§17)
-  stepSchism(s, b); //    schism risk gauge + eruption (§16)
+  if (!s.disableCPA) stepCPA(s, b); //       the Concerned Parents Association (§17)
+  if (!s.disableSchisms) stepSchism(s, b); //    schism risk gauge + eruption (§16)
   stepEffects(s, b);
   checkVictory(s, b);
 

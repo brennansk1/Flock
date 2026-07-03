@@ -15,6 +15,9 @@ export interface Settings {
   colorblind: boolean;
   sfxVolume: number;
   musicVolume: number;
+  disableCouriers: boolean;
+  disableCPA: boolean;
+  disableSchisms: boolean;
 }
 
 const KEY = "flock.settings";
@@ -24,6 +27,9 @@ const DEFAULTS: Settings = {
   colorblind: true, // colorblind patterns always-on by default (§30)
   sfxVolume: 80,
   musicVolume: 60,
+  disableCouriers: false,
+  disableCPA: false,
+  disableSchisms: false,
 };
 
 let current: Settings = load();

@@ -103,6 +103,7 @@ async function boot(): Promise<void> {
       let lastHudTick = -1;
       let cardShown = false;
       app.ticker.add(() => {
+        map.showDissent = hud.showDissent;
         map.draw(g.sim);
         drawFoundingHints(map, foundingHints, g, recommended, app.ticker.lastTime);
         // HUD + bar update at sim rate (10 Hz), not every animation frame.
@@ -390,13 +391,10 @@ function wireInput(app: Application, map: MapRenderer, g: GameSession, hud: Hud)
         if (hover >= 0) g.sendIntent({ t: IntentType.BUILD, building: "collection_plate", tile: hover });
         return;
       case "y":
-        if (hover >= 0) g.sendIntent({ t: IntentType.BUILD, building: "garage", tile: hover });
-        return;
-      case "u":
         if (hover >= 0) g.sendIntent({ t: IntentType.BUILD, building: "broadcast_tower", tile: hover });
         return;
       case "h":
-        if (hover >= 0) g.sendIntent({ t: IntentType.BUILD, building: "hotline_center", tile: hover });
+        hud.toggleDissentOverlay();
         return;
       // agents & PvP (§13/§15)
       case "a":

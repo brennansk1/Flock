@@ -142,7 +142,14 @@ export class MatchWorker {
     foundingTicks = 200,
     churchCount = 0,
     capacity = 4,
-    extra: { isPrivate?: boolean; roomCode?: string; townType?: string } = {},
+    extra: {
+      isPrivate?: boolean;
+      roomCode?: string;
+      townType?: string;
+      disableCouriers?: boolean;
+      disableCPA?: boolean;
+      disableSchisms?: boolean;
+    } = {},
   ) {
     this.balanceRaw = balanceRaw;
     this.balance = loadBalance(balanceRaw);
@@ -173,6 +180,9 @@ export class MatchWorker {
       }),
       spawns: [],
       foundingTicks, // FOUNDING spawn-pick window (§18)
+      disableCouriers: extra.disableCouriers ?? false,
+      disableCPA: extra.disableCPA ?? false,
+      disableSchisms: extra.disableSchisms ?? false,
     });
     // Established Churches first (they want their pre-seed expansion early),
     // then Drifter backfill fills the rest of the lobby.

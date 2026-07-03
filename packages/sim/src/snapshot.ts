@@ -77,6 +77,9 @@ export interface Snapshot {
   auras: Aura[];
   prophecies: Prophecy[];
   revelationMode: boolean;
+  disableCouriers: boolean;
+  disableCPA: boolean;
+  disableSchisms: boolean;
   buildings: Building[];
   couriers: Courier[];
   vans: Van[];
@@ -140,6 +143,9 @@ export function toSnapshot(s: SimState): Snapshot {
     auras: s.auras.map((e) => ({ ...e })),
     prophecies: s.prophecies.map((e) => ({ ...e })),
     revelationMode: s.revelationMode,
+    disableCouriers: s.disableCouriers,
+    disableCPA: s.disableCPA,
+    disableSchisms: s.disableSchisms,
     buildings: s.buildings.map((e) => ({ ...e })),
     couriers: s.couriers.map((e) => ({ ...e, path: [...e.path] })),
     vans: s.vans.map((e) => ({ ...e, path: [...e.path] })),
@@ -216,6 +222,9 @@ export function fromSnapshot(snap: Snapshot): SimState {
     auras: snap.auras.map((e) => ({ ...e })),
     prophecies: snap.prophecies.map((e) => ({ ...e })),
     revelationMode: snap.revelationMode,
+    disableCouriers: snap.disableCouriers,
+    disableCPA: snap.disableCPA,
+    disableSchisms: snap.disableSchisms,
     buildings: snap.buildings.map((e) => ({ ...e })),
     couriers: snap.couriers.map((e) => ({ ...e, path: [...e.path] })),
     vans: snap.vans.map((e) => ({ ...e, path: [...e.path] })),

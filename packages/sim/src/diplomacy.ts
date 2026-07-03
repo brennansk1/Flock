@@ -87,47 +87,7 @@ export function grudgeMult(s: SimState, attacker: PlayerId, victim: PlayerId): F
 }
 
 /**
- * Court Defection (§15.3): an enemy district with dissent > 70 can be flipped
- * to NEUTRAL (not to you) for $15 × tiles. 120s per-district cooldown. B4
- * TOTAL DEVOTION victims are immune.
- */
-export function courtDefection(s: SimState, buyer: PlayerState, district: DistrictId): void {
-  if ((s.courtCooldowns[district] ?? 0) > s.tick) return;
-  const w = s.world;
 
-  // collect the district's enemy-owned tiles and their average dissent
-  const tiles: number[] = [];
-  let dissentSum: Fixed = 0;
-  let victimId: PlayerId = NEUTRAL;
-  for (let t = 0; t < w.district.length; t++) {
-    if (w.district[t] !== district) continue;
-    const o = w.owner[t]!;
-    if (o === NEUTRAL || o === buyer.id || w.state[t] !== TileState.Believer) continue;
-    if (victimId === NEUTRAL) victimId = o;
-    if (o !== victimId) continue; // one cult's walkout at a time
-    tiles.push(t);
-    dissentSum = add(dissentSum, w.dissent[t]!);
-  }
-  if (tiles.length === 0) return;
-  const avg = div(dissentSum, fromInt(tiles.length));
-  if (avg <= fromInt(70)) return;
-
-  const victim = s.players.find((p) => p.id === victimId);
-  if (victim && hasDoctrine(victim, "B4")) return; // immune (§10)
-
-  const cost = mul(fromInt(15), fromInt(tiles.length));
-  if (buyer.usd < cost) return;
-  buyer.usd = sub(buyer.usd, cost);
-
-  for (const t of tiles) {
-    w.owner[t] = NEUTRAL;
-    w.state[t] = TileState.Neutral;
-    w.holdTicks[t] = 0;
-    destroyBuildingsOnTile(s, t);
-  }
-  if (victim) victim.ownedTiles = Math.max(0, victim.ownedTiles - tiles.length);
-  s.courtCooldowns[district] = s.tick + 120 * TPS;
-}
 
 /**
  * Schism watcher (§16): territory ≥ 35% of populated AND cult-avg dissent ≥ 40,

@@ -122,7 +122,7 @@ const RITUALS = [
   { id: "sermon", key: "Q", label: "SERMON", targeted: false, desc: "Spend Faith for a town-wide +5% conversion buff." },
   { id: "midnight_festival", key: "W", label: "FESTIVAL", targeted: true, desc: "Place a 2× neutral-conversion aura. Click a tile to anchor it." },
   { id: "the_offering", key: "E", label: "OFFERING", targeted: true, desc: "Sacrifice followers in a district for a Faith surge. Click to choose." },
-  { id: "day_of_atonement", key: "R", label: "ATONEMENT", targeted: false, desc: "Freeze your fronts; purge dissent ×4 for a while." },
+  { id: "day_of_atonement", key: "R", label: "APOLOGY", targeted: false, desc: "Public Apology — pauses conversion gains while Dissent & Heat vent rapidly." },
 ] as const;
 
 const BUILDS = [
@@ -130,9 +130,6 @@ const BUILDS = [
   { id: "watchtower", key: "T", label: "TOWER", ic: "tower", desc: "5× fort defense + reveals enemy agents nearby." },
   { id: "collection_plate", key: "C", label: "PLATE", ic: "plate", desc: "Tithe node. Couriers carry its income — and can be robbed." },
   { id: "broadcast_tower", key: "Y", label: "BROADCAST", ic: "antenna", desc: "Required for Propaganda Strikes (K)." },
-  { id: "hotline_center", key: "U", label: "HOTLINE", ic: "phone", desc: "75% chance to intercept incoming strikes." },
-  { id: "print_shop", key: "H", label: "PRINT SHOP", ic: "press", desc: "Cheaper pamphlets — boosts conversion pressure." },
-  { id: "garage", key: "J", label: "GARAGE", ic: "van", desc: "Raises your Recruitment Van capacity." },
   { id: "supplement_lab", key: "L", label: "LAB", ic: "flask", desc: "Converts Faith into steady income (Radiant)." },
 ] as const;
 
@@ -164,7 +161,6 @@ const SCHEME: {
   { label: "DEPROGRAM", key: "A", ic: "eye", title: "Dispatch an Agent to deprogram a district (raid). Click, then click a district you're pressing.", arm: { mode: "agent", mission: "deprogram" }, armKey: "agent:deprogram" },
   { label: "SNOOP", key: "X", ic: "eye", title: "Dispatch an Agent to gather scandal evidence in a district. Click, then click a district.", arm: { mode: "agent", mission: "scandal" }, armKey: "agent:scandal" },
   { label: "EXPOSE", key: "P", ic: "flame", title: "Publish a Scandal against a rival cult. Click, then click one of their tiles.", arm: { mode: "scandal" }, armKey: "scandal" },
-  { label: "COURT", key: "M", ic: "coin", title: "Court a district to defect to you. Click, then click a contested district.", arm: { mode: "defection" }, armKey: "defection" },
   { label: "VAN", key: "V", ic: "van", title: "Route your nearest Recruitment Van to a tile (buys one if you have none). Click, then click a tile.", arm: { mode: "van" }, armKey: "van" },
   { label: "CLOSE", key: "⇧C", ic: "flame", title: "Close your nearest front to stop the push. Click, then click near the front.", arm: { mode: "close_front" }, armKey: "close_front" },
   { label: "CANCEL", key: "Z", ic: "press", title: "Cancel a building under construction for a 50% refund. Click, then click the building.", arm: { mode: "cancel_build" }, armKey: "cancel_build" },
@@ -477,6 +473,7 @@ export class Hud {
   private feed: { tick: number; text: string; tag: string }[] = [];
   private seen = { scandals: 0, prophecies: 0, betrayals: 0, alliances: 0, dead: new Set<number>(), threats: new Set<string>() };
   private banner: { text: string; until: number } | null = null;
+  showDissent = false;
   private lastMiniTick = -999;
   private miniImg: ImageData | null = null;
   private chatIn!: HTMLInputElement;
@@ -780,11 +777,18 @@ export class Hud {
     this.el.doc = doc;
     this.el.docBadge = doc.querySelector("#docbadge")!;
 
+    const dis = document.createElement("button");
+    dis.className = "fk-doc";
+    dis.id = "fk-dissent-overlay";
+    dis.innerHTML = `<i class="ic">${icon("eye", "currentColor", 22)}</i><span class="dl">DISSENT [H]</span>`;
+    dis.onclick = () => this.toggleDissentOverlay();
+    this.el.dissentOverlay = dis;
+
     const miniWrap = document.createElement("div");
     miniWrap.className = "fk-mini";
     miniWrap.appendChild(this.mini);
 
-    tray.append(buildsWrap, doc, miniWrap);
+    tray.append(buildsWrap, doc, dis, miniWrap);
     bottom.append(this.collapse(tray, "▼", "▲", true), tray);
     this.root.appendChild(bottom);
 
@@ -914,6 +918,15 @@ export class Hud {
     showDoctrinePanel(this.g);
   }
 
+  toggleDissentOverlay(): void {
+    this.showDissent = !this.showDissent;
+    const el = this.el.dissentOverlay;
+    if (el) {
+      el.style.background = this.showDissent ? (ARCH_ACCENT[this.me()?.archetype ?? "dawn"]?.a ?? "#e0a422") : "";
+      el.style.color = this.showDissent ? "#19110a" : "";
+    }
+  }
+
   /** Push a drama-feed line and (for big moments) a freeze-frame banner (§25.3). */
   private pushFeed(text: string, banner = false, tag = "cap"): void {
     this.feed.unshift({ tick: this.g.sim.tick, text, tag });
@@ -978,6 +991,39 @@ export class Hud {
       if (this.seen.threats.has(key)) continue;
       this.seen.threats.add(key);
       this.pushFeed(`${name(sc.attacker)} is digging up dirt on you…`, true, "scandal");
+    }
+    // deprogramming raids channeling on us (§13 tell)
+    const DISTRICT_NAMES: Record<number, string> = {
+      0: "Old Town",
+      1: "Suburbs",
+      2: "College Campus",
+      3: "Downtown",
+      4: "Trailer Park",
+    };
+    for (const a of s.agents) {
+      if (a.victim === me && a.phase === "channel") {
+        const key = `raid:${a.id}`;
+        if (!this.seen.threats.has(key)) {
+          this.seen.threats.add(key);
+          const nameStr = DISTRICT_NAMES[w.district[a.tile]!] ?? "Outskirts";
+          this.pushFeed(`Suspicious activity reported in ${nameStr}!`, true, "scandal");
+        }
+      }
+    }
+    // Economic win (Circle-only) telegraph once it passes 60% of target
+    const econTarget = 1_200_000;
+    for (const p of s.players) {
+      if (p.archetype === "circle" && p.alive) {
+        const val = toFloat(p.usd);
+        if (val >= 0.6 * econTarget) {
+          const key = `economic:${p.id}:${Math.floor(val / 100_000)}`;
+          if (!this.seen.threats.has(key)) {
+            this.seen.threats.add(key);
+            const pct = Math.floor((val / econTarget) * 100);
+            this.pushFeed(`${name(p.id)} Ledger progress: ${pct}% ($${Math.floor(val).toLocaleString()})! Stop them!`, true, "prophecy");
+          }
+        }
+      }
     }
   }
 

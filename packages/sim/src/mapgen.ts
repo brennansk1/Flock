@@ -1100,7 +1100,7 @@ function layoutHighwaysAndTown(w: World, rng: RngState, rScale = 1): TownShape {
       const dy = y - cy;
       const d = Math.sqrt(dx * dx + dy * dy * 1.8);
       const edge = d / radiusAt(Math.atan2(dy * 1.35, dx));
-      // Main Street: the strip along the highway through the center
+      
       let nearHighway = false;
       for (let oy = -2; oy <= 2 && !nearHighway; oy++) {
         const ny = y + oy;
@@ -1108,17 +1108,23 @@ function layoutHighwaysAndTown(w: World, rng: RngState, rScale = 1): TownShape {
         const nt = ny * width + x;
         if (w.terrain[nt] === Terrain.Road && isHighwayTile(w, nt)) nearHighway = true;
       }
-      // industrial lobe: the far end of Main Street on the chosen side
-      if (nearHighway && indSide * dx > r * 0.5) {
+
+      // Zoning Suitability Pass
+      const highwayAccessScore = nearHighway ? 100 : 0;
+      const centerProximityScore = Math.max(0, 100 - (d / (r * 0.5)) * 100);
+      const edgeProximityScore = edge * 100;
+      
+      const isIndustrialTarget = nearHighway && indSide * dx > r * 0.5;
+
+      if (isIndustrialTarget) {
         w.district[t] = Districts.Industrial;
-      } else if (nearHighway && Math.abs(dx) < r * 0.55) {
-        // the strip itself is commercial; the very center blends into downtown
-        w.district[t] = Math.abs(dx) < r * 0.2 ? Districts.Downtown : Districts.Commercial;
-      } else if (d < r * 0.26) {
+      } else if (highwayAccessScore > 50 && centerProximityScore > 60) {
         w.district[t] = Districts.Downtown;
-      } else if (d < r * 0.45) {
-        w.district[t] = Districts.ResHigh; // apartments ring the core
-      } else if (edge > 0.84) {
+      } else if (highwayAccessScore > 50 && centerProximityScore > 30) {
+        w.district[t] = Districts.Commercial;
+      } else if (centerProximityScore > 40) {
+        w.district[t] = Districts.ResHigh; // Buffer ring
+      } else if (edgeProximityScore > 84) {
         w.district[t] = Districts.Trailer;
       } else {
         const sector = sectorOf(dx, dy);
@@ -1655,7 +1661,7 @@ function carveRiver(w: World, rng: RngState, town: TownShape): number[] | null {
     let roadHere = false;
     for (let dx = -2; dx <= 2 && !roadHere; dx++) {
       const x = cx + dx;
-      if (x < 1 || x >= width - 1) continue;
+      if (x < 0 || x >= width) continue;
       if (w.terrain[y * width + x] === Terrain.Road) roadHere = true;
     }
     if (!roadHere) continue;
@@ -1674,7 +1680,7 @@ function carveRiver(w: World, rng: RngState, town: TownShape): number[] | null {
     const extra = y >= join2 ? 1 : 0; // below the second confluence: 4-wide
     for (let dx = -hw; dx <= hw + extra; dx++) {
       const x = cx + dx;
-      if (x < 1 || x >= width - 1) continue;
+      if (x < 0 || x >= width) continue;
       const t = y * width + x;
       const tr = w.terrain[t];
       // never destroy roads (bridge), rail, town lots, or existing nature
@@ -1688,7 +1694,7 @@ function carveRiver(w: World, rng: RngState, town: TownShape): number[] | null {
     const cx = cxs[y]!;
     for (let dx = -2; dx <= 2; dx++) {
       const x = cx + dx;
-      if (x > 0 && x < width - 1) {
+      if (x >= 0 && x < width) {
         w.terrain[y * width + x] = Terrain.Lake;
       }
     }
@@ -1696,7 +1702,7 @@ function carveRiver(w: World, rng: RngState, town: TownShape): number[] | null {
   const cx_dam = cxs[y_dam]!;
   for (let dx = -2; dx <= 2; dx++) {
     const x = cx_dam + dx;
-    if (x > 0 && x < width - 1) {
+    if (x >= 0 && x < width) {
       const t = y_dam * width + x;
       w.terrain[t] = Terrain.Lake;
       w.lot[t] = Lot.Dam;
@@ -1883,7 +1889,7 @@ function connectLakesToRiver(w: World, cxs: number[]): void {
       lastDown = down;
       if (down) ny++;
       else nx += targetX > x ? 1 : -1;
-      if (nx < 1 || nx >= width - 1 || ny >= height - 1) break;
+      if (nx < 0 || nx >= width || ny >= height) break;
       const t = ny * width + nx;
       const tr = w.terrain[t];
       if (tr === Terrain.Citizen) {
@@ -1953,7 +1959,7 @@ function organicBlob(
     for (let dx = -reach; dx <= reach; dx++) {
       const x = bx + dx;
       const y = by + dy;
-      if (x < 1 || y < 1 || x >= width - 1 || y >= height - 1) continue;
+      if (x < 0 || y < 0 || x >= width || y >= height) continue;
       const dist = Math.sqrt(dx * dx + dy * dy);
       if (dist < 0.5) {
         // always fill the very center

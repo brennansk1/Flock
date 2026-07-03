@@ -145,13 +145,13 @@ test("buildings are destroyed, not captured, when their tile flips", () => {
   p(s, 2).usd = fromInt(100_000);
   p(s, 2).followers = fromInt(200); // thin defense → quick flip
   const tile = 10 * W + 27;
-  run(s, 1, [{ t: IntentType.BUILD, player: 2, building: "garage", tile }]);
+  run(s, 1, [{ t: IntentType.BUILD, player: 2, building: "collection_plate", tile }]);
   assert.equal(s.buildings.length, 1);
   for (let y = 0; y < W; y++) own(s, y * W + 26, 1);
   run(s, 1, [{ t: IntentType.OPEN_FRONT, player: 1, tiles: [tile] }]);
   run(s, 3000);
   assert.equal(s.world.owner[tile], 1, "tile should have flipped to the attacker");
-  assert.equal(s.buildings.length, 0, "garage must die with its tile");
+  assert.equal(s.buildings.length, 0, "collection_plate must die with its tile");
 });
 
 // ---------------- agents: raids & scandal ----------------
@@ -200,7 +200,7 @@ test("pamphlet bomb lands after charge+warning, spiking dissent and disabling bu
   const target = 10 * W + 29;
   run(s, 1, [
     { t: IntentType.BUILD, player: 1, building: "broadcast_tower", tile: 5 * W + 2 },
-    { t: IntentType.BUILD, player: 2, building: "garage", tile: 10 * W + 30 },
+    { t: IntentType.BUILD, player: 2, building: "watchtower", tile: 10 * W + 30 },
   ]);
   run(s, 460); // build the tower (45s)
   run(s, 1, [{ t: IntentType.STRIKE, player: 1, strike: "pamphlet_bomb", target }]);
@@ -209,8 +209,8 @@ test("pamphlet bomb lands after charge+warning, spiking dissent and disabling bu
   assert.equal(s.strikes.length, 0, "strike resolved");
   // +35 at impact, minus a few ticks of decay before we look
   assert.ok(toFloat(s.world.dissent[target]!) >= 30, "dissent spiked at impact");
-  const garage = s.buildings.find((bd) => bd.type === "garage");
-  assert.ok(garage && garage.disabledTicks > 0, "victim buildings disabled");
+  const tower = s.buildings.find((bd) => bd.type === "watchtower");
+  assert.ok(tower && tower.disabledTicks > 0, "victim buildings disabled");
 });
 
 // ---------------- diplomacy ----------------

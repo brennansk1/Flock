@@ -110,7 +110,6 @@ const CHURCH_BUILDS: BuildingType[] = [
   "collection_plate",
   "watchtower",
   "broadcast_tower",
-  "print_shop",
 ];
 
 /**

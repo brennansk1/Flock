@@ -27,7 +27,6 @@ import {
 import { apostatize } from "./conversion.js";
 import {
   watchtowerSees,
-  hotlineCovers,
   disableBuildingsNear,
   isOperational,
   staffingRatio,
@@ -415,10 +414,7 @@ function landStrike(s: SimState, c: StrikeCharge, b: Balance): void {
     return;
   }
 
-  // hotline intercept: 75% if covered (cannot stop manifesto) (§8)
-  if (hotlineCovers(s, c.victim, c.target) && nextU32(s.rng) % 100 < 75) {
-    return; // intercepted — money spent, nothing lands
-  }
+
 
   if (c.type === "pamphlet_bomb") {
     pamphletImpact(s, attacker, c.victim, c.target, STRIKE_DEFS.pamphlet_bomb.radius, b);

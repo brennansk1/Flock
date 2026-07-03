@@ -11,7 +11,7 @@ import {
   Biome,
 } from "../packages/sim/dist/index.js";
 
-const OUT = "C:/Users/Brennan Kelley/.gemini/antigravity-cli/brain/764c1fcf-ef32-4aae-beef-359b7e6d74e6/qa_shots";
+const OUT = "/Users/brennankelley/.gemini/antigravity-cli/brain/ef6c4a5d-14da-4699-bed4-7d7da720300e/qa_shots";
 mkdirSync(OUT, { recursive: true });
 
 // CRC32 helper

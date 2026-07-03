@@ -271,9 +271,6 @@ export interface Building {
     | "collection_plate"
     | "watchtower"
     | "broadcast_tower"
-    | "hotline_center"
-    | "print_shop"
-    | "garage"
     | "supplement_lab"
     | "satellite";
   tile: TileId;
@@ -461,6 +458,9 @@ export interface SimState {
   // ---- M1 systems ----
   /** Revelation mode: economic + (future) doctrinal victory paths active (§18). */
   revelationMode: boolean;
+  disableCouriers: boolean;
+  disableCPA: boolean;
+  disableSchisms: boolean;
   buildings: Building[];
   couriers: Courier[];
   vans: Van[];

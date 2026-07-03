@@ -41,9 +41,6 @@ export type BuildingType =
   | "collection_plate"
   | "watchtower"
   | "broadcast_tower"
-  | "hotline_center"
-  | "print_shop"
-  | "garage"
   | "supplement_lab";
 
 export type StrikeType = "pamphlet_bomb" | "prime_time_expose" | "manifesto_drop";

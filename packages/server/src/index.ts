@@ -199,7 +199,15 @@ async function main(): Promise<void> {
     // hosts may also pass bots/size/founding/town knobs for playtesting
     const room = q.get("room");
     const createPrivate = q.get("private") === "1";
-    const config: { botCount?: number; worldSize?: number; foundingTicks?: number; townType?: string } = {};
+    const config: {
+      botCount?: number;
+      worldSize?: number;
+      foundingTicks?: number;
+      townType?: string;
+      disableCouriers?: boolean;
+      disableCPA?: boolean;
+      disableSchisms?: boolean;
+    } = {};
     for (const [param, key] of [
       ["bots", "botCount"],
       ["size", "worldSize"],
@@ -210,6 +218,9 @@ async function main(): Promise<void> {
     }
     const town = q.get("town");
     if (town !== null) config.townType = town;
+    if (q.get("disableCouriers") === "1") config.disableCouriers = true;
+    if (q.get("disableCPA") === "1") config.disableCPA = true;
+    if (q.get("disableSchisms") === "1") config.disableSchisms = true;
     lobby.join(ws, account, archetype, {
       ...(room !== null ? { room } : {}),
       createPrivate,

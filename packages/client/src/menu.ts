@@ -443,11 +443,13 @@ function renderPlay(panel: HTMLDivElement): void {
     location.search = `${base()}&room=${encodeURIComponent(code)}`;
   };
   (panel.querySelector("#tut") as HTMLButtonElement).onclick = () => {
-    location.search = "?play=1&tutorial=1&name=Novice&archetype=dawn";
+    const name = (panel.querySelector("#nm") as HTMLInputElement).value || "Novice";
+    location.search = `?play=1&tutorial=1&name=${encodeURIComponent(name)}&archetype=${selectedArch}`;
   };
   (panel.querySelector("#host") as HTMLButtonElement).onclick = () => {
     const v = (id: string): string => (panel.querySelector(`#${id}`) as HTMLSelectElement).value;
-    location.search = `${base()}&private=1&bots=${v("pv-bots")}&size=${v("pv-size")}&town=${v("pv-town")}&founding=${v("pv-founding")}`;
+    const s = getSettings();
+    location.search = `${base()}&private=1&bots=${v("pv-bots")}&size=${v("pv-size")}&town=${v("pv-town")}&founding=${v("pv-founding")}&disableCouriers=${s.disableCouriers ? 1 : 0}&disableCPA=${s.disableCPA ? 1 : 0}&disableSchisms=${s.disableSchisms ? 1 : 0}`;
   };
   (panel.querySelector("#nm") as HTMLInputElement).addEventListener("keydown", (e) => {
     if ((e as KeyboardEvent).key === "Enter") go();
@@ -600,11 +602,15 @@ function renderSettings(panel: HTMLDivElement): void {
       toggle("colorblind", "Colorblind patterns", s.colorblind) +
       slider("sfxVolume", "SFX volume", s.sfxVolume) +
       slider("musicVolume", "Music volume", s.musicVolume) +
+      `<div style="font-family:'Press Start 2P',monospace;font-size:7px;color:${MUTED};margin:12px 0 6px">GAMEPLAY (SIMPLIFICATION OVERRIDES)</div>` +
+      toggle("disableCouriers", "Disable Couriers (Passive Tithe)", s.disableCouriers) +
+      toggle("disableCPA", "Disable CPA Interventions", s.disableCPA) +
+      toggle("disableSchisms", "Disable Cult Schisms", s.disableSchisms) +
       `<div style="font-family:'VT323',monospace;font-size:15px;color:${DIM};margin-top:12px">${KEYS_LINE}</div>`,
   );
   panel.querySelectorAll<HTMLButtonElement>("[data-set]").forEach((b) => {
     b.onclick = () => {
-      const key = b.dataset.set as "reducedMotion" | "muteChat" | "colorblind";
+      const key = b.dataset.set as "reducedMotion" | "muteChat" | "colorblind" | "disableCouriers" | "disableCPA" | "disableSchisms";
       const next = saveSettings({ [key]: !getSettings()[key] });
       b.textContent = next[key] ? "ON" : "OFF";
       b.style.cssText = toggleCss(next[key]);

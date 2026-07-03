@@ -25,6 +25,7 @@ export class MapRenderer {
   private fogTick = -1;
   private lastDrawnTick = -1;
   private viewerId = 0;
+  showDissent = false;
   private readonly mapW: number;
   private readonly mapH: number;
 
@@ -206,6 +207,7 @@ export class MapRenderer {
       frameTick: sim.tick,
       lod,
       view: { x: vx, y: vy, w: tilesAcross, h: tilesDown },
+      showDissent: this.showDissent,
     });
 
     if (this.canvas.width !== frame.width || this.canvas.height !== frame.height) {

@@ -116,6 +116,9 @@ export interface MatchConfig {
   botCount?: number;
   foundingTicks?: number;
   townType?: string;
+  disableCouriers?: boolean;
+  disableCPA?: boolean;
+  disableSchisms?: boolean;
 }
 
 /** How a connection wants to be routed. */
@@ -221,7 +224,14 @@ export class LobbyDirector {
       clampInt(cfg.foundingTicks, 100, 1200, this.opts.foundingTicks),
       this.opts.churchCount,
       this.opts.capacity,
-      { isPrivate, roomCode, ...(cfg.townType !== undefined ? { townType: cfg.townType } : {}) },
+      {
+        isPrivate,
+        roomCode,
+        ...(cfg.townType !== undefined ? { townType: cfg.townType } : {}),
+        disableCouriers: cfg.disableCouriers ?? false,
+        disableCPA: cfg.disableCPA ?? false,
+        disableSchisms: cfg.disableSchisms ?? false,
+      },
     );
     m.setOnEnd((info) => void this.persistResult(info).catch((e) => log("error", "persist failed", { err: String(e) })));
     this.matches.set(m.matchId, m);

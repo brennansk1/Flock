@@ -94,8 +94,8 @@ Maps are assembled from **hand-authored district templates** placed by a constra
 
 ### 3.4 Dissent (0–100, per-district, aggregated per-cult for triggers)
 - Gains: CRUSADE stance conversion +12 per tile taken in that district; successful enemy Deprogramming raid +15 (radius 3); follower starvation (income ≤ 0) +0.2/s everywhere; each Offering ritual +4 in host district.
-- Decay: −0.15/s base; −0.5/s under Day of Atonement; Juice Cleanse zeroes one district.
-- Effects: income tax (3.2); at district dissent >70, rivals may **Court Defection** (§15.3); cult-average dissent feeds Schism (§16).
+- Decay: −0.15/s base; −0.6/s under Public Apology; Juice Cleanse zeroes one district.
+- Effects: income tax (3.2); cult-average dissent feeds Schism (§16).
 
 ### 3.5 Heat (0–100, global, public to players with Information doctrine T2+ or Visitors passive)
 - Gains: CRUSADE stance +0.04/s while active; Offering +5; Midnight Festival +8; Pamphlet Bomb +10; Prime-Time Exposé +20 (the *attacker* gains it); Manifesto Drop → set to 100; declaring Prophecy +15; robbing couriers +2/robbery.
@@ -136,13 +136,10 @@ All buildings: placed on owned tiles, 1 per tile, instant placement + build time
 
 | Building | Cost | Build time | HP* | Radius | Effect | Max |
 |---|---|---|---|---|---|---|
-| **Compound** | $15,000 (×1.35 each) | 20s | — | 8 | +25,000 follower cap; conversion anchor: +10% defense in radius; respawn point for agents | 8 |
+| **Compound** | $15,000 (×1.35 each) | 20s | — | 8 | +25,000 follower cap; conversion anchor: +10% defense in radius; respawn point for agents; each operational Compound raises Recruitment Van capacity by +3 | 8 |
 | **Collection Plate** | $10,000 | 15s | — | — | Courier economy node (§3.2); +5% tithe from its district | 6 |
-| **Watchtower** | $12,000 (×1.25) | 18s | — | 6 | fort_mult 5; reveals enemy agents/Vans in radius 10; pings raid warnings | 10 |
+| **Watchtower** | $12,000 (×1.25) | 18s | — | 6 | fort_mult 5; reveals enemy agents/Vans in radius 10; pings deprogramming raid warnings | 10 |
 | **Broadcast Tower** | $250,000 | 45s | — | — | Enables Propaganda Strikes; one strike "charged" at a time; charge visible to anyone with vision of it | 2 |
-| **Hotline Center** | $60,000 | 25s | — | 12 | 75% intercept of Pamphlet/Exposé payloads in radius; cannot stop Manifesto | 4 |
-| **Print Shop** | $40,000 | 25s | — | 10 | Rituals −25% Faith cost & strike cooldowns −20% region-wide | 3 |
-| **Garage** | $8,000 | 12s | — | — | Builds/repairs Recruitment Vans (max 3 Vans per Garage) | 3 |
 | **Supplement Lab** *(Radiant only)* | $25,000 | 20s | — | 5 | Adjacent non-owned citizen tiles pay you $0.004/tile/sec ("they already buy the tea") | 4 |
 
 *Buildings have no HP bar; they die with their tile, are disabled 45s by Sabotage, and Pamphlet Bombs disable buildings in radius for 30s.*
@@ -154,7 +151,7 @@ Units are few, visible, and dramatic (this is a territory game, not a unit game)
 | Unit | Source | Cost | Speed (tiles/s) | Job | Counter |
 |---|---|---|---|---|---|
 | **Tithe Courier** | auto, Plates | — | 1.5 (2× roads) | Carries route $; robbable | Enemy Vans |
-| **Recruitment Van** | Garage | $30,000 | 2.0 (4× roads) | Mobile converter (acts as 40 followers of pressure at range 2); robs couriers; only unit allowed on Woods routes; screens/kills agents on contact | Watchtower vision + intercept Vans |
+| **Recruitment Van** | Compound | $30,000 | 2.0 (4× roads) | Mobile converter (acts as 40 followers of pressure at range 2); robs couriers; only unit allowed on Woods routes; screens/kills agents on contact | Watchtower vision + intercept Vans |
 | **Agent** | Compound | $6,000 | 1.8, **invisible** outside Watchtower radius | Executes Deprogramming raids & Scandal evidence-gathering; dies on completion or detection-contact | Watchtowers |
 | **Street Prophet** *(Dawn only)* | ability | — | 0 (placed) | 30s fear-pressure pylon | Kill the tile under it |
 | **CPA units** | NPC | — | 1.2 | §17 | Lower your Heat |
@@ -163,8 +160,8 @@ Units are few, visible, and dramatic (this is a territory game, not a unit game)
 
 | Strike | Cost | Charge time | Radius | Effect | Counter |
 |---|---|---|---|---|---|
-| **Pamphlet Bomb** | $400,000 | 30s | 8 | Instant +35 dissent in radius; buildings disabled 30s; +25 conversion pressure applied to all tiles in radius for your adjacent fronts | Hotline (75%) |
-| **Prime-Time Exposé** | $900,000 | 60s | 18 | Target cult: −25 Faith; tiles in radius: retention halved 45s; 5% of followers in radius apostatize | Hotline (75%); attacker +20 Heat |
+| **Pamphlet Bomb** | $400,000 | 30s | 8 | Instant +35 dissent in radius; buildings disabled 30s; +25 conversion pressure applied to all tiles in radius for your adjacent fronts | None |
+| **Prime-Time Exposé** | $900,000 | 60s | 18 | Target cult: −25 Faith; tiles in radius: retention halved 45s; 5% of followers in radius apostatize | Attacker +20 Heat |
 | **Manifesto Drop** | $1,600,000 + Heat→100 | 90s | 6× scattered zones across one cult | Each zone = Pamphlet-level hit; un-interceptable | None. But you are now at Heat 100 with the CPA at your door, and every player was shown the launch warning 10s prior. |
 
 All strikes have a 10s incoming-warning banner for the target (and 5s map-wide flash for Manifesto) — counterplay and clip-ability in one mechanic.
@@ -176,7 +173,7 @@ All strikes have a 10s incoming-warning banner for the target (and 5s map-wide f
 | **Sermon** | — (channel 8s, must be in Tend/Spread stance) | 30s | +12 Faith; +5% conversion for 20s |
 | **Midnight Festival** | 25 | 120s | Radius-10 recruiting aura: 2× neutral conversion 30s; +8 Heat |
 | **The Offering** | 10 + 200 followers | 90s | Instant +20 Faith; +4 dissent in host district; +5 Heat. (Cartoon poof + halo. Always.) |
-| **Day of Atonement** | 20 | 180s | All districts: dissent decay 4× for 30s; your fronts frozen during it |
+| **Public Apology** | 20 | 180s | All districts: dissent decay 4× and Heat decay 5× for 30s; your fronts frozen during it |
 
 ## 10. Doctrine Tree (BITE) — All 16 Nodes, Final
 
@@ -186,7 +183,7 @@ All strikes have a 10s incoming-warning banner for the target (and 5s map-wide f
 - **B1 Tithing Drill:** +10% tithe.
 - **B2 Uniforms:** +15% home-tile defense; followers visually uniformed (free cosmetic flex).
 - **B3 Curfews:** district dissent gains from your own actions −40%.
-- **B4 TOTAL DEVOTION:** your followers never rout: defense attrition you suffer −50%; immune to Court Defection.
+- **B4 TOTAL DEVOTION:** your followers never rout: defense attrition you suffer −50%.
 
 ### Information — "The Truth" (vision & propaganda)
 - **I1 Newsletter:** scout/vision radius +40%; see S-bands 2 tiles deeper.
@@ -249,7 +246,7 @@ Common frame: each archetype = coefficient row + passive + 2 actives + signature
 ### 11.4 🛸 THE VISITORS' FELLOWSHIP (UFO)
 - **Passive — Stargazers:** vision ×2; sees all rivals' Heat and per-district Dissent bands without doctrine.
 - **Active 1 — Crop Circle:** $15,000, CD 60s. Any visible neutral district: +30 S for 60s, **for everyone** (bait/gift/trap).
-- **Active 2 — Radio Static:** 20 Faith, CD 90s. One enemy Broadcast Tower + Hotlines in radius 12: offline 20s.
+- **Active 2 — Radio Static:** 20 Faith, CD 90s. One enemy Broadcast Tower in radius 12: offline 20s.
 - **SIGNATURE — Saucer Landing:** CD 150s, $25,000. Found a satellite chapel (acts as 1-tile owned territory + mini-Compound, +2,000 cap) on ANY visible tile incl. across Woods/Lake. Satellites have 0.6× retention until connected to your main body.
 - **Founding Tips:** (1) Your home is wherever the saucer parks — losing the homeland is an inconvenience. (2) Snipe the Radio Tower; your kit loves landmarks. (3) Drop Crop Circles on districts two rivals both want. Watch.
 - **Beaten by:** killing satellites in their fragile window, Watchtower webs, disciplined boring map control.
@@ -291,8 +288,8 @@ Common frame: each archetype = coefficient row + passive + 2 actives + signature
 - At **50% Evidence the target is notified**: *"Someone is asking questions about you."* (No attacker identity.) Counterplay window: hunt agents, lower Heat, buy E4 insurance, or preemptively strike suspects. This converts an assassination into an arc — better drama, better fairness, same threat.
 - At 100%: attacker holds a **Publish** button (no expiry). On publish, map-wide headline banner + horn: target loses `clamp(Heat × 0.6, 5, 35)%` of followers as instant apostasy distributed over highest-dissent districts; target −25 Faith; vs Prosperity Circle ×1.5. One publish per attacker per victim per match. Attacker gains +10 Heat (mud sticks to the thrower).
 
-### 15.3 Court Defection
-- Any enemy district at dissent >70: pay `$15 × tiles` to flip it to **Neutral** instantly (not to you — you're funding their walkout, not buying members; the distinction keeps it from being a strictly-better attack). 120s cooldown per district.
+### 15.3 [REMOVED/CUT] Court Defection
+- (Court Defection was cut to simplify gameplay, reduce spreadsheets, and avoid duplicating the raid's job of reverting enemy districts. Its USD cost was moved onto deprogramming raids).
 
 ## 16. Alliances, Betrayal, Schism — final ruleset
 - **Alliance:** propose/accept; 10:00 duration, renewable in last 2:00; allies cannot convert each other, share vision (toggleable), see each other's stances/Heat, may transit Vans/Agents through each other.

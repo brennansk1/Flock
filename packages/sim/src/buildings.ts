@@ -47,9 +47,6 @@ export const BUILDING_DEFS: Record<Building["type"], BuildingDef> = {
   collection_plate: { cost: 10_000, costGrowth: 1, buildTicks: 15 * TPS, radius: 0, max: 6, staff: 25 },
   watchtower: { cost: 12_000, costGrowth: 1.25, buildTicks: 18 * TPS, radius: 6, max: 10, staff: 20 },
   broadcast_tower: { cost: 250_000, costGrowth: 1, buildTicks: 45 * TPS, radius: 0, max: 2, staff: 90 },
-  hotline_center: { cost: 60_000, costGrowth: 1, buildTicks: 25 * TPS, radius: 12, max: 4, staff: 50 },
-  print_shop: { cost: 40_000, costGrowth: 1, buildTicks: 25 * TPS, radius: 10, max: 3, staff: 40 },
-  garage: { cost: 8_000, costGrowth: 1, buildTicks: 12 * TPS, radius: 0, max: 3, staff: 15 },
   supplement_lab: {
     cost: 25_000,
     costGrowth: 1,
@@ -154,20 +151,10 @@ export function watchtowerSees(s: SimState, player: PlayerId, tile: TileId): boo
   return false;
 }
 
-/** Victim Hotline coverage of an impact point: 75% intercept chance (§8). */
-export function hotlineCovers(s: SimState, victim: PlayerId, tile: TileId): boolean {
-  for (const b of s.buildings) {
-    if (b.type !== "hotline_center" || b.player !== victim || !isOperational(b)) continue;
-    if (dist2(s.world, b.tile, tile) <= 144) return true;
-  }
-  return false;
-}
+
 
 /** Print Shop (§6): rituals −25% Faith cost, strike cooldowns −20%, if any operational. */
 export function hasPrintShop(s: SimState, player: PlayerId): boolean {
-  for (const b of s.buildings) {
-    if (b.type === "print_shop" && b.player === player && isOperational(b)) return true;
-  }
   return false;
 }
 
@@ -187,11 +174,11 @@ export function freeBroadcastTower(s: SimState, player: PlayerId): Building | un
   return charging < towers.length ? towers[0] : undefined;
 }
 
-/** Garage capacity: 3 Vans per operational Garage (§6), needing drivers. */
+/** van capacity: 3 Vans per Compound (§6). */
 export function vanCapacity(s: SimState, player: PlayerId): number {
   let cap = 0;
   for (const b of s.buildings) {
-    if (b.type === "garage" && b.player === player && isOperational(b)) {
+    if (b.type === "compound" && b.player === player && isOperational(b)) {
       cap += (3 * staffingRatio(s, b)) >> 16;
     }
   }

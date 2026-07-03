@@ -157,6 +157,9 @@ export function hashState(s: SimState): string {
 
   // M1 systems: buildings, units, strikes, diplomacy, scandal, CPA.
   f.byte(s.revelationMode ? 1 : 0);
+  f.byte(s.disableCouriers ? 1 : 0);
+  f.byte(s.disableCPA ? 1 : 0);
+  f.byte(s.disableSchisms ? 1 : 0);
   f.u32(s.nextEntityId);
   f.u32(s.nextSplinterId);
   f.u32(s.cpaNextPicketTick);

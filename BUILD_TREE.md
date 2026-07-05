@@ -153,9 +153,12 @@ B1  ✔️ SIM — deterministic gameplay core (@flock/sim, runs bit-identically
 │   │   ├── B1.4.11.11 ✔️ Edge cemetery — at the town margin
 │   │   └── B1.4.11.12 ✔️ INVARIANT: rail/elevator/depot anchor every town
 │   │                (§2 rev. 5 gate, mapgen.test.ts, ×5 seeds)
-│   ├── B1.4.12 ⬜ TERRAIN FIELDS v2 — coarse heightmap + moisture field
-│   │            generated FIRST; river follows drainage, biomes gated on
-│   │            elevation+moisture (deferred: reviewer #8; foundational)
+│   ├── B1.4.12 ✔️🖼️ TERRAIN FIELDS v2 (§2 rev. 6) — elevation + moisture
+│   │            value-noise fields (pixHash lattice, mult/add only — no
+│   │            transcendentals) generated FIRST; river descends the
+│   │            terrain (thalweg-blended, keeps the cxs[] contract);
+│   │            biomes moisture-quantile-gated; woods seek wet ground,
+│   │            the lake pools low; fields generation-local (never hashed)
 │   ├── B1.4.13 ✔️🖼️ MAPGEN QA — QA_MAPGEN.md protocol, sweeps 1–3 complete
 │   │   ├── B1.4.13.1 ✔️🖼️ Sweep record — 5 seeds × full map + crops; all
 │   │   │            S1/S2 fixed (lake outlets, zoning colors, house/shop
@@ -232,10 +235,11 @@ B1  ✔️ SIM — deterministic gameplay core (@flock/sim, runs bit-identically
 │   │            have zero gameplay hooks; archetypes differentiate through
 │   │            geometry alone. DELIBERATELY DEFERRED until human playtests
 │   │            (B7.9) say the base game wants it — restraint over polish
-│   └── B1.4.21 ⬜ TRANSCENDENTAL-FREE MAPGEN — 7 Math.sin/cos/atan2 sites
-│                (coastline, meander, town rim, blobs) → fixed-point LUTs.
-│                Risk CONTAINED by B6.5 (3 engine families gated per push);
-│                fold into B1.4.12's geometry rebuild, don't churn twice
+│   └── B1.4.21 ⬜ TRANSCENDENTAL-FREE MAPGEN — 3 clusters remain (fields
+│                v2 retired the meander + biome rims): coastline wobble,
+│                town footprint rim, organicBlob rim. Risk CONTAINED by
+│                B6.5 (3 engine families gated per push); batch with the
+│                next intentional world-shape change
 ├── B1.5  ✔️ buildings.ts — full §6 table (Compounds…Supplement Labs)
 ├── B1.6  ✔️ entities.ts — Couriers, Vans, invisible Agents (§7)
 ├── B1.7  ✔️ PvP trio — raids / scandal→publish / court defection (§13/§15)

@@ -17,7 +17,7 @@
  */
 
 import { fromInt, fromFloat } from "./fixed.js";
-import { seedRng, nextRange, type RngState } from "./rng.js";
+import { seedRng, nextRange, nextU32, type RngState } from "./rng.js";
 import { Terrain, Biome, Landmark, Lot, type World, type DistrictCoeffs } from "./types.js";
 import { traceGridRoads } from "./gridRoads.js";
 import { pickTownName, type Street } from "./names.js";
@@ -28,6 +28,55 @@ function pixHash32(x: number, y: number, z: number): number {
   let h = (x * 374761393 + y * 668265263 + z * 1274126177) | 0;
   h = Math.imul(h ^ (h >>> 13), 1274126177);
   return (h ^ (h >>> 16)) >>> 0;
+}
+
+/**
+ * TERRAIN FIELDS v2 (§2 rev. 6, reviewer finding #8): a coarse elevation +
+ * moisture pair generated FIRST, driving hydrology (the river descends the
+ * terrain), biomes (dry tail → desert, wet tail → forest), and vegetation
+ * (stands seek moisture, the lake seeks low ground). Value noise on the
+ * pixHash lattice with smoothstep bilinear interpolation — multiplies and
+ * adds only, so every JS engine computes the fields bit-identically.
+ * Generation-local: never stored on World, never hashed, never snapshotted.
+ */
+interface TerrainFields {
+  elev: Float64Array;
+  moist: Float64Array;
+}
+
+function fieldOctave(salt: number, x: number, y: number, cell: number): number {
+  const gx = Math.floor(x / cell);
+  const gy = Math.floor(y / cell);
+  const fx = x / cell - gx;
+  const fy = y / cell - gy;
+  const sx = fx * fx * (3 - 2 * fx);
+  const sy = fy * fy * (3 - 2 * fy);
+  const h = (ix: number, iy: number): number => pixHash32(ix, iy, salt) / 4294967296;
+  const a = h(gx, gy);
+  const b = h(gx + 1, gy);
+  const c = h(gx, gy + 1);
+  const d = h(gx + 1, gy + 1);
+  return a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy;
+}
+
+function buildFields(w: World, rng: RngState): TerrainFields {
+  const { width, height } = w;
+  const eSalt = nextU32(rng) | 1;
+  const mSalt = nextU32(rng) | 1;
+  const elev = new Float64Array(width * height);
+  const moist = new Float64Array(width * height);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const t = y * width + x;
+      // headwaters north, outflow south: a gentle valley grade the drainage
+      // follows, roughened by two octaves of coarse noise
+      const grade = 1 - y / height;
+      const eNoise = 0.7 * fieldOctave(eSalt, x, y, 24) + 0.3 * fieldOctave(eSalt ^ 0x9e37, x, y, 9);
+      elev[t] = 0.55 * grade + 0.45 * eNoise;
+      moist[t] = 0.72 * fieldOctave(mSalt, x, y, 22) + 0.28 * fieldOctave(mSalt ^ 0x85eb, x, y, 8);
+    }
+  }
+  return { elev, moist };
 }
 
 /**
@@ -153,6 +202,8 @@ export function generateWorld(seed: number, width: number, height: number, opts:
     w.districtCoeffs = districtCoeffTable();
     w.terrain.fill(Terrain.Grass); // the whole map starts as open country
     w.townName = pickTownName(rng); // a fresh fake town, every seed
+    // §2 rev. 6: elevation + moisture come FIRST — geography before geometry
+    const fields = buildFields(w, rng);
 
     const town = layoutHighwaysAndTown(w, rng, rScale);
     layoutRail(w, rng, town); // the railroad the town was built on (§2 rev. 5)
@@ -160,12 +211,12 @@ export function generateWorld(seed: number, width: number, height: number, opts:
     const townType: TownType = opts.townType ?? "farm";
     const dominant =
       townType === "desert" ? Biome.Desert : townType === "mountain" ? Biome.Forest : -1;
-    paintBiomes(w, rng, town, opts.biomes ?? ["desert", "forest", "autumn"], dominant);
-    const riverPath = carveRiver(w, rng, town);
+    paintBiomes(w, rng, town, opts.biomes ?? ["desert", "forest", "autumn"], dominant, fields);
+    const riverPath = carveRiver(w, rng, town, fields);
     scatterExurbs(w, rng, town);
     // nature FIRST, then farming: forests must never chew through planted
     // parcels — fields wrap around standing timber, not the reverse (QA S1-B)
-    placeNature(w, rng, town, riverPath);
+    placeNature(w, rng, town, riverPath, fields);
     if (riverPath) connectLakesToRiver(w, riverPath); // no disconnected lakes
     layoutFarms(w, rng, town);
     fillFarmBelt(w, rng, town); // contiguous working farmland, not islands
@@ -395,8 +446,10 @@ function paintBiomes(
   town: TownShape,
   biomes: BiomeName[],
   dominant: number = -1,
+  fields: TerrainFields,
 ): void {
   const { width, height } = w;
+  const rimSalt = nextU32(rng) | 1; // drawn unconditionally: stable stream shape
   // ARCHETYPE DOMINANT BIOME (§2A): desert/mountain towns sit INSIDE their
   // biome — one mega-blob covers the whole countryside; the town core and a
   // working margin around it stay temperate (the oasis/valley the town holds).
@@ -407,48 +460,48 @@ function paintBiomes(
         const ddx = x - town.cx;
         const ddy = y - town.cy;
         const d = Math.sqrt(ddx * ddx + ddy * ddy);
-        // fringe wobble so the valley rim never reads as a circle
-        const ang = Math.atan2(ddy, ddx);
-        const rim = clear * (1 + 0.22 * Math.sin(3 * ang + 1.3) + 0.12 * Math.sin(7 * ang));
+        // fringe wobble so the valley rim never reads as a circle —
+        // field noise instead of sine harmonics (no transcendentals)
+        const rim = clear * (1 + 0.6 * (fieldOctave(rimSalt, x, y, 7) - 0.5));
         if (d > rim) w.biome[y * width + x] = dominant;
       }
     }
     return;
   }
-  // fixed processing order keeps the rng stream deterministic per config
-  const wanted = [...new Set(biomes)].sort();
-  const id = (b: BiomeName): number => (b === "desert" ? Biome.Desert : b === "forest" ? Biome.Forest : Biome.Autumn);
-  for (const name of wanted) {
-    const blobs = 1 + nextRange(rng, 2);
-    for (let i = 0; i < blobs; i++) {
-      for (let attempt = 0; attempt < 12; attempt++) {
-        const bx = nextRange(rng, width);
-        const by = nextRange(rng, height);
-        const ddx = bx - town.cx;
-        const ddy = by - town.cy;
-        const rr = 9 + nextRange(rng, 8);
-        if (ddx * ddx + ddy * ddy < (town.r + rr + 4) * (town.r + rr + 4)) continue;
-        // lumpy rim, same recipe as organicBlob
-        const h1 = 0.2 + nextRange(rng, 16) / 100;
-        const h2 = 0.1 + nextRange(rng, 10) / 100;
-        const p1 = nextRange(rng, 628) / 100;
-        const p2 = nextRange(rng, 628) / 100;
-        const reach = Math.ceil(rr * 1.35);
-        for (let dy = -reach; dy <= reach; dy++) {
-          for (let dx = -reach; dx <= reach; dx++) {
-            const x = bx + dx;
-            const y = by + dy;
-            if (x < 1 || y < 1 || x >= width - 1 || y >= height - 1) continue;
-            const dist = Math.sqrt(dx * dx + dy * dy);
-            const ang = Math.atan2(dy, dx);
-            const rim = rr * (1 + h1 * Math.sin(3 * ang + p1) + h2 * Math.sin(5 * ang + p2));
-            if (dist > rim) continue;
-            w.biome[y * width + x] = id(name);
-          }
-        }
-        break;
-      }
-    }
+  // MOISTURE-GATED BIOMES (§2 rev. 6): the dry tail of the moisture field is
+  // desert, the wet tail is forest, a mid-wet band turns autumn — coherent
+  // low-frequency patches, sized by countryside quantiles to match the old
+  // blob footprint. Fixed processing order keeps the config deterministic.
+  const wanted = new Set([...new Set(biomes)].sort());
+  if (!wanted.size) return;
+  const margin2 = (town.r + 6) * (town.r + 6);
+  const vals: number[] = [];
+  for (let t = 0; t < w.biome.length; t++) {
+    const x = t % width;
+    const y = (t / width) | 0;
+    const ddx = x - town.cx;
+    const ddy = y - town.cy;
+    if (ddx * ddx + ddy * ddy < margin2) continue;
+    vals.push(fields.moist[t]!);
+  }
+  if (!vals.length) return;
+  vals.sort((a, b) => a - b);
+  const q = (p: number): number => vals[Math.min(vals.length - 1, Math.floor(p * vals.length))]!;
+  const dryMax = q(0.06);
+  const autLo = q(0.7);
+  const autHi = q(0.76);
+  const wetMin = q(0.94);
+  for (let t = 0; t < w.biome.length; t++) {
+    const x = t % width;
+    const y = (t / width) | 0;
+    if (x < 1 || y < 1 || x >= width - 1 || y >= height - 1) continue;
+    const ddx = x - town.cx;
+    const ddy = y - town.cy;
+    if (ddx * ddx + ddy * ddy < margin2) continue; // the town holds temperate ground
+    const m = fields.moist[t]!;
+    if (wanted.has("desert") && m <= dryMax) w.biome[t] = Biome.Desert;
+    else if (wanted.has("forest") && m >= wetMin) w.biome[t] = Biome.Forest;
+    else if (wanted.has("autumn") && m >= autLo && m <= autHi) w.biome[t] = Biome.Autumn;
   }
 }
 
@@ -1669,7 +1722,7 @@ export function nearestRoad(w: World, from: number, maxR: number): number {
  * the road intact: that gap reads as a BRIDGE. Banks meet land as sand
  * shoreline in the renderer, so the creek reads as flowing water, not a pond.
  */
-function carveRiver(w: World, rng: RngState, town: TownShape): number[] | null {
+function carveRiver(w: World, rng: RngState, town: TownShape, fields: TerrainFields): number[] | null {
   const { width, height } = w;
   // run roughly vertically (crossing the horizontal highway) down whichever
   // side has more room, offset well clear of the town footprint.
@@ -1685,17 +1738,32 @@ function carveRiver(w: World, rng: RngState, town: TownShape): number[] | null {
   if (off <= town.r + 2) return null; // would cut through the streets
   const baseX = town.cx + side * off;
   if (baseX < 4 || baseX > width - 5) return null;
-  const a1 = 4 + nextRange(rng, 5); // meander amplitudes
-  const a2 = 2 + nextRange(rng, 3);
-  const k1 = 0.05 + nextRange(rng, 4) / 100;
-  const k2 = 0.13 + nextRange(rng, 6) / 100;
-  const p1 = nextRange(rng, 628) / 100;
-  const drift = (nextRange(rng, 21) - 10) / 100; // slow lateral lean
-  // pass 1: the meander path
+  // pass 1: DRAINAGE DESCENT (§2 rev. 6): the channel walks downhill row by
+  // row — |Δx| ≤ 1 per row — on a blend of the elevation field and its own
+  // medium-wavelength thalweg noise (coarse elevation alone reads as a
+  // canal: the channel locks one wide valley and runs straight). A gentle
+  // corridor pull keeps the meander out of the streets.
+  const rSalt = nextU32(rng) | 1;
   const cxs: number[] = [];
+  let cx = baseX;
   for (let y = 0; y < height; y++) {
-    const cxF = baseX + a1 * Math.sin(k1 * y + p1) + a2 * Math.sin(k2 * y) + drift * (y - height / 2);
-    cxs.push(Math.round(cxF));
+    cxs.push(cx);
+    if (y === height - 1) break;
+    let best = cx;
+    let bestScore = Infinity;
+    for (const nx of [cx, cx - 1, cx + 1]) {
+      if (nx < 4 || nx > width - 5) continue;
+      if (Math.abs(nx - baseX) > 11) continue; // stay in the valley
+      const score =
+        0.4 * fields.elev[(y + 1) * width + nx]! +
+        0.6 * fieldOctave(rSalt, nx, y + 1, 9) +
+        Math.abs(nx - baseX) * 0.005;
+      if (score < bestScore) {
+        bestScore = score;
+        best = nx;
+      }
+    }
+    cx = best;
   }
   // pass 2: STRAIGHTEN THE CHANNEL THROUGH ROAD CROSSINGS. A meander that
   // shifts columns mid-crossing staggers the bridge deck into a diagonal;
@@ -2036,7 +2104,13 @@ function organicBlob(
   }
 }
 
-function placeNature(w: World, rng: RngState, town: TownShape, riverPath: number[] | null = null): void {
+function placeNature(
+  w: World,
+  rng: RngState,
+  town: TownShape,
+  riverPath: number[] | null = null,
+  fields: TerrainFields,
+): void {
   const { width, height } = w;
   // a couple of generous forests, several smaller copses, one irregular lake
   const forests = 2 + nextRange(rng, 2);
@@ -2066,9 +2140,19 @@ function placeNature(w: World, rng: RngState, town: TownShape, riverPath: number
       // targeted placement keeps trying until it lands in the wanted biome
       if (kind === Terrain.Woods && bio === Biome.Desert) continue;
       if (wantBiome >= 0 && bio !== wantBiome) continue;
-      // RIPARIAN BIAS (#9): the first attempts insist on hugging water —
-      // surviving woodland lives in the floodplain, not on prime cropland
-      if (kind === Terrain.Woods && wantBiome < 0 && attempt < 8 && !nearWater(bx, by, 8)) continue;
+      // RIPARIAN BIAS (#9) + WETNESS (§2 rev. 6): the first attempts insist
+      // on hugging water OR wet ground — surviving woodland lives in the
+      // floodplain and the damp hollows, not on prime cropland
+      if (
+        kind === Terrain.Woods &&
+        wantBiome < 0 &&
+        attempt < 8 &&
+        !nearWater(bx, by, 8) &&
+        fields.moist[by * width + bx]! < 0.55
+      )
+        continue;
+      // the lake pools in low country, not on a hilltop (§2 rev. 6)
+      if (kind === Terrain.Lake && attempt < 8 && fields.elev[by * width + bx]! > 0.45) continue;
       organicBlob(w, rng, bx, by, r, kind);
       return;
     }

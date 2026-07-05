@@ -16,12 +16,17 @@ _Updated 2026-07-05: B1.4 (mapgen) decomposed to atoms per the PROCGEN RULE —
 derived from mapgen.ts/gridRoads.ts code, not from docs. Baseline re-verified
 that day: build clean, **sim 78/78 green**._
 
-**~176/183 nodes VERIFIED · 0 IMPLEMENTED-not-verified · NOT_STARTED: B1.4.12 (terrain fields v2, absorbs B1.4.21 transcendental-free geometry), B1.4.20 (archetype mechanics — deferred behind B7.9), B7.1/B7.4 (launch seams), B8.11/B8.12 (accepted MINOR) · 6 BLOCKED (external infra/content) · 1 STUBBED (deferred high-detail art, tracked)**
+**~177/183 nodes VERIFIED · 0 IMPLEMENTED-not-verified · NOT_STARTED: B1.4.20 (archetype mechanics — deferred behind B7.9), B1.4.21 (3 remaining transcendental clusters — risk contained by B6.5), B7.1/B7.4 (launch seams), B8.11/B8.12 (accepted MINOR) · 6 BLOCKED (external infra/content) · 1 STUBBED (deferred high-detail art, tracked)**
 
-_B6.5 CLOSED 2026-07-05: the #1 HANDOFF risk is now gated on every push —
-the identical sim probe hashes byte-identically across Node/V8, Chromium/V8,
-Firefox/SpiderMonkey, and WebKit/JavaScriptCore (all three shipping engine
-families), including the §2A oceanside transcendental coastline._
+_2026-07-05 late session: **B6.5 CLOSED** — the #1 HANDOFF risk is gated on
+every push (probe hashes byte-identical across Node/V8, Chromium/V8,
+Firefox/SpiderMonkey, WebKit/JavaScriptCore). **B1.4.12 CLOSED** — terrain
+fields v2 landed: elevation+moisture generated first, river descends the
+terrain, biomes moisture-gated, vegetation wetness-weighted; 87/87 sim +
+14/14 server green, metrics within noise of baseline, QA re-render PASS
+(one TUNE round: thalweg blend un-straightened the river), playability
+smoke PT-0004. Every pure-code mapgen node is now VERIFIED; what remains
+open anywhere is deferred-by-decision or blocked-external._
 
 _Prime-directive pass 2026-07-05 (PT-0003): archetype worlds PLAY — 30/30 bot
 matches on all 5 townTypes founded 4/4 via the production spawn spiral and
@@ -180,7 +185,7 @@ Next recommended actions, in order:
 | B1.4.11.10 | B1/mapgen/realism/hedgerows | Hedgerows | Woods/field boundary rows | B1.4.9.5 | ✔️ | realism pass; vision-checked |
 | B1.4.11.11 | B1/mapgen/realism/cemetery | Edge cemetery | One cemetery at the town margin | B1.4.15.1 | ✔️ | realism pass; vision-checked |
 | B1.4.11.12 | B1/mapgen/rail/invariant | INVARIANT: rail anchors town | Railroad + elevator + depot present every seed (§2 rev. 5) | B1.4.11.3 | ✔️ | mapgen.test.ts gate green (2026-07-05) |
-| B1.4.12 | B1/mapgen/fields | Terrain fields v2 | Coarse heightmap + moisture FIRST; river follows drainage; biomes gated on elevation+moisture; vegetation on wetness | B1.4.11 | ⬜ | Deferred (reviewer #8, foundational); also deferred: #1 river-anchored founding, #15 curvilinear suburbs, #16 diagonal legacy road (conflicts with H/V rule) |
+| B1.4.12 | B1/mapgen/fields | Terrain fields v2 (§2 rev. 6) | Elevation+moisture built FIRST (value noise on the pixHash lattice — mult/add only, cross-engine exact); river = drainage descent blended with thalweg noise, cxs[] contract preserved so crossings/widening/dam/creeks unchanged; biomes = moisture quantiles (dry→desert 6%, wet→forest 6%, mid band→autumn) with the town margin temperate; woods seek moist ground, lake seeks low ground; fields generation-local (no snapshot/hash change) | B1.4.11 | ✔️ | Suite 87/87 + server 14/14 green; metrics vs baseline all within noise (connectivity .986, farmShare .23, waterShare .052); x-browser gate PASS ×4 engines; QA re-render PASS after 1 TUNE (canal-straight river → thalweg blend), "QA gallery/Archetypes_fieldsv2/"; playability smoke PT-0004. Still deferred from reviewer list: #1 river-anchored founding, #15 curvilinear suburbs, #16 diagonal legacy road (H/V rule) |
 
 #### B1.4.13 — Mapgen QA (sweeps complete)
 
@@ -202,7 +207,7 @@ Next recommended actions, in order:
 | B1.4.14.7 | B1/mapgen/arch/qa | Archetype sample-set QA 🖼️ | QA_MAPGEN protocol × 4 archetypes × 3 seeds; full map + LOD-3 anchor crop; seeds in filenames | B1.4.14.6 | ✔️ | 24 renders in "QA gallery/Archetypes_2026-07-05/" via tools/archetype_qa.mjs; verdict PASS, S3s logged in QA_GALLERY.md §Town Archetypes |
 | B1.4.14.8 | B1/mapgen/arch/playtest | Archetype match playability 🎮 | Full matches run on every archetype with the PRODUCTION founding path: every player founds, every match ends with a winner, pacing recorded | B1.4.14.2–.5 | ✔️ | tools/archetype_playtest.mjs: 30 matches (5 types × 6 seeds), 30/30 founded 4/4 + ended decisively; PT-0003 in PLAYTEST_LOG.md |
 | B1.4.20 | B1/mapgen/arch/mechanics | Archetype mechanical identity | EXTEND candidate (Depth Review PT-0003): give archetypes gameplay hooks — harbor economy, timber income, oasis water politics, pier/sawmill landmark-grade effects. Today `Biome.*` has ZERO engine hooks; archetypes differentiate through geometry alone (measured: median end-of-match conversion 267 desert → 517 lakeside) | B1.4.14.8, B7.9 | ⬜ | DELIBERATELY DEFERRED: spatial axis already PASSES its DEEP target on the base town; adding mechanics before human playtests would be polish over restraint. Revisit when B7.9 (human playtests) unblocks |
-| B1.4.21 | B1/mapgen/transcendentals | Transcendental-free mapgen | Replace Math.sin/cos/atan2 in mapgen's 7 call sites (coastline, river meander, town footprint, oasis rim, blob rims) with hardcoded fixed-point LUTs — spec leaves transcendentals implementation-defined, so cross-engine equality is empirical, not guaranteed | B1.4.12 | ⬜ | Risk CONTAINED, not closed: B6.5 gates all 3 shipping engine families (fdlibm-derived, agree today) on every push, incl. an oceanside case. Fold into B1.4.12's geometry rebuild — a standalone LUT swap would churn every world shape twice |
+| B1.4.21 | B1/mapgen/transcendentals | Transcendental-free mapgen | Replace the REMAINING Math.sin/cos/atan2 sites — 3 clusters after fields v2 retired the river meander + biome rims: oceanside coastline wobble (mapgen.ts:916), town footprint rim (:1116–1169), organicBlob rim (:2081–2087) — with field-noise or LUT math | B1.4.12 | ⬜ | Risk CONTAINED: B6.5 gates all 3 shipping engine families on every push, incl. an oceanside case. Fields v2 already eliminated 2 of the 5 clusters; the rest reshape towns/coasts/blobs, so batch them with the next intentional world-shape change |
 
 #### B1.4.15 — Town building placement (`placeTownBuildings` beyond keystones)
 

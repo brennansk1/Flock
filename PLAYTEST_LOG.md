@@ -75,3 +75,17 @@ archetype sub-axis is LIGHT by design today; "archetype mechanical identity"
 sawmill effects) is filed as an explicit EXTEND candidate — B1.4.20 — NOT
 built now. Adding mechanics before human playtests would violate restraint;
 the geometry already plays.
+
+## PT-0004 — 2026-07-05 — fields-v2 playability smoke
+
+- **Nodes:** B1.4.12 (baseline-preservation gate)
+- **Scenario:** terrain fields v2 reshaped every world, so the PT-0003
+  campaign re-ran on the new geography: 20 bot matches (5 townTypes × 4
+  seeds, production founding path).
+- **Verdict: PASS — playability preserved.** Founding 4/4 on every match,
+  every type; every match ended (50–75% pre-timer dominations, remainder
+  timer points-wins — the harness now separates the two). Median durations
+  7.2–12 min, in the healthy band. Median end-of-match conversion sits
+  ~496–515 across all types on these seeds (N=4/type — too small to
+  re-read the archetype pacing spread; B1.4.19 metrics are the stable
+  signal, and they held within noise of baseline).

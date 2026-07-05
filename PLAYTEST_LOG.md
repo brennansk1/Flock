@@ -89,3 +89,14 @@ the geometry already plays.
   ~496–515 across all types on these seeds (N=4/type — too small to
   re-read the archetype pacing spread; B1.4.19 metrics are the stable
   signal, and they held within noise of baseline).
+
+## PT-0005 — 2026-07-05 — mapgen quality-upgrade smoke
+
+- **Nodes:** quality pass (belt fringe, creek reaches, quarry haul road,
+  beach normalization, lighthouse fallback)
+- **Scenario:** 15 bot matches (5 townTypes × 3 seeds, production founding).
+- **Verdict: PASS.** Founding 4/4 everywhere despite the construction ring
+  tightening from r+10 to r+4 (the half-open smallholding band leaves room).
+  All matches ended. Observation (N=3, hold loosely): median lead share fell
+  to 0.72–0.89 from PT-0003/4's 0.94–0.98 — the smallholding ring may be
+  breaking up runaway early expansion. Re-read when humans play (B7.9).

@@ -7,7 +7,7 @@
  *   roadConnectivity  largest road component / all road+dirt tiles (→ 1.0)
  *   blockCount/median/p90  city-block granularity inside the town plat
  *   lotVariety        distinct lot kinds + Shannon entropy (bits) of the mix
- *   nameUniqueness    unique street names / named streets
+ *   nameCollisions    same name on spatially UNRELATED streets (expect 0)
  *   farmShare         cultivated share of open country (fields+orchard+pasture)
  *   waterShare        lake/river share of the map
  *
@@ -103,9 +103,37 @@ for (const seed of SEEDS) {
     entropy -= p * Math.log2(p);
   }
 
-  // --- name uniqueness ----------------------------------------------------
-  const names = w.streets.map((s) => s.name).filter(Boolean);
-  const nameUniqueness = names.length ? new Set(names).size / names.length : 0;
+  // --- name collisions ------------------------------------------------------
+  // Segments legitimately share a name (the 2-row highway pair, rural roads
+  // jogging across axis segments). A COLLISION is a name whose segments form
+  // more than one spatially disconnected street (endpoints never within 3
+  // tiles). freshLabel dedupes, so this should be 0 — it guards regressions.
+  const byName = new Map();
+  for (const s of w.streets) {
+    if (!byName.has(s.name)) byName.set(s.name, []);
+    byName.get(s.name).push(s);
+  }
+  const segTouch = (a, b) => {
+    const pts = (s) =>
+      s.axis === 0
+        ? [[s.from, s.at], [s.to, s.at]]
+        : [[s.at, s.from], [s.at, s.to]];
+    for (const [ax, ay] of pts(a))
+      for (const [bx, by] of pts(b))
+        if (Math.abs(ax - bx) + Math.abs(ay - by) <= 3) return true;
+    return false;
+  };
+  let nameCollisions = 0;
+  for (const segs of byName.values()) {
+    // count connected groups among same-named segments
+    const g = segs.map((_, i) => i);
+    const find = (i) => (g[i] === i ? i : (g[i] = find(g[i])));
+    for (let i = 0; i < segs.length; i++)
+      for (let j = i + 1; j < segs.length; j++)
+        if (segTouch(segs[i], segs[j])) g[find(i)] = find(j);
+    const groups = new Set(segs.map((_, i) => find(i))).size;
+    nameCollisions += groups - 1;
+  }
 
   // --- land use -------------------------------------------------------------
   let cultivated = 0, water = 0, open = 0;
@@ -124,7 +152,7 @@ for (const seed of SEEDS) {
     blockP90: quantile(blockSizes, 0.9),
     lotKinds: lotCounts.size,
     lotEntropyBits: +entropy.toFixed(2),
-    nameUniqueness: +nameUniqueness.toFixed(3),
+    nameCollisions,
     farmShare: +(cultivated / (cultivated + open)).toFixed(3),
     waterShare: +(water / n).toFixed(3),
   });
@@ -139,7 +167,7 @@ console.log("batch means:", {
   blockMedian: avg("blockMedian"),
   lotKinds: avg("lotKinds"),
   lotEntropyBits: avg("lotEntropyBits"),
-  nameUniqueness: avg("nameUniqueness"),
+  nameCollisions: avg("nameCollisions"),
   farmShare: avg("farmShare"),
   waterShare: avg("waterShare"),
 });

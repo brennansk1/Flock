@@ -319,6 +319,10 @@ export function generateWorld(seed: number, width: number, height: number, opts:
       for (let dy = 0; dy <= 2; dy++)
         for (let dx = 0; dx <= 3 - (dy === 2 ? 1 : 0); dx++)
           w.terrain[(qy + dy) * width + qx + dx] = Terrain.Dirt;
+      // HAUL ROAD (quality pass): a working pit ships gravel — carve the
+      // access lane so the pit joins the path network instead of floating
+      // as an orphan dirt pocket (the B1.4.19 connectivity dips)
+      carveDirtLane(w, qy * width + qx);
       break;
     }
     // Alleys behind Main Street commerce: Horizontal dirt/gravel lanes at hy-2 and hy+3 (#1)
@@ -928,13 +932,18 @@ function applyTownArchetype(
         w.pop[t] = 0;
         w.biome[t] = Biome.Ocean;
       }
-      // beach strip: 2 tiles of sand-biome ground landward of the surf
+      // beach strip: 2 tiles of sand-biome ground landward of the surf.
+      // ALL cultivation is cleared — no crops, paddocks, or orchards in the
+      // surf zone (quality pass: the old check missed pasture/orchard, which
+      // put fence lines on the dunes and starved the lighthouse of shore
+      // grass once smallholdings reached the coast)
       for (let b = 1; b <= 2; b++) {
         const x = cx - side * b;
         if (x < 1 || x >= width - 1) continue;
         const t = y * width + x;
-        if (w.terrain[t] === Terrain.Grass || w.terrain[t] === Terrain.Field) {
-          if (w.terrain[t] === Terrain.Field) w.terrain[t] = Terrain.Grass;
+        const tr = w.terrain[t];
+        if (tr === Terrain.Grass || tr === Terrain.Field || tr === Terrain.Orchard || tr === Terrain.Pasture) {
+          if (tr !== Terrain.Grass) w.terrain[t] = Terrain.Grass;
           w.biome[t] = Biome.Ocean;
         }
       }
@@ -955,14 +964,22 @@ function applyTownArchetype(
         w.biome[t] = Biome.Ocean;
       }
     }
-    // lighthouse on a shore point north of the pier
-    for (let y = Math.max(4, pierY - 18); y < pierY - 4; y++) {
-      const x = coastX[y]! - side;
-      if (x < 2 || x >= width - 2) continue;
-      const t = y * width + x;
-      if (w.terrain[t] === Terrain.Grass) {
-        plantLot(t, Lot.Lighthouse, Districts.None, 1);
-        break;
+    // lighthouse on a shore point north of the pier — strict pass wants
+    // shore grass; the relaxed pass widens the search south and fells a
+    // shore tree if it must. A working coast ALWAYS has its light.
+    let lit = false;
+    for (const strict of [true, false]) {
+      if (lit) break;
+      const yFrom = Math.max(4, pierY - 18);
+      const yTo = strict ? pierY - 4 : Math.min(height - 4, pierY + 24);
+      for (let y = yFrom; y < yTo && !lit; y++) {
+        const x = coastX[y]! - side;
+        if (x < 2 || x >= width - 2) continue;
+        const t = y * width + x;
+        if (w.terrain[t] === Terrain.Grass || (!strict && w.terrain[t] === Terrain.Woods)) {
+          plantLot(t, Lot.Lighthouse, Districts.None, 1);
+          lit = true;
+        }
       }
     }
     // cannery + fish docks working the shore south of the pier
@@ -1411,21 +1428,40 @@ function layoutFarms(w: World, rng: RngState, town: TownShape): void {
  */
 function fillFarmBelt(w: World, rng: RngState, town: TownShape): void {
   const { width, height } = w;
-  const inner = town.r + 10;
+  // QUALITY PASS (upgrade sweep): the belt used to hold back 10 tiles from
+  // town, leaving a bare no-man's-ring — real farm towns have fields against
+  // the last street. The setback shrinks to 4; the first ring [r+4, r+12]
+  // fills as SMALLHOLDINGS: half the cells stay open grass (founding and
+  // property purchases still need room — the construction-ring contract),
+  // the rest are small paddocks and orchards, the market gardens that
+  // actually ring a rural town. Quarter-sections take over further out.
+  const inner = town.r + 4;
+  const nearBand = town.r + 12;
   const CELL_W = 11;
   const CELL_H = 9;
   for (let cy = 2; cy < height - 2; cy += CELL_H) {
     for (let cx2 = 2; cx2 < width - 2; cx2 += CELL_W) {
       const ddx = cx2 + CELL_W / 2 - town.cx;
       const ddy = cy + CELL_H / 2 - town.cy;
-      if (ddx * ddx + ddy * ddy < inner * inner) continue; // town + spawn ring
+      const d2 = ddx * ddx + ddy * ddy;
+      if (d2 < inner * inner) continue; // town core stays clear
+      const near = d2 < nearBand * nearBand;
       const roll = nextRange(rng, 12);
-      if (roll < 2) continue; // meadow cell — rarer now: the belt reads worked (QA sprint-1)
-      const kind: Terrain = roll < 9 ? Terrain.Field : roll < 11 ? Terrain.Pasture : Terrain.Orchard;
+      if (roll < (near ? 6 : 2)) continue; // near town: half the ring stays open
+      const kind: Terrain = near
+        ? roll < 9
+          ? Terrain.Pasture
+          : Terrain.Orchard
+        : roll < 9
+          ? Terrain.Field
+          : roll < 11
+            ? Terrain.Pasture
+            : Terrain.Orchard;
       // break the lattice read (QA S1-C): every parcel gets its own extent
-      // and offset inside the cell, so edges stop aligning map-wide
-      const pw = 7 + nextRange(rng, 3);
-      const ph = 5 + nextRange(rng, 3);
+      // and offset inside the cell, so edges stop aligning map-wide;
+      // smallholding plots run garden-sized, quarter-sections full-sized
+      const pw = near ? 4 + nextRange(rng, 3) : 7 + nextRange(rng, 3);
+      const ph = near ? 3 + nextRange(rng, 3) : 5 + nextRange(rng, 3);
       const offX = nextRange(rng, Math.max(1, CELL_W - pw));
       const offY = nextRange(rng, Math.max(1, CELL_H - ph));
 
@@ -1867,36 +1903,31 @@ function carveCreek(
       painted.push(t);
     }
   };
-  let straight = 0;
-  let lastAxis = -1;
-  for (let guard = 0; guard < width * 3; guard++) {
+  // RUN-LENGTH WALK (quality pass): a creek reads as REACHES joined by
+  // elbows, not a per-tile zigzag — the old 50/50 alternation stair-stepped
+  // at a machine rhythm. Each iteration commits to one axis for a 2–6 tile
+  // reach (down-reaches run longer: water wants the valley floor).
+  for (let guard = 0; guard < width; guard++) {
     if (y >= height - 2) break;
     const targetX = cxs[Math.min(joinY, y)]!;
     if (Math.abs(x - targetX) <= 1 && y >= joinY - 2) return; // joined — keep
     const wantX = targetX - x;
     const roll = nextRange(rng, 10 + salt);
-    let dx = 0;
-    let dy = 0;
-    if (y < joinY && (roll < 5 || wantX === 0)) dy = 1;
-    else dx = wantX > 0 ? 1 : wantX < 0 ? -1 : nextRange(rng, 2) === 0 ? 1 : -1;
-    // no long straights: after 5 steps on one axis, force a bend
-    const axis = dx !== 0 ? 0 : 1;
-    straight = axis === lastAxis ? straight + 1 : 0;
-    lastAxis = axis;
-    if (straight >= 5) {
-      if (axis === 0 && y < height - 3) {
-        dx = 0;
-        dy = 1;
-      } else if (axis === 1) {
-        dx = wantX >= 0 ? 1 : -1;
-        dy = 0;
+    const goDown = y < joinY && (roll < 6 || wantX === 0);
+    const run = 2 + nextRange(rng, goDown ? 5 : 3);
+    for (let s = 0; s < run; s++) {
+      if (y >= height - 2) break;
+      const tx = cxs[Math.min(joinY, y)]!;
+      if (Math.abs(x - tx) <= 1 && y >= joinY - 2) return; // joined mid-reach
+      if (goDown) {
+        y = Math.min(height - 2, y + 1);
+      } else {
+        const wx = tx - x;
+        if (wx === 0) break; // aligned over the join: end the lateral reach
+        x = Math.max(1, Math.min(width - 2, x + (wx > 0 ? 1 : -1)));
       }
-      straight = 0;
-      lastAxis = dx !== 0 ? 0 : 1;
+      paint(y * width + x);
     }
-    x = Math.max(1, Math.min(width - 2, x + dx));
-    y = Math.max(1, Math.min(height - 2, y + dy));
-    paint(y * width + x);
   }
   // never joined: a creek to nowhere is worse than no creek — erase it
   for (const t of painted) w.terrain[t] = Terrain.Grass;
@@ -1983,24 +2014,21 @@ function connectLakesToRiver(w: World, cxs: number[]): void {
     for (const t of comp) if (((t / width) | 0) > ((start / width) | 0)) start = t;
     let x = start % width;
     let y = (start / width) | 0;
-    // hash-jittered meander cadence: never the metronomic 3-across-1-down
-    // stair (QA sprint-1), and a forced bend caps any straight reach at 4.
-    let straight = 0;
-    let lastDown = false;
+    // RUN-LENGTH WALK (quality pass): the outlet reads as reaches + elbows,
+    // like the creeks — the old per-tile jitter stair-stepped metronomically.
+    let runDown = false;
+    let runLeft = 0;
     for (let guard = 0; guard < width * 2; guard++) {
       const targetX = cxs[y]!;
       if (Math.abs(x - targetX) <= 1) break; // reached the river
       let nx = x;
       let ny = y;
-      const jitter = pixHash32(x, y, 137) % 5;
-      let down = jitter < 2 && y < height - 2;
-      const sameAxis = down === lastDown;
-      straight = sameAxis ? straight + 1 : 0;
-      if (straight >= 4) {
-        down = !lastDown && y < height - 2;
-        straight = 0;
+      if (runLeft <= 0) {
+        runDown = pixHash32(x, y, 137) % 5 < 2 && y < height - 2;
+        runLeft = runDown ? 2 + (pixHash32(x, y, 251) % 4) : 2 + (pixHash32(x, y, 397) % 3);
       }
-      lastDown = down;
+      runLeft--;
+      const down = runDown && y < height - 2;
       if (down) ny++;
       else nx += targetX > x ? 1 : -1;
       if (nx < 0 || nx >= width || ny >= height) break;

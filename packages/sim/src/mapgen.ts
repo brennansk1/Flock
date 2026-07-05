@@ -568,7 +568,9 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
           }
         }
       }
-      // commercial frontage: must touch a road
+      // commercial frontage: must touch a road on ANY side (the old check
+      // only looked north/south, silently rejecting every lot that fronted
+      // a vertical street — half the addressable frontage in a small plat)
       if (ok) {
         let frontage = false;
         for (let dx = 0; dx < wLots && !frontage; dx++) {
@@ -576,6 +578,12 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
           const above = (y - 1) * width + x + dx;
           if (y + hLots < w.height && w.terrain[below] === Terrain.Road) frontage = true;
           if (y - 1 >= 0 && w.terrain[above] === Terrain.Road) frontage = true;
+        }
+        for (let dy = 0; dy < hLots && !frontage; dy++) {
+          const left = (y + dy) * width + x - 1;
+          const right = (y + dy) * width + x + wLots;
+          if (x - 1 >= 0 && w.terrain[left] === Terrain.Road) frontage = true;
+          if (x + wLots < width && w.terrain[right] === Terrain.Road) frontage = true;
         }
         if (!frontage) ok = false;
       }
@@ -612,17 +620,75 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
     for (const d of districts) {
       if (stamp(lotKind, 1, 1, d, workers)) return;
     }
-    // force-place: first road-fronting, lot-free citizen tile in raster order
+    // force-place: NEAREST road-fronting, lot-free citizen tile to the town
+    // center (the old raster scan started at the map corner, so a grocery
+    // could land on a farmstead 30 tiles out — QA DowntownSweep S1)
+    for (let radius = 0; radius < Math.max(width, w.height); radius++) {
+      for (let dy = -radius; dy <= radius; dy++) {
+        for (let dx = -radius; dx <= radius; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== radius) continue;
+          const x = town.cx + dx;
+          const y = town.cy + dy;
+          if (x < 1 || y < 1 || x >= width - 1 || y >= w.height - 1) continue;
+          const t = y * width + x;
+          if (w.terrain[t] !== Terrain.Citizen || w.lot[t] !== 0) continue;
+          let fronted = false;
+          for (const n of [t - 1, t + 1, t - width, t + width]) {
+            if (n >= 0 && n < w.terrain.length && w.terrain[n] === Terrain.Road) fronted = true;
+          }
+          if (!fronted) continue;
+          w.lot[t] = lotKind;
+          w.pop[t] = Math.min(15, Math.max(2, workers));
+          return;
+        }
+      }
+    }
+  };
+
+  /**
+   * DOWNTOWN CORE GUARANTEE (quality sweep): the flavor anchors a real Main
+   * Street cannot be missing — bank, post office, the works. Try each size
+   * across the district fallback chain; a smaller footprint downtown beats
+   * a perfect footprint nowhere (pre-sweep: Factory missing on 4/6 seeds,
+   * PostOffice on 5/6). No brute force: a cinema in a cornfield is worse
+   * than no cinema, so a full miss stays a miss — the test gate will say so.
+   */
+  const anchor = (
+    lotKind: number,
+    sizes: Array<[number, number]>,
+    districts: number[],
+    workers: number,
+  ): void => {
+    for (const [aw, ah] of sizes) {
+      for (const d of districts) {
+        if (stamp(lotKind, aw, ah, d, workers)) return;
+      }
+    }
+    // deterministic last resort: random throws rarely hit the few free
+    // tiles of a 28-tile district — scan for the nearest free road-fronted
+    // tile IN a listed district instead. Only a genuinely full district
+    // chain leaves the anchor missing.
+    let bestT = -1;
+    let bestD2 = Infinity;
     for (let t = 0; t < w.terrain.length; t++) {
       if (w.terrain[t] !== Terrain.Citizen || w.lot[t] !== 0) continue;
+      if (!districts.includes(w.district[t]!)) continue;
       let fronted = false;
       for (const n of [t - 1, t + 1, t - width, t + width]) {
         if (n >= 0 && n < w.terrain.length && w.terrain[n] === Terrain.Road) fronted = true;
       }
       if (!fronted) continue;
-      w.lot[t] = lotKind;
-      w.pop[t] = Math.min(15, Math.max(2, workers));
-      return;
+      const x = t % width;
+      const y = (t / width) | 0;
+      const d2 = (x - town.cx) * (x - town.cx) + (y - town.cy) * (y - town.cy);
+      if (d2 < bestD2) {
+        bestD2 = d2;
+        bestT = t;
+      }
+    }
+    if (bestT >= 0) {
+      w.lot[bestT] = lotKind;
+      w.pop[bestT] = Math.min(15, Math.max(2, workers));
     }
   };
 
@@ -638,27 +704,30 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
   keystone(Lot.GasStation, 2, 1, [D.Commercial, D.Trailer], 4);
 
   // Downtown: civic core. Every real Main Street has a town hall (landmark),
-  // bank, post office.
-  stamp(Lot.Office, 2, 2, D.Downtown, 16);
-  stamp(Lot.Bank, 1, 1, D.Downtown, 6);
-  stamp(Lot.PostOffice, 1, 1, D.Downtown, 5);
-  stamp(Lot.Diner, 1, 1, D.Downtown, 6);
+  // bank, post office — ANCHORED with size + district fallbacks so they
+  // actually exist (pre-sweep they missed more seeds than they hit)
+  anchor(Lot.Office, [[2, 2], [2, 1], [1, 1]], [D.Downtown, D.Commercial], 16);
+  anchor(Lot.Bank, [[1, 1]], [D.Downtown, D.Commercial], 6);
+  anchor(Lot.PostOffice, [[1, 1]], [D.Downtown, D.Commercial, D.OldTown], 5);
+  anchor(Lot.Diner, [[1, 1]], [D.Downtown, D.Commercial, D.OldTown], 6);
   for (let i = 0; i < 3; i++) stamp(Lot.Shop, 1, 1, D.Downtown, 4 + nextRange(rng, 3));
   // the town green: a civic square in the heart of downtown
   stamp(Lot.Park, 2, 2, D.Downtown, 1, 90);
   // Commercial strip: shops, diner, cinema, offices along Main Street
-  stamp(Lot.Cinema, 2, 1, D.Commercial, 8);
+  anchor(Lot.Cinema, [[2, 1], [1, 1]], [D.Commercial, D.Downtown], 8);
   stamp(Lot.Diner, 1, 1, D.Commercial, 6);
   stamp(Lot.Office, 2, 1, D.Commercial, 10);
   for (let i = 0; i < 5; i++) stamp(Lot.Shop, 1, 1, D.Commercial, 4 + nextRange(rng, 3));
-  // Industrial quarter: the works — factory + warehouses + a yard
-  stamp(Lot.Factory, 3, 2, D.Industrial, 14);
+  // Industrial quarter: the works — factory + warehouses + a yard. A farm
+  // town without its works is a postcard, not a town: the factory falls
+  // back through smaller footprints and the fringe before giving up
+  anchor(Lot.Factory, [[3, 2], [2, 2], [2, 1]], [D.Industrial, D.Trailer], 14);
   keystone(Lot.Warehouse, 3, 1, [D.Industrial, D.Trailer, D.Commercial], 6);
   stamp(Lot.Warehouse, 2, 1, D.Industrial, 6);
   stamp(Lot.GasStation, 1, 1, D.Industrial, 3);
   stamp(Lot.Substation, 1, 1, D.Industrial, 1);
   // College quarter
-  stamp(Lot.Library, 1, 1, D.College, 5);
+  anchor(Lot.Library, [[1, 1]], [D.College, D.Downtown, D.Suburbs], 5);
   stamp(Lot.Shop, 1, 1, D.College, 4);
   stamp(Lot.BallField, 2, 2, D.College, 1, 70); // the school ballpark
   // Old Town: chapel + diner + the old churchyard

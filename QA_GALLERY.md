@@ -111,3 +111,19 @@ medium-wavelength thalweg field into the descent score. Post-fix: rivers
 meander in S-curves, lake outlets wind naturally, lakes pool in low country,
 woods hug water and damp hollows, desert oasis rim wobbles organically
 (field noise — the old sine harmonics in paintBiomes are gone).
+
+---
+
+## Downtown / big-building sweep — 2026-07-05
+
+Hostile LOD-3 review of downtown, industrial, and parking
+([`QA gallery/DowntownSweep/`](QA%20gallery/DowntownSweep/)). Downtown itself
+passed (storefront variety, crosswalks, striped aprons, ResHigh blocks). Two
+S-class generator defects found and fixed, both invisible at map scale:
+**the works were missing** (Factory absent on 4/6 seeds, PostOffice 5/6,
+Bank 3/6 — stamp() only accepted north/south frontage and flavor anchors had
+no fallback) and **the grocery could land on a farmstead 30 tiles out**
+(keystone force-place scanned raster-order from the map corner). Post-fix:
+all 18 anchor lots present on 9/9 probe seeds, supermarket ≤8 tiles from
+center, gated by a new mapgen test. Fixed crops: `factory_seed99_fixed.png`,
+`bank_seed42_fixed.png`.

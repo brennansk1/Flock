@@ -213,7 +213,7 @@ Next recommended actions, in order:
 
 | ID | Tree Path | Feature | Contract / Acceptance Criteria | Depends On | Status | Evidence / Notes |
 |----|-----------|---------|-------------------------------|------------|--------|------------------|
-| B1.4.15.1 | B1/mapgen/bldg/stamp | stamp() engine | wLots×hLots fitting in district; commercial frontage must touch a road | B1.4.6 | ✔️ | mapgen.ts:489+ |
+| B1.4.15.1 | B1/mapgen/bldg/stamp | stamp() + anchor() engine | wLots×hLots fitting in district; frontage on ANY road side (sweep fix: N/S-only check silently rejected vertical-street frontage); anchor() adds size + district fallback chains + deterministic nearest-tile last resort; keystone force-place spirals from town center (raster scan put a grocery on a farmstead 30 tiles out) | B1.4.6 | ✔️ | Downtown sweep 2026-07-05: pre-fix Factory missing 4/6 seeds, PostOffice 5/6, Bank 3/6 — post-fix all 18 anchors present 9/9 seeds; gated by "downtown core and the works exist" test ×5 seeds incl. supermarket-in-town assert; suite 88/88 |
 | B1.4.15.2 | B1/mapgen/bldg/civic | Downtown civic core | Town hall (landmark), bank, post office on every Main Street | B1.4.15.1 | ✔️ | vision-checked in sweeps |
 | B1.4.15.3 | B1/mapgen/bldg/green | Town green | Civic square in the heart of downtown | B1.4.15.2 | ✔️ | sweeps |
 | B1.4.15.4 | B1/mapgen/bldg/strip | Commercial strip | Shops/diner/cinema/offices along Main St | B1.4.15.1 | ✔️ | sweeps (awning/parapet variety fixed) |

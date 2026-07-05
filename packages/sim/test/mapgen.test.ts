@@ -226,6 +226,36 @@ test("the countryside is farmed, watered, and wooded like working land", () => {
   assert.ok(water > 200, `drainage too sparse: ${water} water tiles`);
 });
 
+test("the downtown core and the works exist in every town (quality sweep)", () => {
+  // A real Main Street has its bank, post office, diner, cinema, office and
+  // library; a real farm town has its factory. Pre-sweep these missed more
+  // seeds than they hit (Factory 4/6, PostOffice 5/6) — anchored now with
+  // size/district fallbacks + a deterministic nearest-tile last resort.
+  for (const seed of SEEDS) {
+    const w = generateWorld(seed, 96, 96);
+    const present = new Set<number>();
+    for (let t = 0; t < w.lot.length; t++) if (w.lot[t] !== 0) present.add(w.lot[t]!);
+    for (const [name, kind] of [
+      ["bank", Lot.Bank],
+      ["post office", Lot.PostOffice],
+      ["factory", Lot.Factory],
+      ["cinema", Lot.Cinema],
+      ["library", Lot.Library],
+      ["diner", Lot.Diner],
+      ["office", Lot.Office],
+    ] as const) {
+      assert.ok(present.has(kind), `seed ${seed}: no ${name}`);
+    }
+    // and the grocery is IN town, not on a farmstead (force-place spiral)
+    for (let t = 0; t < w.lot.length; t++) {
+      if (w.lot[t] !== Lot.Supermarket) continue;
+      const d = Math.hypot((t % 96) - 48, Math.floor(t / 96) - 48);
+      assert.ok(d < 20, `seed ${seed}: supermarket ${d.toFixed(0)} tiles from town center`);
+      break;
+    }
+  }
+});
+
 test("household/member names are pure and stable", () => {
   assert.equal(householdName(1234), householdName(1234));
   assert.equal(memberName(1234, 0), memberName(1234, 0));

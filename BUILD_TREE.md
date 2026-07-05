@@ -178,8 +178,11 @@ B1  ✔️ SIM — deterministic gameplay core (@flock/sim, runs bit-identically
 │   │   ├── B1.4.14.6 ✔️ INVARIANTS: 9 archetype gates in archetypes.test.ts
 │   │   │            (determinism, floors, keystones, orthogonality, water
 │   │   │            cleanliness, per-archetype anchors, snapshot round-trip)
-│   │   └── B1.4.14.7 ✔️🖼️ Archetype sample-set QA — 24 renders, 3 seeds × 4
-│   │                archetypes, PASS ("QA gallery/Archetypes_2026-07-05/")
+│   │   ├── B1.4.14.7 ✔️🖼️ Archetype sample-set QA — 24 renders, 3 seeds × 4
+│   │   │            archetypes, PASS ("QA gallery/Archetypes_2026-07-05/")
+│   │   └── B1.4.14.8 ✔️🎮 Archetype match playability — 30 full bot matches
+│   │                (5 types × 6 seeds, production founding path): 30/30
+│   │                founded 4/4 + ended with a winner (PT-0003)
 │   ├── B1.4.15 ✔️ TOWN BUILDING PLACEMENT — placeTownBuildings beyond keystones
 │   │   ├── B1.4.15.1 ✔️ stamp() engine — wLots×hLots fitting; commercial
 │   │   │            frontage must touch a road
@@ -220,10 +223,15 @@ B1  ✔️ SIM — deterministic gameplay core (@flock/sim, runs bit-identically
 │   │   │            all mapgen fields inside hashState (→ lockstep gate)
 │   │   └── B1.4.18.3 ✔️ Seed logging — QA samples named by seed
 │   │                (11/21/42/77/99); every failure reproducible
-│   └── B1.4.19 ✔️ QUALITY METRICS (procgen rule §4) — tools/mapmetrics.mjs:
-│                road connectivity, block count/median/p90, lot variety +
-│                entropy, name uniqueness, farm/water share, per seed batch
-│                & archetype; baseline values recorded in the Manifest
+│   ├── B1.4.19 ✔️ QUALITY METRICS (procgen rule §4) — tools/mapmetrics.mjs:
+│   │            road connectivity, block count/median/p90, lot variety +
+│   │            entropy, name uniqueness, farm/water share, per seed batch
+│   │            & archetype; baseline values recorded in the Manifest
+│   └── B1.4.20 ⬜ ARCHETYPE MECHANICAL IDENTITY — EXTEND candidate from the
+│                spatial Depth Review (PT-0003): biomes/pier/sawmill/cannery
+│                have zero gameplay hooks; archetypes differentiate through
+│                geometry alone. DELIBERATELY DEFERRED until human playtests
+│                (B7.9) say the base game wants it — restraint over polish
 ├── B1.5  ✔️ buildings.ts — full §6 table (Compounds…Supplement Labs)
 ├── B1.6  ✔️ entities.ts — Couriers, Vans, invisible Agents (§7)
 ├── B1.7  ✔️ PvP trio — raids / scandal→publish / court defection (§13/§15)

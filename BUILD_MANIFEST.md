@@ -16,7 +16,15 @@ _Updated 2026-07-05: B1.4 (mapgen) decomposed to atoms per the PROCGEN RULE —
 derived from mapgen.ts/gridRoads.ts code, not from docs. Baseline re-verified
 that day: build clean, **sim 78/78 green**._
 
-**~174/180 nodes VERIFIED · 0 IMPLEMENTED-not-verified · NOT_STARTED: B1.4.12 (terrain fields v2), B6.5 (x-browser CI), B7.1/B7.4 (launch seams), B8.11/B8.12 (accepted MINOR) · 6 BLOCKED (external infra/content) · 1 STUBBED (deferred high-detail art, tracked)**
+**~175/182 nodes VERIFIED · 0 IMPLEMENTED-not-verified · NOT_STARTED: B1.4.12 (terrain fields v2), B1.4.20 (archetype mechanics — deliberately deferred behind B7.9), B6.5 (x-browser CI), B7.1/B7.4 (launch seams), B8.11/B8.12 (accepted MINOR) · 6 BLOCKED (external infra/content) · 1 STUBBED (deferred high-detail art, tracked)**
+
+_Prime-directive pass 2026-07-05 (PT-0003): archetype worlds PLAY — 30/30 bot
+matches on all 5 townTypes founded 4/4 via the production spawn spiral and
+ended with winners. Spatial Depth Review: base town PASSES its DEEP target
+(decisions/tradeoffs/emergence all land); archetype differentiation is LIGHT
+(geometry only, no Biome engine hooks) — filed as B1.4.20, deferred. WATCH
+item: 0.94–0.98 winner lead share in same-tier bot mirrors (snowball signal;
+attribute after human playtests, B7.9)._
 
 _2026-07-05 close-out: the archetype gap is shut — B1.4.14.2–.7 all VERIFIED
 (9 test gates in archetypes.test.ts, suite 87/87; 24 QA renders PASS; mountain
@@ -187,6 +195,8 @@ Next recommended actions, in order:
 | B1.4.14.5 | B1/mapgen/arch/desert | Desert | Dominant desert biome + temperate oasis under the town | B1.4.10.2 | ✔️ | archetypes.test.ts: desert ≥4000 tiles, ≥90% of homes on temperate ground ×5 seeds; render vision-checked (best of the four) |
 | B1.4.14.6 | B1/mapgen/arch/invariants | INVARIANTS: archetype gates | Determinism + distinct-from-farm; pop floor + keystones + orthogonality survive every archetype; water clean (only Lot.Dam on lakes); snapshot round-trip hash-identical | B1.4.14.2–.5 | ✔️ | packages/sim/test/archetypes.test.ts — 9 gates, suite 87/87 green (2026-07-05) |
 | B1.4.14.7 | B1/mapgen/arch/qa | Archetype sample-set QA 🖼️ | QA_MAPGEN protocol × 4 archetypes × 3 seeds; full map + LOD-3 anchor crop; seeds in filenames | B1.4.14.6 | ✔️ | 24 renders in "QA gallery/Archetypes_2026-07-05/" via tools/archetype_qa.mjs; verdict PASS, S3s logged in QA_GALLERY.md §Town Archetypes |
+| B1.4.14.8 | B1/mapgen/arch/playtest | Archetype match playability 🎮 | Full matches run on every archetype with the PRODUCTION founding path: every player founds, every match ends with a winner, pacing recorded | B1.4.14.2–.5 | ✔️ | tools/archetype_playtest.mjs: 30 matches (5 types × 6 seeds), 30/30 founded 4/4 + ended decisively; PT-0003 in PLAYTEST_LOG.md |
+| B1.4.20 | B1/mapgen/arch/mechanics | Archetype mechanical identity | EXTEND candidate (Depth Review PT-0003): give archetypes gameplay hooks — harbor economy, timber income, oasis water politics, pier/sawmill landmark-grade effects. Today `Biome.*` has ZERO engine hooks; archetypes differentiate through geometry alone (measured: median end-of-match conversion 267 desert → 517 lakeside) | B1.4.14.8, B7.9 | ⬜ | DELIBERATELY DEFERRED: spatial axis already PASSES its DEEP target on the base town; adding mechanics before human playtests would be polish over restraint. Revisit when B7.9 (human playtests) unblocks |
 
 #### B1.4.15 — Town building placement (`placeTownBuildings` beyond keystones)
 

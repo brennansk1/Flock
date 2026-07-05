@@ -16,7 +16,12 @@ _Updated 2026-07-05: B1.4 (mapgen) decomposed to atoms per the PROCGEN RULE —
 derived from mapgen.ts/gridRoads.ts code, not from docs. Baseline re-verified
 that day: build clean, **sim 78/78 green**._
 
-**~175/182 nodes VERIFIED · 0 IMPLEMENTED-not-verified · NOT_STARTED: B1.4.12 (terrain fields v2), B1.4.20 (archetype mechanics — deliberately deferred behind B7.9), B6.5 (x-browser CI), B7.1/B7.4 (launch seams), B8.11/B8.12 (accepted MINOR) · 6 BLOCKED (external infra/content) · 1 STUBBED (deferred high-detail art, tracked)**
+**~176/183 nodes VERIFIED · 0 IMPLEMENTED-not-verified · NOT_STARTED: B1.4.12 (terrain fields v2, absorbs B1.4.21 transcendental-free geometry), B1.4.20 (archetype mechanics — deferred behind B7.9), B7.1/B7.4 (launch seams), B8.11/B8.12 (accepted MINOR) · 6 BLOCKED (external infra/content) · 1 STUBBED (deferred high-detail art, tracked)**
+
+_B6.5 CLOSED 2026-07-05: the #1 HANDOFF risk is now gated on every push —
+the identical sim probe hashes byte-identically across Node/V8, Chromium/V8,
+Firefox/SpiderMonkey, and WebKit/JavaScriptCore (all three shipping engine
+families), including the §2A oceanside transcendental coastline._
 
 _Prime-directive pass 2026-07-05 (PT-0003): archetype worlds PLAY — 30/30 bot
 matches on all 5 townTypes founded 4/4 via the production spawn spiral and
@@ -197,6 +202,7 @@ Next recommended actions, in order:
 | B1.4.14.7 | B1/mapgen/arch/qa | Archetype sample-set QA 🖼️ | QA_MAPGEN protocol × 4 archetypes × 3 seeds; full map + LOD-3 anchor crop; seeds in filenames | B1.4.14.6 | ✔️ | 24 renders in "QA gallery/Archetypes_2026-07-05/" via tools/archetype_qa.mjs; verdict PASS, S3s logged in QA_GALLERY.md §Town Archetypes |
 | B1.4.14.8 | B1/mapgen/arch/playtest | Archetype match playability 🎮 | Full matches run on every archetype with the PRODUCTION founding path: every player founds, every match ends with a winner, pacing recorded | B1.4.14.2–.5 | ✔️ | tools/archetype_playtest.mjs: 30 matches (5 types × 6 seeds), 30/30 founded 4/4 + ended decisively; PT-0003 in PLAYTEST_LOG.md |
 | B1.4.20 | B1/mapgen/arch/mechanics | Archetype mechanical identity | EXTEND candidate (Depth Review PT-0003): give archetypes gameplay hooks — harbor economy, timber income, oasis water politics, pier/sawmill landmark-grade effects. Today `Biome.*` has ZERO engine hooks; archetypes differentiate through geometry alone (measured: median end-of-match conversion 267 desert → 517 lakeside) | B1.4.14.8, B7.9 | ⬜ | DELIBERATELY DEFERRED: spatial axis already PASSES its DEEP target on the base town; adding mechanics before human playtests would be polish over restraint. Revisit when B7.9 (human playtests) unblocks |
+| B1.4.21 | B1/mapgen/transcendentals | Transcendental-free mapgen | Replace Math.sin/cos/atan2 in mapgen's 7 call sites (coastline, river meander, town footprint, oasis rim, blob rims) with hardcoded fixed-point LUTs — spec leaves transcendentals implementation-defined, so cross-engine equality is empirical, not guaranteed | B1.4.12 | ⬜ | Risk CONTAINED, not closed: B6.5 gates all 3 shipping engine families (fdlibm-derived, agree today) on every push, incl. an oceanside case. Fold into B1.4.12's geometry rebuild — a standalone LUT swap would churn every world shape twice |
 
 #### B1.4.15 — Town building placement (`placeTownBuildings` beyond keystones)
 
@@ -326,7 +332,7 @@ Next recommended actions, in order:
 | B6.2 | B6/artqa | Art QA tools | screenshots / units / spritesheet headless renders | B5.2 | ✔️ | tools present; used for prior sprite QA |
 | B6.3 | B6/botleague | Balance harness (§40/§41) | Per-archetype win-rate drift over N bot matches | B1.14 | ✔️ | tools/botleague.mjs; nightly runs → B7.9 |
 | B6.4 | B6/soak | Load/desync soak | N clients vs live server; asserts desync SLA | B3.3 | ✔️ | prior run: 12 clients / 1600+ intents / 0 desyncs |
-| B6.5 | B6/xbrowser | Cross-browser determinism CI | Hash gate passes in headless Chromium + Firefox, wired into CI | T.2.3 | ⬜ | HANDOFF §8.5 — #1 risk (§10): Node-only today |
+| B6.5 | B6/xbrowser | Cross-browser determinism CI | The identical probe (worldgen incl. §2A oceanside + 400 sim ticks, hashed at 5 checkpoints × 4 cases) runs in Node, Chromium, Firefox AND WebKit; any hash divergence exits 1; wired into ci.yml | T.2.3 | ✔️ | tools/xbrowser_determinism.mjs + tools/xbrowser/probe.mjs (vite iife bundle, playwright): PASS across V8 / SpiderMonkey / JavaScriptCore locally 2026-07-05; ci.yml installs browsers + runs gate on every push |
 | B6.6 | B6/gennames | Name corpus generator | `tools/gen_names.py` (Python faker) emits `packages/sim/src/nameData.ts`: deduped town/street/first/surname banks; regenerable, generated file checked in and never hand-edited | — | ✔️ | ran with faker 40.28.1 (seeded): 512 towns / 384 streets / 328 firsts / 512 surnames baked in |
 
 ### B7 — Launch infrastructure (external seams)

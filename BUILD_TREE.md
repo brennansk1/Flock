@@ -227,11 +227,15 @@ B1  ✔️ SIM — deterministic gameplay core (@flock/sim, runs bit-identically
 │   │            road connectivity, block count/median/p90, lot variety +
 │   │            entropy, name uniqueness, farm/water share, per seed batch
 │   │            & archetype; baseline values recorded in the Manifest
-│   └── B1.4.20 ⬜ ARCHETYPE MECHANICAL IDENTITY — EXTEND candidate from the
-│                spatial Depth Review (PT-0003): biomes/pier/sawmill/cannery
-│                have zero gameplay hooks; archetypes differentiate through
-│                geometry alone. DELIBERATELY DEFERRED until human playtests
-│                (B7.9) say the base game wants it — restraint over polish
+│   ├── B1.4.20 ⬜ ARCHETYPE MECHANICAL IDENTITY — EXTEND candidate from the
+│   │            spatial Depth Review (PT-0003): biomes/pier/sawmill/cannery
+│   │            have zero gameplay hooks; archetypes differentiate through
+│   │            geometry alone. DELIBERATELY DEFERRED until human playtests
+│   │            (B7.9) say the base game wants it — restraint over polish
+│   └── B1.4.21 ⬜ TRANSCENDENTAL-FREE MAPGEN — 7 Math.sin/cos/atan2 sites
+│                (coastline, meander, town rim, blobs) → fixed-point LUTs.
+│                Risk CONTAINED by B6.5 (3 engine families gated per push);
+│                fold into B1.4.12's geometry rebuild, don't churn twice
 ├── B1.5  ✔️ buildings.ts — full §6 table (Compounds…Supplement Labs)
 ├── B1.6  ✔️ entities.ts — Couriers, Vans, invisible Agents (§7)
 ├── B1.7  ✔️ PvP trio — raids / scandal→publish / court defection (§13/§15)
@@ -316,8 +320,10 @@ B6  🔨 TOOLING & QA — headless harnesses (tools/) + CI
 ├── B6.2 ✔️ Art QA — screenshots.mjs, units.mjs, spritesheet.mjs
 ├── B6.3 ✔️ botleague.mjs — per-archetype win-rate balance harness (§40/§41)
 ├── B6.4 ✔️ soak.mjs — live load/desync soak vs running server (SLA assert)
-├── B6.5 ⬜ Cross-browser determinism CI — run the hash gate in headless
-│            Chromium + Firefox, not just Node (HANDOFF §8.5; top risk §10)
+├── B6.5 ✔️ Cross-browser determinism CI — identical probe (worldgen incl.
+│            oceanside + 400 sim ticks) hashes byte-identically in Node/V8,
+│            Chromium/V8, Firefox/SpiderMonkey, WebKit/JavaScriptCore; in
+│            ci.yml on every push (tools/xbrowser_determinism.mjs)
 └── B6.6 ✔️ tools/gen_names.py — Python faker → nameData.ts corpus generator
              (town/street/first/surname banks, checked in, regenerable)
 

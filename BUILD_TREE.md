@@ -162,24 +162,24 @@ B1  ✔️ SIM — deterministic gameplay core (@flock/sim, runs bit-identically
 │   │   │            variety, dam, water tower, marshes, curb cuts, alleys)
 │   │   └── B1.4.13.2 ✔️🖼️ Render evidence — "QA gallery/" artifacts;
 │   │                seeds logged with every sample (repro contract)
-│   ├── B1.4.14 🔨 TOWN ARCHETYPES (§2A) — applyTownArchetype (mapgen.ts:826)
-│   │   │        ⚠ found undocumented: in code, absent from tree/tests/QA
+│   ├── B1.4.14 ✔️ TOWN ARCHETYPES (§2A) — applyTownArchetype (mapgen.ts:826)
+│   │   │        (was undocumented in code; gated + QA'd 2026-07-05)
 │   │   ├── B1.4.14.1 ✔️ farm — the default; archetype pass skips entirely
-│   │   ├── B1.4.14.2 ✅ oceanside — sea on the roomier edge w/ wavy coast;
+│   │   ├── B1.4.14.2 ✔️ oceanside — sea on the roomier edge w/ wavy coast;
 │   │   │            river mouth becomes estuary; 2-tile beach strip;
 │   │   │            highway stub becomes THE pier (others trimmed);
 │   │   │            lighthouse; cannery + fish docks; elevator→cannery
-│   │   ├── B1.4.14.3 ✅ mountain/timber — conifer walls rim the valley;
+│   │   ├── B1.4.14.3 ✔️ mountain/timber — conifer walls rim the valley;
 │   │   │            slope farms reclaimed by stands; sawmill + log yard
-│   │   │            on the rail at a woods edge
-│   │   ├── B1.4.14.4 ✅ lakeside — big water body at the town edge; resort
+│   │   │            on the rail EVERY seed (fallback fixed seed-3 gap)
+│   │   ├── B1.4.14.4 ✔️ lakeside — big water body at the town edge; resort
 │   │   │            shore: cabins + docks + boat ramp on town-facing shore
-│   │   ├── B1.4.14.5 ✅ desert — dominant desert biome + oasis margin
-│   │   ├── B1.4.14.6 ⬜ INVARIANTS: per-archetype gates (pier connects,
-│   │   │            sawmill on rail, no farm in surf, pop floor still
-│   │   │            holds under sea/forest loss) — NO TESTS EXIST
-│   │   └── B1.4.14.7 ⬜🖼️ Archetype sample-set QA — QA_MAPGEN protocol
-│   │                × oceanside/mountain/lakeside/desert — NO EVIDENCE
+│   │   ├── B1.4.14.5 ✔️ desert — dominant desert biome + oasis margin
+│   │   ├── B1.4.14.6 ✔️ INVARIANTS: 9 archetype gates in archetypes.test.ts
+│   │   │            (determinism, floors, keystones, orthogonality, water
+│   │   │            cleanliness, per-archetype anchors, snapshot round-trip)
+│   │   └── B1.4.14.7 ✔️🖼️ Archetype sample-set QA — 24 renders, 3 seeds × 4
+│   │                archetypes, PASS ("QA gallery/Archetypes_2026-07-05/")
 │   ├── B1.4.15 ✔️ TOWN BUILDING PLACEMENT — placeTownBuildings beyond keystones
 │   │   ├── B1.4.15.1 ✔️ stamp() engine — wLots×hLots fitting; commercial
 │   │   │            frontage must touch a road

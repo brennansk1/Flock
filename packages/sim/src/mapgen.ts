@@ -951,29 +951,43 @@ function applyTownArchetype(
       if (tr === Terrain.Field || tr === Terrain.Orchard || tr === Terrain.Pasture)
         w.terrain[t] = pixHash32(t % width, (t / width) | 0, 77) % 3 === 0 ? Terrain.Woods : Terrain.Grass;
     }
-    // the sawmill: beside the rail line at a woods edge, with a log yard
-    for (let t = 0; t < w.terrain.length; t++) {
-      if (w.terrain[t] !== Terrain.Rail) continue;
-      const x = t % width;
-      const y = (t / width) | 0;
-      if (x < 6 || x >= width - 6) continue;
-      const ddx = x - town.cx;
-      if (Math.abs(ddx) < town.r + 4) continue; // outside town
-      const below = t + width;
-      const below2 = t + width * 2;
-      if (below2 >= w.terrain.length) continue;
-      let woodsNear = false;
-      for (let dx = -4; dx <= 4 && !woodsNear; dx++) {
-        const n = below + dx;
-        if (n >= 0 && n < w.terrain.length && w.terrain[n] === Terrain.Woods) woodsNear = true;
+    // the sawmill: beside the rail line at a woods edge, with a log yard.
+    // Strict pass wants grass below the line with woods in reach; if no rail
+    // frontage qualifies (dense seeds), relax: try either side of the line
+    // and let the mill fell into the stands — a timber town ALWAYS has one.
+    let milled = false;
+    for (const strict of [true, false]) {
+      if (milled) break;
+      for (let t = 0; t < w.terrain.length && !milled; t++) {
+        if (w.terrain[t] !== Terrain.Rail) continue;
+        const x = t % width;
+        if (x < 6 || x >= width - 6) continue;
+        const ddx = x - town.cx;
+        if (Math.abs(ddx) < town.r + 4) continue; // outside town
+        for (const dir of strict ? [1] : [1, -1]) {
+          const site = t + dir * width;
+          const yard = site + dir * width;
+          if (site < 0 || yard < 0 || site + 1 >= w.terrain.length || yard >= w.terrain.length) continue;
+          const buildable = (n: number): boolean =>
+            w.terrain[n] === Terrain.Grass || (!strict && w.terrain[n] === Terrain.Woods);
+          if (!buildable(site) || !buildable(site + 1)) continue;
+          if (strict) {
+            let woodsNear = false;
+            for (let dx = -4; dx <= 4 && !woodsNear; dx++) {
+              const n = site + dx;
+              if (n >= 0 && n < w.terrain.length && w.terrain[n] === Terrain.Woods) woodsNear = true;
+            }
+            if (!woodsNear) continue;
+          }
+          plantLot(site, Lot.Sawmill, Districts.None, 2);
+          plantLot(site + 1, Lot.Sawmill, Districts.None, 2);
+          if (w.terrain[yard] === Terrain.Grass || w.terrain[yard] === Terrain.Woods)
+            w.terrain[yard] = Terrain.Dirt; // the log yard
+          carveDirtLane(w, site);
+          milled = true;
+          break;
+        }
       }
-      if (!woodsNear) continue;
-      if (w.terrain[below] !== Terrain.Grass || w.terrain[below + 1] !== Terrain.Grass) continue;
-      plantLot(below, Lot.Sawmill, Districts.None, 2);
-      plantLot(below + 1, Lot.Sawmill, Districts.None, 2);
-      if (w.terrain[below2] === Terrain.Grass) w.terrain[below2] = Terrain.Dirt; // the log yard
-      carveDirtLane(w, below);
-      break;
     }
     return;
   }

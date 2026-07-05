@@ -13,19 +13,15 @@ import {
   createSim,
   generateWorld,
   step,
-  seedRng,
-  botTurn,
-  botShouldAct,
   fromInt,
   Stance,
   MatchStatus,
   type RawBalance,
   type Intent,
-  type BotState,
+  type SimState,
   type Archetype,
 } from "@flock/sim";
 import type { GameSession, ConnectHooks } from "./net.js";
-import { getSettings } from "./settings.js";
 import rawBalance from "../../../balance.json";
 
 /** One world for every player, forever: the tutorial town. */
@@ -51,7 +47,6 @@ export function connectTutorial(
   const playerName = q.get("name") ?? "Novice";
   const balance = loadBalance(rawBalance as RawBalance);
   const world = generateWorld(TUTORIAL_SEED, WORLD, WORLD, { townType: "farm" });
-  const settings = getSettings();
   const sim = createSim({
     seed: TUTORIAL_SEED,
     balance,
@@ -62,15 +57,16 @@ export function connectTutorial(
     ],
     foundingTicks: FOUNDING_TICKS,
     dominationPermille: 720,
-    disableCouriers: settings.disableCouriers,
-    disableCPA: settings.disableCPA,
-    disableSchisms: settings.disableSchisms,
+    // The tutorial is a CONTROLLED, DETERMINISTIC scenario: no couriers to
+    // rob, no Concerned Parents raids, no random schisms — nothing that could
+    // punish a learner or vary the outcome. Follow the steps and you win;
+    // do nothing and the scripted rival slowly takes the town.
+    disableCouriers: true,
+    disableCPA: true,
+    disableSchisms: true,
   });
 
   const pending: Intent[] = [];
-  // the rival: a drifter that acts rarely — presence, not pressure
-  const botRng = seedRng(TUTORIAL_SEED ^ 0xb07);
-  const bot: BotState = { playerId: RIVAL_ID, tier: "drifter", cadence: 16, aggression: 0, grudge: 0 } as BotState;
   let rivalSpawned = false;
 
   const g: GameSession = {
@@ -103,14 +99,76 @@ export function connectTutorial(
       intents.push({ t: "SPAWN", player: RIVAL_ID, tile: RIVAL_SPAWN_TILE } as Intent);
       rivalSpawned = true;
     }
-    if (sim.foundingTicksLeft === 0 && botShouldAct(bot, sim.tick)) {
-      intents.push(...botTurn(sim, bot, botRng));
-    }
+    // the rival plays a FIXED script (no RNG): once the town wakes up it keeps
+    // one steady front creeping out of its corner toward downtown. Slow enough
+    // that an active player laps it; fast enough that a player who does nothing
+    // gets overtaken and loses on the clock.
+    if (sim.foundingTicksLeft === 0) intents.push(...rivalScript(sim, sim.tick));
+    // seedSlice is fixed-derived (no wall clock) so replays/outcome are stable.
     step(sim, { n: sim.tick, intents, seedSlice: (sim.tick * 2654435761) >>> 0 }, balance);
   }, TPS_MS);
   window.addEventListener("beforeunload", () => clearInterval(timer));
 
   onReady(g);
+}
+
+/**
+ * The tutorial rival's fixed playbook — pure function of (sim, tick), no RNG.
+ * Every ~9s it re-opens a Spread front on the neutral tiles bordering its
+ * territory that sit closest to downtown, so it advances on a predictable line.
+ */
+function rivalScript(sim: SimState, tick: number): Intent[] {
+  if (tick % 90 !== 0) return []; // act every 9s
+  const w = sim.world;
+  const cx = w.width >> 1;
+  const cy = w.height >> 1;
+  // frontier = neutral CITIZEN tiles orthogonally adjacent to a rival tile
+  // (or, on the very first push, the citizen tiles nearest the rival compound)
+  const ownsAny = w.owner.includes(RIVAL_ID);
+  const cand: { t: number; d: number }[] = [];
+  for (let t = 0; t < w.terrain.length; t++) {
+    if (w.terrain[t] !== 0 /* Citizen */ || w.owner[t] !== 0 /* neutral */) continue;
+    const x = t % w.width;
+    const y = (t / w.width) | 0;
+    let border = !ownsAny;
+    if (ownsAny) {
+      for (const n of [t - 1, t + 1, t - w.width, t + w.width]) {
+        if (n >= 0 && n < w.owner.length && w.owner[n] === RIVAL_ID) { border = true; break; }
+      }
+    }
+    if (!border) continue;
+    // rank by closeness to downtown so the rival marches inward
+    cand.push({ t, d: (x - cx) * (x - cx) + (y - cy) * (y - cy) });
+  }
+  if (cand.length === 0) return [];
+  cand.sort((a, b) => a.d - b.d || a.t - b.t);
+  const anchor = ownsAny ? cand[0]! : nearestTo(cand, RIVAL_SPAWN_TILE, w.width);
+  const ax = anchor.t % w.width;
+  const ay = (anchor.t / w.width) | 0;
+  const tiles: number[] = [];
+  for (let dy = -2; dy <= 2; dy++) {
+    for (let dx = -2; dx <= 2; dx++) {
+      const x = ax + dx;
+      const y = ay + dy;
+      if (x < 0 || y < 0 || x >= w.width || y >= w.height) continue;
+      tiles.push(y * w.width + x);
+    }
+  }
+  return [{ t: "OPEN_FRONT", player: RIVAL_ID, tiles } as Intent];
+}
+
+function nearestTo(cand: { t: number; d: number }[], to: number, width: number): { t: number; d: number } {
+  const tx = to % width;
+  const ty = (to / width) | 0;
+  let best = cand[0]!;
+  let bestD = Infinity;
+  for (const c of cand) {
+    const dx = (c.t % width) - tx;
+    const dy = ((c.t / width) | 0) - ty;
+    const d = dx * dx + dy * dy;
+    if (d < bestD) { bestD = d; best = c; }
+  }
+  return best;
 }
 
 // ─────────────────────────────────────────────── the step engine ──────────
@@ -218,8 +276,28 @@ const STEPS: TutStep[] = [
     done: (g) => g.sim.buildings.some((b) => b.player === 1 && b.type === "watchtower"),
   },
   {
+    title: "SCOUT THE RIVALS",
+    body: "The CONGREGATIONS panel (top-right) is the scoreboard: every cult, its color, and how many households it holds — sorted by who's winning. In a real match you'd click 'ally' on a row to propose a truce (and shift-click a doctrine node to share it). Watch the Sleeper Cult's count creep up — it's converting its corner right now. Click NEXT.",
+    glow: ".fk-players",
+  },
+  {
+    title: "FIND THE LANDMARKS",
+    body: "The KEY BUILDINGS panel lists the town's civic anchors (Police, School, Grocery, Church…). Controlling one grants a bonus — and CLICKING A ROW zooms the map straight to that building and flashes it. Try clicking any Key Building now to jump to it, then click NEXT.",
+    glow: "[data-civic]",
+  },
+  {
+    title: "THE DRAMA FEED",
+    body: "The blinking ● DRAMA FEED (bottom-right) narrates the match: conversions, betrayals, scandals, schisms, incoming strikes. It's how you notice a rival scheming against you — and it's what the shareable end-of-match recap is built from. Click NEXT.",
+    glow: ".fk-feed",
+  },
+  {
+    title: "ADVANCED SCHEMES",
+    body: "Folded on the left rail is SCHEME — your late-game toolkit: propaganda STRIKES (need a Broadcast Tower), AGENT raids, publishing SCANDALS. Click the ▸ SCHEME header to peek inside, then click NEXT. Top-left you'll also find EXIT (leave anytime) and, in solo games, PAUSE.",
+    glow: ".fk-foldh",
+  },
+  {
     title: "MANAGE DISSENT & HEAT",
-    body: "Conversion along fronts exposes your followers to ATTRITION. Captured tiles build DISSENT in that district (which can trigger a SCHISM split, if enabled). High global HEAT (>60) alerts the Concerned Parents Association (CPA) to picket you with minivans (if enabled). Switch to TEND stance (1) now to cool dissent and Heat.",
+    body: "Pushing fronts costs followers (ATTRITION) and builds DISSENT in captured districts — too much and a chunk of your cult SPLITS AWAY (a Schism). Meanwhile CRUSADE and strikes raise global HEAT; past 60, the Concerned Parents show up to picket you. (Both are switched off in this practice town so you can learn safely.) Switch to TEND stance (1) now — it heals dissent and cools Heat fastest.",
     glow: '[data-stance="tend"]',
     done: (g) => me(g)?.stance === Stance.Tend,
   },
@@ -240,14 +318,15 @@ const STEPS: TutStep[] = [
     done: (g) => (me(g)?.doctrine.length ?? 0) >= 1,
   },
   {
-    title: "CONVERT THE TOWN",
-    body: "Everything at once: keep a front open, stay in CRUSADE or SPREAD, cast SERMON when it cools down. Reach 30 owned tiles to finish your training.",
-    hint: "Open fronts where the town edge touches your territory. Watch the LEADER % strip up top — cast Sermon whenever it's free.",
+    title: "NOW WIN IT",
+    body: "Put it together and out-convert the Sleeper Cult: keep fronts open where your territory meets town, cast SERMON on cooldown, and lean into SPREAD or CRUSADE. Convert 30 households to seal your first victory. (The rival only holds one slow front — press it and the town is yours.)",
+    hint: "Open a new front every time one stalls, right where your color meets neutral houses. Watch the LEADER % strip climb.",
+    enter: (g) => money(g, 40_000),
     done: (g) => (me(g)?.ownedTiles ?? 0) >= 30,
   },
   {
-    title: "YOU ARE READY",
-    body: "That's the loop! Remember the three ways to win a match: (1) DOMINATION: control 72% of the town's tiles; (2) DOCTRINAL: hold 100 Faith for 90s, then capture and channel at the Megachurch landmark; (3) ECONOMIC: reach the USD target (for Prosperity Circle). Rivals will strike back — scheme wisely. Click FINISH to return to the menu.",
+    title: "🏆 VICTORY — YOU OUT-CONVERTED THE SLEEPER CULT",
+    body: "That's the whole loop: found → press fronts → manage Heat & Dissent → tithe, expand, armor up → shape your Doctrine. Three ways to win a real match: DOMINATION (hold 72% of town) · DOCTRINAL (hold 100 Faith 90s, then channel at the Megachurch) · ECONOMIC (bank the cash target — Prosperity Circle). Out there the rivals fight back and nothing is disabled — but you're ready. Click FINISH to return to the menu.",
   },
 ];
 

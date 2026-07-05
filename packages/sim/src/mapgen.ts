@@ -1256,24 +1256,46 @@ function layoutFarms(w: World, rng: RngState, town: TownShape): void {
       (ax > 0 && (w.terrain[anchor - 1] === Terrain.Road || w.terrain[anchor - 1] === Terrain.Dirt)) ||
       (ax < width - 1 && (w.terrain[anchor + 1] === Terrain.Road || w.terrain[anchor + 1] === Terrain.Dirt));
 
-    // farmstead: 2–3 house lots directly beside the road on one side
+    // farmstead: Farmhouse, Barn, and Silo set back from the road with a driveway
     const homeSide = nextRange(rng, 2) === 0 ? 1 : -1;
-    const houses = 2 + nextRange(rng, 2);
-    for (let h = 0; h < houses; h++) {
-      const x = horiz ? ax + h : ax + homeSide;
-      const y = horiz ? ay + homeSide : ay + h;
+    const setBack = 2; // tiles away from the road
+    for (let h = 0; h < 3; h++) {
+      const x = horiz ? ax + h : ax + homeSide * setBack;
+      const y = horiz ? ay + homeSide * setBack : ay + h;
       if (x < 1 || y < 1 || x >= width - 1 || y >= height - 1) continue;
       const t = y * width + x;
       if (w.terrain[t] === Terrain.Grass) {
         w.terrain[t] = Terrain.Citizen;
-        w.district[t] = Districts.Trailer;
+        if (h === 0) {
+          w.district[t] = Districts.Suburbs;
+          w.pop[t] = 3; // Ensure a house is actually built
+        } else if (h === 1) {
+          w.district[t] = Districts.None;
+          w.lot[t] = Lot.Barn;
+        } else {
+          w.district[t] = Districts.None;
+          w.lot[t] = Lot.Silo;
+        }
+        
+        // Draw the dirt driveway from the road to the building
+        for (let d = 1; d <= setBack; d++) {
+          const dx = horiz ? ax + h : ax + homeSide * (setBack - d);
+          const dy = horiz ? ay + homeSide * (setBack - d) : ay + h;
+          const dt = dy * width + dx;
+          if (dt >= 0 && dt < w.terrain.length) {
+            const tr = w.terrain[dt];
+            if (tr === Terrain.Grass || tr === Terrain.Field || tr === Terrain.Pasture || tr === Terrain.Orchard) {
+              w.terrain[dt] = Terrain.Dirt;
+            }
+          }
+        }
       }
     }
 
-    // SHELTERBELT (#12): the windbreak tree row on the farmstead's north side
-    for (let sxx = -1; sxx <= houses; sxx++) {
-      const x = horiz ? ax + sxx : ax + homeSide * 2;
-      const y = horiz ? ay + homeSide * 2 : ay + sxx;
+    // SHELTERBELT (#12): the windbreak tree row on the farmstead's north side (moved back to prevent overlap)
+    for (let sxx = -1; sxx <= 3; sxx++) {
+      const x = horiz ? ax + sxx : ax + homeSide * (setBack + 2);
+      const y = horiz ? ay + homeSide * (setBack + 2) : ay + sxx;
       if (x < 1 || y < 1 || x >= width - 1 || y >= height - 1) continue;
       const t = y * width + x;
       if (w.terrain[t] === Terrain.Grass) w.terrain[t] = Terrain.Woods;
@@ -1323,8 +1345,8 @@ function layoutFarms(w: World, rng: RngState, town: TownShape): void {
 function fillFarmBelt(w: World, rng: RngState, town: TownShape): void {
   const { width, height } = w;
   const inner = town.r + 10;
-  const CELL_W = 9;
-  const CELL_H = 7;
+  const CELL_W = 11;
+  const CELL_H = 9;
   for (let cy = 2; cy < height - 2; cy += CELL_H) {
     for (let cx2 = 2; cx2 < width - 2; cx2 += CELL_W) {
       const ddx = cx2 + CELL_W / 2 - town.cx;
@@ -1339,23 +1361,32 @@ function fillFarmBelt(w: World, rng: RngState, town: TownShape): void {
       const ph = 5 + nextRange(rng, 3);
       const offX = nextRange(rng, Math.max(1, CELL_W - pw));
       const offY = nextRange(rng, Math.max(1, CELL_H - ph));
+
+      // Check if the center of the parcel is in the desert. If so, skip it entirely.
+      if (w.biome[(cy + offY + Math.floor(ph / 2)) * width + (cx2 + offX + Math.floor(pw / 2))] === Biome.Desert) continue;
+
       for (let dy = 0; dy < ph; dy++) {
         for (let dx = 0; dx < pw; dx++) {
           const x = cx2 + offX + dx;
           const y = cy + offY + dy;
           if (x < 1 || y < 1 || x >= width - 1 || y >= height - 1) continue;
           const t = y * width + x;
-          if (w.terrain[t] !== Terrain.Grass) continue;
+          
           if (w.biome[t] === Biome.Desert) continue;
+          
+          const tr = w.terrain[t];
+          if (tr !== Terrain.Grass && tr !== Terrain.Woods) continue; // fields overwrite woods!
+
           // shoulder from pavement/rail, margin from water
           let blocked = false;
           for (const n of [t - 1, t + 1, t - width, t + width]) {
             if (n < 0 || n >= w.terrain.length) continue;
-            const tr = w.terrain[n];
-            if (tr === Terrain.Road || tr === Terrain.Rail || tr === Terrain.Lake || tr === Terrain.Dirt)
+            const neighbor = w.terrain[n];
+            if (neighbor === Terrain.Road || neighbor === Terrain.Rail || neighbor === Terrain.Lake || neighbor === Terrain.Dirt)
               blocked = true;
           }
           if (blocked) continue;
+          
           w.terrain[t] = kind;
         }
       }
@@ -1683,8 +1714,8 @@ function carveRiver(w: World, rng: RngState, town: TownShape): number[] | null {
       if (x < 0 || x >= width) continue;
       const t = y * width + x;
       const tr = w.terrain[t];
-      // never destroy roads (bridge), rail, town lots, or existing nature
-      if (tr === Terrain.Grass || tr === Terrain.Field) w.terrain[t] = Terrain.Lake;
+      // never destroy roads (bridge), rail, or town lots
+      if (tr !== Terrain.Citizen && tr !== Terrain.Road && tr !== Terrain.Rail) w.terrain[t] = Terrain.Lake;
     }
   }
 
@@ -1748,7 +1779,8 @@ function carveCreek(
   const painted: number[] = [];
   const paint = (t: number): void => {
     const tr = w.terrain[t];
-    if (tr === Terrain.Grass || tr === Terrain.Field) {
+    // Carve through nature and dirt to ensure creeks don't dead-end
+    if (tr !== Terrain.Citizen && tr !== Terrain.Road && tr !== Terrain.Rail) {
       w.terrain[t] = Terrain.Lake;
       painted.push(t);
     }

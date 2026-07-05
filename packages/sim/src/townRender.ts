@@ -1567,7 +1567,7 @@ function drawTile(
             c = (gx2 + gy) % 6 === 0 ? hexToRgb("#7fc4e8") : hexToRgb("#66513e"); // mud + water glint
           } else if ((woodsN && py === 0) || (woodsW && px === 0)) {
             if ((px + py) % 2 === 0) c = C.bush;
-          } else if ((fenceN && py === 0 && px % 3 === 0) || (fenceW && px === 0 && py % 3 === 0)) {
+          } else if ((fenceN && py === 0 && px % 4 < 3) || (fenceW && px === 0 && py % 4 < 3)) {
             c = C.fence;
           }
           put(x0 + px, y0 + py, c);
@@ -1620,12 +1620,34 @@ function drawTile(
       return;
     }
     case Terrain.Dirt: {
+      const isDirtOrRoad = (n: number) => {
+        if (n < 0 || n >= w.terrain.length) return false;
+        const tr = w.terrain[n];
+        return tr === Terrain.Dirt || tr === Terrain.Road || tr === Terrain.Citizen;
+      };
+      const nDirt = ty > 0 && isDirtOrRoad(t - w.width);
+      const sDirt = ty < w.height - 1 && isDirtOrRoad(t + w.width);
+      const wDirt = tx > 0 && isDirtOrRoad(t - 1);
+      const eDirt = tx < w.width - 1 && isDirtOrRoad(t + 1);
+
       for (let py = 0; py < TILE_PX; py++) {
         for (let px = 0; px < TILE_PX; px++) {
           const gx = x0 + px;
           const gy = y0 + py;
-          const h = pixHash(gx, gy, 9);
-          put(gx, gy, h % 6 === 0 ? C.dirtEdge : C.dirt);
+
+          let drawDirt = false;
+          if (px >= 3 && px <= 4 && py >= 3 && py <= 4) drawDirt = true;
+          if (nDirt && py < 3 && px >= 3 && px <= 4) drawDirt = true;
+          if (sDirt && py > 4 && px >= 3 && px <= 4) drawDirt = true;
+          if (wDirt && px < 3 && py >= 3 && py <= 4) drawDirt = true;
+          if (eDirt && px > 4 && py >= 3 && py <= 4) drawDirt = true;
+
+          if (drawDirt) {
+            const h = pixHash(gx, gy, 9);
+            put(gx, gy, h % 6 === 0 ? C.dirtEdge : C.dirt);
+          } else {
+            put(gx, gy, C.meadow);
+          }
         }
       }
       return;
@@ -1894,7 +1916,6 @@ function drawTile(
       put(x0 + 5, y0 + 5, C.iconDark); // tire pile
       put(x0 + 6, y0 + 5, C.iconDark);
       put(x0 + 5, y0 + 2, hexToRgb("#9a948a")); // scrap sheet
-      return;
     }
     if (roll < 2) {
       // garden shed with a shadow
@@ -2679,7 +2700,7 @@ function drawVerge(
   const south = isRoad(t + w.width);
   const north = ty > 0 && isRoad(t - w.width);
   const east = tx < w.width - 1 && isRoad(t + 1);
-  const west = tx > 0 && isRoad(t - 1);
+  const west = tx > 0 && w.terrain[t - 1] === Terrain.Road;
   if (!(south || north || east || west)) return;
   const edgeY = south ? y0 + 7 : north ? y0 : y0 + 4;
   const edgeX = east ? x0 + 7 : west ? x0 : x0 + 1;
@@ -2740,7 +2761,7 @@ function drawHouse(
     const east = frontage === 2;
     const wallX = east ? [4, 5, 6] : [1, 2, 3]; // walls on the street side
     const roofX = east ? [1, 2, 3] : [4, 5, 6];
-    for (let py = 1; py <= 6; py++) {
+    for (let py = 1; py <= 5; py++) {
       put(x0 + roofX[1]!, y0 + py, shade(roof, 1.1)); // lit ridge col
       put(x0 + roofX[0]!, y0 + py, roof);
       put(x0 + roofX[2]!, y0 + py, roof);
@@ -2748,51 +2769,51 @@ function drawHouse(
       put(x0 + wallX[1]!, y0 + py, py <= 1 ? wallShadeColor : wallColor);
       put(x0 + wallX[2]!, y0 + py, py <= 1 ? wallShadeColor : wallColor);
     }
-    const chimY = flip ? 5 : 2;
+    const chimY = flip ? 4 : 1;
     put(x0 + roofX[1]!, y0 + chimY, shade(roof, 0.6));
     if (frameTick > 0 && pixHash(t, 6, 59) % 3 === 0) {
       const phase = ((frameTick >> 3) + t) % 4;
       const sy = y0 + chimY - 1 - (phase >> 1);
       if (sy >= 0) put(x0 + roofX[1]! + (phase % 2 ? 1 : 0), sy, hexToRgb("#c9c4bc"));
     }
-    const doorY = flip ? 2 : 5;
+    const doorY = flip ? 1 : 4;
     put(x0 + wallX[2]!, y0 + doorY, C.door);
     put(x0 + wallX[2]!, y0 + doorY + 1 > y0 + 6 ? y0 + 6 : y0 + doorY + 1, C.door);
-    put(x0 + wallX[2]!, y0 + (flip ? 5 : 2), houseWindow);
+    put(x0 + wallX[2]!, y0 + (flip ? 4 : 1), houseWindow);
     return;
   }
 
   if (shape === 1) {
-    // ---- Two-Story House ----
-    // Top ridge: y=1, x=3..4
-    put(x0 + 3, y0 + 1, shade(roof, 1.1));
-    put(x0 + 4, y0 + 1, shade(roof, 1.1));
-    // Top roof: y=2, x=2..5
-    for (let px = 2; px <= 5; px++) put(x0 + px, y0 + 2, roof);
-    // Upper wall: y=3, x=2..5
-    for (let px = 2; px <= 5; px++) put(x0 + px, y0 + 3, wallShadeColor);
-    // Lower roof: y=4, x=1..6
-    for (let px = 1; px <= 6; px++) put(x0 + px, y0 + 4, roof);
-    // Lower wall: y=5..6, x=1..6
+    // ---- Two-Story House (shifted up to show driveway) ----
+    // Top ridge: y=0, x=3..4
+    put(x0 + 3, y0, shade(roof, 1.1));
+    put(x0 + 4, y0, shade(roof, 1.1));
+    // Top roof: y=1, x=2..5
+    for (let px = 2; px <= 5; px++) put(x0 + px, y0 + 1, roof);
+    // Upper wall: y=2, x=2..5
+    for (let px = 2; px <= 5; px++) put(x0 + px, y0 + 2, wallShadeColor);
+    // Lower roof: y=3, x=1..6
+    for (let px = 1; px <= 6; px++) put(x0 + px, y0 + 3, roof);
+    // Lower wall: y=4..5, x=1..6
     for (let px = 1; px <= 6; px++) {
-      put(x0 + px, y0 + 5, wallShadeColor);
-      put(x0 + px, y0 + 6, wallColor);
+      put(x0 + px, y0 + 4, wallShadeColor);
+      put(x0 + px, y0 + 5, wallColor);
     }
-    // Chimney: y=1..2, x=2
+    // Chimney: y=0..1, x=2
+    put(x0 + 2, y0, shade(roof, 0.6));
     put(x0 + 2, y0 + 1, shade(roof, 0.6));
-    put(x0 + 2, y0 + 2, shade(roof, 0.6));
     if (frameTick > 0 && pixHash(t, 6, 59) % 3 === 0) {
       const phase = ((frameTick >> 3) + t) % 4;
       const sy = y0 - (phase >> 1);
       if (sy >= 0) put(x0 + 2 + (phase % 2), sy, hexToRgb("#c9c4bc"));
     }
-    // Door: y=5..6, x=doorX
+    // Door: y=4..5, x=doorX
     const doorX = flip ? 2 : 5;
+    put(x0 + doorX, y0 + 4, C.door);
     put(x0 + doorX, y0 + 5, C.door);
-    put(x0 + doorX, y0 + 6, C.door);
-    // Window: y=3 (upper), y=5 (lower)
-    put(x0 + (flip ? 4 : 3), y0 + 3, houseWindow);
-    put(x0 + (flip ? 5 : 2), y0 + 5, houseWindow);
+    // Window: y=2 (upper), y=4 (lower)
+    put(x0 + (flip ? 4 : 3), y0 + 2, houseWindow);
+    put(x0 + (flip ? 5 : 2), y0 + 4, houseWindow);
 
     if (detail) {
       const S = detail.S;
@@ -2800,7 +2821,7 @@ function drawHouse(
       // Window mullions (lower)
       const frame = shade(wallColor, 0.7);
       const wbx = (x0 + (flip ? 5 : 2)) * S;
-      const wby = (y0 + 5) * S;
+      const wby = (y0 + 4) * S;
       for (let i = 0; i < S; i++) {
         f(wbx + Math.floor(S / 2), wby + i, frame);
         f(wbx + i, wby + Math.floor(S / 2), frame);
@@ -2808,106 +2829,91 @@ function drawHouse(
       f(wbx + 1, wby + 1, C.windowLit);
     }
   } else if (shape === 2) {
-    // ---- L-Plan House ----
+    // ---- L-Plan House (shifted up to show driveway) ----
     if (!flip) {
       // Wing (x=1..3), Main (x=4..6)
-      // Main ridge: y=1, x=5
-      put(x0 + 5, y0 + 1, shade(roof, 1.1));
-      // Main roof: y=2..3, x=4..6
-      for (let py = 2; py <= 3; py++) {
+      // Main ridge: y=0, x=5
+      put(x0 + 5, y0, shade(roof, 1.1));
+      // Main roof: y=1..2, x=4..6
+      for (let py = 1; py <= 2; py++) {
         for (let px = 4; px <= 6; px++) put(x0 + px, y0 + py, roof);
       }
-      // Wing ridge: y=2, x=2
-      put(x0 + 2, y0 + 2, shade(roof, 1.1));
-      // Wing roof: y=3, x=1..3
-      for (let px = 1; px <= 3; px++) put(x0 + px, y0 + 3, roof);
+      // Wing ridge: y=1, x=2
+      put(x0 + 2, y0 + 1, shade(roof, 1.1));
+      // Wing roof: y=2, x=1..3
+      for (let px = 1; px <= 3; px++) put(x0 + px, y0 + 2, roof);
       // Walls
       for (let px = 1; px <= 3; px++) {
-        put(x0 + px, y0 + 4, wallShadeColor);
+        put(x0 + px, y0 + 3, wallShadeColor);
+        put(x0 + px, y0 + 4, wallColor);
         put(x0 + px, y0 + 5, wallColor);
-        put(x0 + px, y0 + 6, wallColor);
       }
       for (let px = 4; px <= 6; px++) {
-        put(x0 + px, y0 + 4, wallShadeColor);
-        put(x0 + px, y0 + 5, wallColor);
+        put(x0 + px, y0 + 3, wallShadeColor);
+        put(x0 + px, y0 + 4, wallColor);
       }
-      // Door (recessed corner): x=4, y=5
-      put(x0 + 4, y0 + 5, C.door);
-      // Window: wing center x=2, y=5
-      put(x0 + 2, y0 + 5, houseWindow);
-      // Chimney: x=5, y=0..1
-      put(x0 + 5, y0, shade(roof, 0.6));
-      put(x0 + 5, y0 + 1, shade(roof, 0.6));
-      if (frameTick > 0 && pixHash(t, 6, 59) % 3 === 0) {
-        const phase = ((frameTick >> 3) + t) % 4;
-        const sy = y0 - 1 - (phase >> 1);
-        if (sy >= 0) put(x0 + 5 + (phase % 2), sy, hexToRgb("#c9c4bc"));
-      }
+      // Door (recessed corner): x=4, y=4
+      put(x0 + 4, y0 + 4, C.door);
+      // Window: wing center x=2, y=4
+      put(x0 + 2, y0 + 4, houseWindow);
     } else {
       // Main (x=1..3), Wing (x=4..6)
-      // Main ridge: y=1, x=2
-      put(x0 + 2, y0 + 1, shade(roof, 1.1));
-      // Main roof: y=2..3, x=1..3
-      for (let py = 2; py <= 3; py++) {
+      // Main ridge: y=0, x=2
+      put(x0 + 2, y0, shade(roof, 1.1));
+      // Main roof: y=1..2, x=1..3
+      for (let py = 1; py <= 2; py++) {
         for (let px = 1; px <= 3; px++) put(x0 + px, y0 + py, roof);
       }
-      // Wing ridge: y=2, x=5
-      put(x0 + 5, y0 + 2, shade(roof, 1.1));
-      // Wing roof: y=3, x=4..6
-      for (let px = 4; px <= 6; px++) put(x0 + px, y0 + 3, roof);
+      // Wing ridge: y=1, x=5
+      put(x0 + 5, y0 + 1, shade(roof, 1.1));
+      // Wing roof: y=2, x=4..6
+      for (let px = 4; px <= 6; px++) put(x0 + px, y0 + 2, roof);
       // Walls
       for (let px = 1; px <= 3; px++) {
-        put(x0 + px, y0 + 4, wallShadeColor);
-        put(x0 + px, y0 + 5, wallColor);
+        put(x0 + px, y0 + 3, wallShadeColor);
+        put(x0 + px, y0 + 4, wallColor);
       }
       for (let px = 4; px <= 6; px++) {
-        put(x0 + px, y0 + 4, wallShadeColor);
+        put(x0 + px, y0 + 3, wallShadeColor);
+        put(x0 + px, y0 + 4, wallColor);
         put(x0 + px, y0 + 5, wallColor);
-        put(x0 + px, y0 + 6, wallColor);
       }
-      // Door (recessed corner): x=3, y=5
-      put(x0 + 3, y0 + 5, C.door);
-      // Window: wing center x=5, y=5
-      put(x0 + 5, y0 + 5, houseWindow);
-      // Chimney: x=2, y=0..1
-      put(x0 + 2, y0, shade(roof, 0.6));
-      put(x0 + 2, y0 + 1, shade(roof, 0.6));
-      if (frameTick > 0 && pixHash(t, 6, 59) % 3 === 0) {
-        const phase = ((frameTick >> 3) + t) % 4;
-        const sy = y0 - 1 - (phase >> 1);
-        if (sy >= 0) put(x0 + 2 + (phase % 2), sy, hexToRgb("#c9c4bc"));
-      }
+      // Door (recessed corner): x=3, y=4
+      put(x0 + 3, y0 + 4, C.door);
+      // Window: wing center x=5, y=4
+      put(x0 + 5, y0 + 4, houseWindow);
     }
   } else {
-    // ---- Classic Gable (shape 0) ----
-    for (let px = 1; px <= 6; px++) {
-      put(x0 + px, y0 + 2, shade(roof, 1.1));
-      put(x0 + px, y0 + 3, roof);
+    // ---- Classic Gable (shape 0) (shifted up to show driveway) ----
+    for (let px = 1; px <= 5; px++) {
+      put(x0 + px, y0 + 1, shade(roof, 1.1));
+      put(x0 + px, y0 + 2, roof);
     }
-    put(x0 + 2, y0 + 1, shade(roof, 1.1));
-    put(x0 + 3, y0 + 1, shade(roof, 1.1));
-    put(x0 + 4, y0 + 1, shade(roof, 1.1));
-    put(x0 + 5, y0 + 1, shade(roof, 1.1));
-    for (let py = 4; py <= 6; py++) {
-      for (let px = 1; px <= 6; px++) {
-        put(x0 + px, y0 + py, py === 4 ? wallShadeColor : wallColor);
+    put(x0 + 2, y0, shade(roof, 1.1));
+    put(x0 + 3, y0, shade(roof, 1.1));
+    put(x0 + 4, y0, shade(roof, 1.1));
+    for (let py = 3; py <= 5; py++) {
+      for (let px = 1; px <= 5; px++) {
+        put(x0 + px, y0 + py, py === 3 ? wallShadeColor : wallColor);
       }
     }
-    const chimX = flip ? 5 : 2;
+    const chimX = flip ? 4 : 2;
+    put(x0 + chimX, y0 - 1, shade(roof, 0.6));
     put(x0 + chimX, y0, shade(roof, 0.6));
-    put(x0 + chimX, y0 + 1, shade(roof, 0.6));
     if (frameTick > 0 && pixHash(t, 6, 59) % 3 === 0) {
       const phase = ((frameTick >> 3) + t) % 4;
-      const sy = y0 - 1 - (phase >> 1);
-      if (sy >= 0) put(x0 + chimX + (phase % 2), sy, hexToRgb("#c9c4bc"));
+      const sy = y0 - 2 - (phase >> 1);
+      if (sy >= 0) put(x0 + chimX + (phase % 2 ? 1 : 0), sy, hexToRgb("#c9c4bc"));
     }
-    const doorX = flip ? 2 : 5;
+    const doorX = flip ? 1 : 4;
+    put(x0 + doorX, y0 + 4, C.door);
     put(x0 + doorX, y0 + 5, C.door);
-    put(x0 + doorX, y0 + 6, C.door);
+    put(x0 + (flip ? 4 : 2), y0 + 4, houseWindow);
+    
     if (pixHash(t, 5, 53) % 2 === 0) {
       put(x0 + doorX - 1, y0 + 4, wallShadeColor);
       put(x0 + doorX, y0 + 4, wallShadeColor);
-      put(x0 + (flip ? doorX + 1 : doorX - 1), y0 + 6, C.door);
+      put(x0 + (flip ? doorX + 1 : doorX - 1), y0 + 5, C.door);
     }
     // GARAGE (§8): a flat-roof bay tucked on the corner of some lots
     if (pixHash(t, 7, 53) % 3 === 0) {
@@ -2972,14 +2978,16 @@ function drawTrailerHome(
   put(x0 + (flip ? 7 : 0), y0 + 6, C.rock); // propane tank by the hitch end
 
   // awning + junk-yard dressing for trailer fringe
-  if (detail) {
-    const awnCol = [hexToRgb("#bf3f3f"), hexToRgb("#3f7fbf"), hexToRgb("#bf9f3f")][pixHash(t, 3) % 3]!;
-    put(x0 + doorX - 1, y0 + 3, awnCol);
-    put(x0 + doorX, y0 + 3, awnCol);
-    put(x0 + doorX + 1, y0 + 3, awnCol);
+  const awnCol = [hexToRgb("#bf3f3f"), hexToRgb("#3f7fbf"), hexToRgb("#bf9f3f")][pixHash(t, 3) % 3]!;
+  put(x0 + doorX - 1, y0 + 3, awnCol);
+  put(x0 + doorX, y0 + 3, awnCol);
+  put(x0 + doorX + 1, y0 + 3, awnCol);
 
-    const junkX = flip ? 6 : 1;
-    put(x0 + junkX, y0 + 6, C.iconDark); // tire/junk pile
+  const junkX = flip ? 6 : 1;
+  put(x0 + junkX, y0 + 6, C.iconDark); // tire/junk pile
+
+  if (detail) {
+    // Add extra details here if needed in the future
   }
 }
 
@@ -3027,18 +3035,20 @@ function drawBlock(w: World, tx: number, ty: number, x0: number, y0: number, t: 
   const isRunEnd = !isBlockTile(tx + 1, ty);
   castShadow(x0, y0, put);
   // body: fuse across tiles inside a building; dark seam at building edges
+  // Vary the depth (startY) of the building slightly to break the monolith
+  const startY = pixHash(segId, 17, 67) % 3; // 0, 1, or 2
   const pxFrom = isSegStart ? 1 : 0;
   const pxTo = isRunEnd ? 6 : isSegEnd ? 6 : 7;
-  for (let py = 0; py <= 6; py++) {
+  for (let py = startY; py <= 6; py++) {
     for (let px = pxFrom; px <= pxTo; px++) {
-      put(x0 + px, y0 + py, py === 0 ? (accent ? shade(wall, 1.25) : cornice) : wall);
+      put(x0 + px, y0 + py, py === startY ? (accent ? shade(wall, 1.25) : cornice) : wall);
     }
   }
-  if (isSegStart) for (let py = 0; py <= 6; py++) put(x0, y0 + py, shade(wall, 0.5)); // party-wall seam
+  if (isSegStart) for (let py = startY; py <= 6; py++) put(x0, y0 + py, shade(wall, 0.5)); // party-wall seam
   // window rhythm: per-building offset + lit density
   const wxOff = 2 + (pixHash(segId, 5, 67) % 2);
   const litMod = 3 + (pixHash(segId, 7, 67) % 3);
-  for (let wy = 1; wy <= 5; wy += 2) {
+  for (let wy = startY + 1; wy <= 5; wy += 2) {
     for (let wx = wxOff; wx <= 6; wx += 2) {
       const lit = pixHash(t, wx * 8 + wy) % litMod !== 0;
       put(x0 + wx, y0 + wy, lit ? C.windowLit : C.windowDark);
@@ -3050,7 +3060,15 @@ function drawBlock(w: World, tx: number, ty: number, x0: number, y0: number, t: 
     if (pixHash(segId, 11, 67) % 2 === 0 && isSegStart) put(x0 + 2, y0 + 6, shade(wall, 1.3)); // door
   }
   // aerial flavor: a rooftop vent/AC unit on some buildings
-  if (pixHash(t, 13, 67) % 5 === 0) put(x0 + 3 + (pixHash(t, 15, 67) % 3), y0 + 3, shade(wall, 0.6));
+  if (pixHash(t, 13, 67) % 5 === 0) put(x0 + 3 + (pixHash(t, 15, 67) % 3), y0 + startY + 1, shade(wall, 0.6));
+  
+  // Sidewalk for the entire block if there's a road fronting it
+  if (ty < w.height - 1 && w.terrain[t + w.width] === Terrain.Road) {
+    for (let px = 0; px < TILE_PX; px++) {
+      put(x0 + px, y0 + 7, C.sidewalk);
+      if (px % 4 === 0) put(x0 + px, y0 + 7, shade(C.sidewalk, 0.9)); // sidewalk expansion joints
+    }
+  }
 }
 
 function drawIcon(bitmap: string[], tile: number, width: number, body: RGB, put: Put): void {

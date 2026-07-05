@@ -3,6 +3,10 @@
 _Build Tree Framework state. Reverse-engineered from the existing codebase on
 2026-07-02 (REFACTOR mode); statuses verified by re-running the full suite that
 day (build clean; sim 60/60, server 10/10 incl. live-WS lockstep smoke).
+**2026-07-05:** B1.4 mapgen decomposed to atoms per the PROCGEN RULE (14 → 115
+nodes, one leaf per pipeline stage / invariant / QA gate, derived from code);
+baseline re-verified (sim 78/78). Goal lens: [GOAL.md](./GOAL.md); session
+recon: [RECON.md](./RECON.md)._
 Companion ledger: [BUILD_MANIFEST.md](./BUILD_MANIFEST.md) — the single source
 of truth for per-node status. Design spec references (§N) point into
 [DESIGN.md](./DESIGN.md)._
@@ -24,37 +28,203 @@ B1  ✔️ SIM — deterministic gameplay core (@flock/sim, runs bit-identically
 ├── B1.1  ✔️ sim.ts — createSim/step/applyIntent tick loop + KIT ability table
 ├── B1.2  ✔️ conversion.ts — fronts, pressure/resistance, creep, attrition, flips (§4)
 ├── B1.3  ✔️ economy.ts — followers, tithe, district income, dissent, Faith, Heat (§3)
-├── B1.4  ✔️ mapgen.ts — seeded districts, river, farms, landmarks (§2/§12)
-│   ├── B1.4.1 ✔️ gridRoads.ts — axis-aligned street grid: highway/Main St,
-│   │            county route, jittered avenues×streets → real city blocks
-│   │            (REPLACES tensor-field diagonal roads)
-│   ├── B1.4.2 ✔️ Orthogonal country roads + dirt lanes (L-paths, no diagonals)
-│   ├── B1.4.3 ✔️ Naming — World.townName + World.streets[] assigned from the
-│   │            faker-generated corpus, deterministic per seed
-│   ├── B1.4.4 ✔️ Zoning/farms/nature/landmarks re-fit onto the block grid,
-│   │            population floor preserved (64/96 worlds)
-│   ├── B1.4.5 ✔️ Contract: World {townName, streets}, snapshot v7, hashed
-│   ├── B1.4.6 ✔️ Zoning v2 — 8 districts: ResLow/ResHigh/Commercial/
-│   │            Industrial + Downtown/OldTown/College/Trailer, w/ coeffs
-│   ├── B1.4.7 ✔️ Keystone civics guaranteed every town: elementary + high
-│   │            school, sheriff, grocery, church, fire station, gas
-│   ├── B1.4.8 ✔️ Block interiors — footpaths so every home has access;
-│   │            cul-de-sacs ("X Court") in residential zones
-│   ├── B1.4.9 ✔️ Farming v2 — road-aligned field parcels, orchards,
-│   │            fenced pastures, farmstead clusters at lanes
-│   ├── B1.4.10 ✔️ Biomes — configurable blob biomes (desert/forest),
-│   │            World.biome layer, snapshot v8, hashed
-│   ├── B1.4.11 ✔️ Realism pass (geographer review): railroad + depot +
-│   │            grain elevator + level crossings; tributary creeks, lake
-│   │            outlet, downstream river widening; riparian forests +
-│   │            bank galleries; contiguous farm belt; shelterbelts;
-│   │            hedgerows; field shoulders; edge cemetery; ecotones
-│   ├── B1.4.12 ⬜ Terrain fields v2 — coarse heightmap + moisture layer
-│   │            driving hydrology/biomes/vegetation (deferred: reviewer
-│   │            finding #8; foundational rework)
-│   └── B1.4.13 ⬜ Mapgen QA pass — execute QA_MAPGEN.md: flag & fix
-│                misgenerated/misplaced assets, add missing ones, build
-│                variety (houses, trees, shops) — the 60%→95% push
+├── B1.4  ✔️🎮 mapgen.ts + gridRoads.ts — THE PROCGEN SYSTEM (§2/§12/§2A)
+│   │        Seeded small-town-America generator; 24 ordered stages inside a
+│   │        pop-floor retry loop. Decomposed to atoms per the PROCGEN RULE:
+│   │        one leaf per algorithm phase, invariant, metric, and QA gate.
+│   │        (Render side is B5.2 — leaves here generate, they don't draw.)
+│   ├── B1.4.0  ✔️ PIPELINE ORCHESTRATION — generateWorld (mapgen.ts:142)
+│   │   ├── B1.4.0.1 ✔️ Ordered-stage pipeline — stage ORDER is a contract
+│   │   │            (e.g. nature BEFORE farms so fields wrap timber, QA S1-B)
+│   │   ├── B1.4.0.2 ✔️ Pop-floor retry loop — ≤5 attempts, rScale 1+0.12k
+│   │   ├── B1.4.0.3 ✔️ Golden-ratio rng salt — every (seed,attempt) stream
+│   │   │            distinct; fixed the adjacent-seed twin-town collision
+│   │   ├── B1.4.0.4 ✔️ popFloors() — area-proportional floors (~0.32 souls/
+│   │   │            tile: 64²≈1300 / 96²≈2900 / 128²≈5150) (feeds B8.5)
+│   │   └── B1.4.0.5 ✔️ MapOpts contract — biomes[] + townType knobs;
+│   │                FLOCK_BIOMES env + private-room host knobs plumbed
+│   ├── B1.4.1  ✔️ STREET GRID — gridRoads.ts (axis-aligned; replaced tensor roads)
+│   │   ├── B1.4.1.1 ✔️ Highway / Main Street — 2-lane pair (rows hy, hy+1)
+│   │   ├── B1.4.1.2 ✔️ County route — the vertical artery
+│   │   ├── B1.4.1.3 ✔️ Avenues — jittered horizontals stepping out from the
+│   │   │            highway (tight downtown spacing, looser fringe)
+│   │   ├── B1.4.1.4 ✔️ Streets — jittered verticals off the county route
+│   │   │            → irregular real city blocks
+│   │   ├── B1.4.1.5 ✔️ Cul-de-sacs — dead-end courts + bulbs in residential
+│   │   │            blocks, named "X Court"
+│   │   ├── B1.4.1.6 ✔️ Country roads — section-line roads leaving town with
+│   │   │            90° jogs (traceRuralRoad; launch from painted endpoints)
+│   │   ├── B1.4.1.7 ✔️ Elbow fill — fillRoadElbows bridges corner-only
+│   │   │            road contact (orthogonality guarantee at the source)
+│   │   ├── B1.4.1.8 ✔️ Street-segment registry — freshLabel → Street[] →
+│   │   │            World.streets (every segment nameable)
+│   │   └── B1.4.1.9 ✔️ Town shape — layoutHighwaysAndTown: cx/cy/r + highway
+│   │                row + downtown extent (the geometry every stage reads)
+│   ├── B1.4.2  ✔️ DIRT & LANES — the unpaved layer
+│   │   ├── B1.4.2.1 ✔️ carveDirtLane — hash-oriented L-path (axis-at-a-time,
+│   │   │            zero diagonal stair-steps)
+│   │   ├── B1.4.2.2 ✔️ nearestRoad — bounded radial search (lane anchoring)
+│   │   ├── B1.4.2.3 ✔️ Main-Street alleys — dirt service lanes at hy−2/hy+3
+│   │   │            behind the commercial strip
+│   │   └── B1.4.2.4 ✔️ Trailer court — one proper court: 4-tile dirt lane
+│   │                off a street, trailers flanking (not just scatter)
+│   ├── B1.4.3  ✔️ NAMING — deterministic place identity
+│   │   ├── B1.4.3.1 ✔️ pickTownName — fresh town per seed from the corpus
+│   │   ├── B1.4.3.2 ✔️ Street naming — every traced segment gets a corpus
+│   │   │            name; Main Street resolves on the highway pair
+│   │   ├── B1.4.3.3 ✔️ Corpus dependency — B6.6 gen_names.py banks (512
+│   │   │            towns / 384 streets / 328 firsts / 512 surnames)
+│   │   └── B1.4.3.4 ✔️ INVARIANT: name determinism + cross-seed variety +
+│   │                household-name purity (mapgen.test.ts, 2 gates)
+│   ├── B1.4.4  ✔️ ZONING & POPULATION FIT
+│   │   ├── B1.4.4.1 ✔️ districtCoeffTable — authoritative §2 coefficients
+│   │   ├── B1.4.4.2 ✔️ Household size ranges per district + empty-yard
+│   │   │            chance table (lived-in variance)
+│   │   ├── B1.4.4.3 ✔️ scatterExurbs — lone fringe households outside town
+│   │   ├── B1.4.4.4 ✔️ rollLots — residents + hidden susceptibility per lot;
+│   │   │            street-front lots run denser
+│   │   ├── B1.4.4.5 ✔️ infillToFloor — yards become modest homes until the
+│   │   │            floor holds (the retry loop's last resort)
+│   │   └── B1.4.4.6 ✔️ INVARIANT: pop floor on 96² competitive worlds
+│   │                (≥640 populated tiles, ≥2900 souls) (mapgen.test.ts)
+│   ├── B1.4.5  ✔️ CONTRACT: World {townName, streets, biome}, snapshot
+│   │            v7→v8, hashState coverage, round-trip hash-identical
+│   ├── B1.4.6  ✔️ ZONING v2 — 8 districts (ResLow/ResHigh/Commercial/
+│   │            Industrial + Downtown/OldTown/College/Trailer) w/ coeffs;
+│   │            industrial by the rail, commercial on Main St
+│   ├── B1.4.7  ✔️ KEYSTONE CIVICS — guaranteed every town
+│   │   ├── B1.4.7.1 ✔️ keystone() stamp engine — try full size → shrink to
+│   │   │            1×1 → force-place on first road-fronting lot
+│   │   ├── B1.4.7.2 ✔️ The seven guarantees — elementary + high school,
+│   │   │            sheriff, grocery, church, fire station, gas (feeds B1.18)
+│   │   └── B1.4.7.3 ✔️ INVARIANT: keystone gate ×5 seeds (mapgen.test.ts)
+│   ├── B1.4.8  ✔️ BLOCK INTERIORS & FRONTAGE
+│   │   ├── B1.4.8.1 ✔️ enforceRoadFrontage — homes FRONT the street;
+│   │   │            interiors are yards (revised away path corridors)
+│   │   ├── B1.4.8.2 ✔️ orthogonalizePaths — safety net bridging any
+│   │   │            corner-only path contact
+│   │   └── B1.4.8.3 ✔️ INVARIANT: no home without street access within 1
+│   │                orth tile (mapgen.test.ts frontage gate)
+│   ├── B1.4.9  ✔️ FARMING — the working countryside
+│   │   ├── B1.4.9.1 ✔️ layoutFarms — farmsteads anchored ON rural lanes
+│   │   ├── B1.4.9.2 ✔️ Field parcels — rectangular, road-aligned, baulk
+│   │   │            separators, river margins enforced
+│   │   ├── B1.4.9.3 ✔️ Orchards — tree-row parcels
+│   │   ├── B1.4.9.4 ✔️ Pastures — fenced livestock parcels
+│   │   ├── B1.4.9.5 ✔️ fillFarmBelt — quarter-section fill: >20% of open
+│   │   │            land cultivated, contiguous belt not islands
+│   │   ├── B1.4.9.6 ✔️ Shelterbelts — windbreak woods rows at farmsteads
+│   │   │            + field shelterbelt rows
+│   │   ├── B1.4.9.7 ✔️ Road-field shoulders — 1-tile grass between
+│   │   │            pavement and crop (#13)
+│   │   ├── B1.4.9.8 ✔️ Farm outbuildings — barns/silos/greenhouses grown
+│   │   │            beside farmhouses (placeTownBuildings farm pass)
+│   │   └── B1.4.9.9 ✔️ INVARIANT: countryside farmed/watered/wooded gate
+│   │                (mapgen.test.ts)
+│   ├── B1.4.10 ✔️ BIOMES — configurable ground truth
+│   │   ├── B1.4.10.1 ✔️ paintBiomes — blob-shaped biome painter
+│   │   │            (desert/forest/autumn), order-independent, deduped
+│   │   ├── B1.4.10.2 ✔️ Dominant-biome override — archetype towns sit
+│   │   │            INSIDE a biome (desert/mountain, §2A)
+│   │   ├── B1.4.10.3 ✔️ Temperate town margin — the oasis/valley rule with
+│   │   │            fringe wobble (rim never reads as a circle)
+│   │   ├── B1.4.10.4 ✔️ Desert ecotone — 3-ring transition, no hard edge
+│   │   └── B1.4.10.5 ✔️ INVARIANT: biomes configurable, blob-shaped,
+│   │                deterministic (mapgen.test.ts; default/[]/desert-only)
+│   ├── B1.4.11 ✔️ RAIL & HYDROLOGY — the geographer realism pass
+│   │   ├── B1.4.11.1 ✔️ layoutRail — fewest-street-crossing row selection;
+│   │   │            right-of-way never runs ALONG an avenue
+│   │   ├── B1.4.11.2 ✔️ Level crossings — roads keep pavement where the
+│   │   │            line crosses (render: crossbucks, B5.2)
+│   │   ├── B1.4.11.3 ✔️ Siding + grain elevator + depot at the industrial
+│   │   │            edge (oceanside swaps elevator→cannery, B1.4.14.2)
+│   │   ├── B1.4.11.4 ✔️ Industrial rail spur — stub track branches from
+│   │   │            the main line into the works' own siding
+│   │   ├── B1.4.11.5 ✔️ carveRiver — meandering river down one valley side;
+│   │   │            widens 1→3→4 downstream
+│   │   ├── B1.4.11.6 ✔️ carveCreek — 2 tributaries joining at confluence rows
+│   │   ├── B1.4.11.7 ✔️ Lake plumbing — outlet channel + connectLakesToRiver
+│   │   │            (no disconnected water bodies)
+│   │   ├── B1.4.11.8 ✔️ Dam & millpond — low weir upstream of town w/
+│   │   │            impounded pond (QA sweep #5)
+│   │   ├── B1.4.11.9 ✔️ Riparian vegetation — forest bias toward water +
+│   │   │            bank galleries
+│   │   ├── B1.4.11.10 ✔️ Hedgerows — woods/field boundary rows
+│   │   ├── B1.4.11.11 ✔️ Edge cemetery — at the town margin
+│   │   └── B1.4.11.12 ✔️ INVARIANT: rail/elevator/depot anchor every town
+│   │                (§2 rev. 5 gate, mapgen.test.ts, ×5 seeds)
+│   ├── B1.4.12 ⬜ TERRAIN FIELDS v2 — coarse heightmap + moisture field
+│   │            generated FIRST; river follows drainage, biomes gated on
+│   │            elevation+moisture (deferred: reviewer #8; foundational)
+│   ├── B1.4.13 ✔️🖼️ MAPGEN QA — QA_MAPGEN.md protocol, sweeps 1–3 complete
+│   │   ├── B1.4.13.1 ✔️🖼️ Sweep record — 5 seeds × full map + crops; all
+│   │   │            S1/S2 fixed (lake outlets, zoning colors, house/shop
+│   │   │            variety, dam, water tower, marshes, curb cuts, alleys)
+│   │   └── B1.4.13.2 ✔️🖼️ Render evidence — "QA gallery/" artifacts;
+│   │                seeds logged with every sample (repro contract)
+│   ├── B1.4.14 🔨 TOWN ARCHETYPES (§2A) — applyTownArchetype (mapgen.ts:826)
+│   │   │        ⚠ found undocumented: in code, absent from tree/tests/QA
+│   │   ├── B1.4.14.1 ✔️ farm — the default; archetype pass skips entirely
+│   │   ├── B1.4.14.2 ✅ oceanside — sea on the roomier edge w/ wavy coast;
+│   │   │            river mouth becomes estuary; 2-tile beach strip;
+│   │   │            highway stub becomes THE pier (others trimmed);
+│   │   │            lighthouse; cannery + fish docks; elevator→cannery
+│   │   ├── B1.4.14.3 ✅ mountain/timber — conifer walls rim the valley;
+│   │   │            slope farms reclaimed by stands; sawmill + log yard
+│   │   │            on the rail at a woods edge
+│   │   ├── B1.4.14.4 ✅ lakeside — big water body at the town edge; resort
+│   │   │            shore: cabins + docks + boat ramp on town-facing shore
+│   │   ├── B1.4.14.5 ✅ desert — dominant desert biome + oasis margin
+│   │   ├── B1.4.14.6 ⬜ INVARIANTS: per-archetype gates (pier connects,
+│   │   │            sawmill on rail, no farm in surf, pop floor still
+│   │   │            holds under sea/forest loss) — NO TESTS EXIST
+│   │   └── B1.4.14.7 ⬜🖼️ Archetype sample-set QA — QA_MAPGEN protocol
+│   │                × oceanside/mountain/lakeside/desert — NO EVIDENCE
+│   ├── B1.4.15 ✔️ TOWN BUILDING PLACEMENT — placeTownBuildings beyond keystones
+│   │   ├── B1.4.15.1 ✔️ stamp() engine — wLots×hLots fitting; commercial
+│   │   │            frontage must touch a road
+│   │   ├── B1.4.15.2 ✔️ Downtown civic core — town hall, bank, post office
+│   │   ├── B1.4.15.3 ✔️ Town green — civic square in the heart of downtown
+│   │   ├── B1.4.15.4 ✔️ Commercial strip — shops/diner/cinema/offices on Main
+│   │   ├── B1.4.15.5 ✔️ Industrial quarter — factory + warehouses + yard
+│   │   ├── B1.4.15.6 ✔️ College quarter + school ballpark
+│   │   ├── B1.4.15.7 ✔️ Old Town — chapel + diner + old churchyard
+│   │   ├── B1.4.15.8 ✔️ Suburbs — corner shops, 2nd church, parks, playground
+│   │   ├── B1.4.15.9 ✔️ Parsonage — every church keeps its household next door
+│   │   ├── B1.4.15.10 ✔️ Highway motel + gas stations outside town
+│   │   ├── B1.4.15.11 ✔️ Parking lots — opportunistic aprons + the GUARANTEE
+│   │   │            pass (every civic anchor HAS one, clearing a yard if needed)
+│   │   ├── B1.4.15.12 ✔️ Water tower lot (suburbs) + water-tower landmark
+│   │   ├── B1.4.15.13 ✔️ placeDocks — shoreline docks w/ rowboats
+│   │   └── B1.4.15.14 ✔️ Quarry scar — one gravel pit gouged off-road in
+│   │                deep country (never in desert biome)
+│   ├── B1.4.16 ✔️ NATURE & WATER BODIES
+│   │   ├── B1.4.16.1 ✔️ organicBlob — the shared irregular-shape primitive
+│   │   ├── B1.4.16.2 ✔️ placeNature — woods stands + the lake in open country
+│   │   │            (riparian bias when a river exists)
+│   │   └── B1.4.16.3 ✔️ ORDER INVARIANT: nature before farms — fields wrap
+│   │                standing timber, never the reverse (QA S1-B)
+│   ├── B1.4.17 ✔️ ROAD-GRAPH HYGIENE — the post-pass gauntlet
+│   │   ├── B1.4.17.1 ✔️ roadComponents — 4-connected component labeling
+│   │   ├── B1.4.17.2 ✔️ connectRoadComponents — stitch orphan road islands
+│   │   ├── B1.4.17.3 ✔️ pruneRoadStubs + pruneAllDeadEnds — erase whatever
+│   │   │            leads nowhere (incl. dirt lanes, orphaned spurs)
+│   │   ├── B1.4.17.4 ✔️ extendEdgeRoads — rural roads run off-map, never
+│   │   │            dying at the border
+│   │   └── B1.4.17.5 ✔️ INVARIANT: strict orthogonality — no corner-only
+│   │                contact, no orphan pixels (mapgen.test.ts, ×5 seeds)
+│   ├── B1.4.18 ✔️ DETERMINISM & SEED CONTRACT (procgen rule §2)
+│   │   ├── B1.4.18.1 ✔️ INVARIANT: same seed ⇒ identical world; adjacent
+│   │   │            seeds ⇒ distinct worlds (mapgen.test.ts)
+│   │   ├── B1.4.18.2 ✔️ INVARIANT: snapshot v8 round-trip hash-identical;
+│   │   │            all mapgen fields inside hashState (→ lockstep gate)
+│   │   └── B1.4.18.3 ✔️ Seed logging — QA samples named by seed
+│   │                (11/21/42/77/99); every failure reproducible
+│   └── B1.4.19 ⬜ QUALITY METRICS (procgen rule §4) — measured map QUALITY
+│                beyond pass/fail: block-size distribution, road-network
+│                connectivity ratio, lot-variety index, name-uniqueness
+│                rate, farm-share % (only this one measured today).
+│                OPTIMIZE metric ledger for future tuning — NOT BUILT
 ├── B1.5  ✔️ buildings.ts — full §6 table (Compounds…Supplement Labs)
 ├── B1.6  ✔️ entities.ts — Couriers, Vans, invisible Agents (§7)
 ├── B1.7  ✔️ PvP trio — raids / scandal→publish / court defection (§13/§15)

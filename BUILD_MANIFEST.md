@@ -16,17 +16,22 @@ _Updated 2026-07-05: B1.4 (mapgen) decomposed to atoms per the PROCGEN RULE —
 derived from mapgen.ts/gridRoads.ts code, not from docs. Baseline re-verified
 that day: build clean, **sim 78/78 green**._
 
-**~166/180 nodes VERIFIED · 4 IMPLEMENTED-not-verified (town archetypes B1.4.14.2–.5 — in code, zero tests/render evidence) · 6 NOT_STARTED (B1.4.12, B1.4.14.6, B1.4.14.7, B1.4.19, B6.5, B7.1/B7.4 seams) · 6 BLOCKED (external infra/content) · 1 STUBBED (deferred high-detail art, tracked)**
+**~174/180 nodes VERIFIED · 0 IMPLEMENTED-not-verified · NOT_STARTED: B1.4.12 (terrain fields v2), B6.5 (x-browser CI), B7.1/B7.4 (launch seams), B8.11/B8.12 (accepted MINOR) · 6 BLOCKED (external infra/content) · 1 STUBBED (deferred high-detail art, tracked)**
+
+_2026-07-05 close-out: the archetype gap is shut — B1.4.14.2–.7 all VERIFIED
+(9 test gates in archetypes.test.ts, suite 87/87; 24 QA renders PASS; mountain
+sawmill fallback fixed a real seed-3 generation gap the probe found). B1.4.19
+quality-metrics harness live with baseline recorded._
 
 Next recommended actions, in order:
-1. **B1.4.14.6 + B1.4.14.7** — archetype invariant tests + sample-set QA. The
-   §2A archetypes (oceanside/mountain/lakeside/desert) shipped silently with
-   no gates: today the pop-floor/keystone/frontage tests only run the "farm"
-   path. This is the only place the mapgen system currently violates
-   "evidence before VERIFIED."
-2. **B1.4.19** — mapgen quality-metrics harness (the PROCGEN rule's OPTIMIZE
-   metric; only farm-share % is measured today).
-3. **B6.5** — cross-browser determinism CI (still the top HANDOFF §10 risk).
+1. **B6.5** — cross-browser determinism CI (top HANDOFF §10 risk). Note the
+   §2A coastline wobble uses `Math.sin` (mapgen.ts:863) — transcendental fns
+   are implementation-defined across JS engines, so oceanside worlds are the
+   FIRST place a cross-engine hash divergence would appear. B6.5 should
+   include an archetype world in its gate.
+2. **B1.4.12** — terrain fields v2 (heightmap+moisture first), the deferred
+   foundational rework; would also subsume the seed-99 road-connectivity dip
+   tracked in B1.4.19's baseline.
 
 ## Manifest
 
@@ -227,7 +232,7 @@ Next recommended actions, in order:
 | B1.4.18.1 | B1/mapgen/det/identity | INVARIANT: seed identity | Same seed ⇒ bit-identical world; adjacent seeds ⇒ distinct worlds | B1.4.0.3 | ✔️ | mapgen.test.ts gate green |
 | B1.4.18.2 | B1/mapgen/det/hash | INVARIANT: hash coverage | All mapgen World fields inside hashState; snapshot v8 round-trip hash-identical (lockstep gate) | B1.4.5 | ✔️ | round-trip + lockstep smoke green |
 | B1.4.18.3 | B1/mapgen/det/seedlog | Seed logging | Every QA sample carries its seed; failures reproducible | B1.4.13.2 | ✔️ | QA gallery seeds 11/21/42/77/99 |
-| B1.4.19 | B1/mapgen/metrics | Quality metrics ledger | Measured quality beyond pass/fail (PROCGEN RULE §4): block-size distribution, road connectivity ratio, lot-variety index, name-uniqueness rate, farm-share % — computed per seed batch, tracked over time as the mapgen OPTIMIZE metric | B1.4.18 | ⬜ | Only farm-share exists (inside a test assert); no metrics harness. Candidate next node with B1.4.14.6/.7 |
+| B1.4.19 | B1/mapgen/metrics | Quality metrics ledger | Measured quality beyond pass/fail (PROCGEN RULE §4): road connectivity ratio, block count/median/p90, lot-kind count + entropy, street-name uniqueness, farm share, water share — per seed batch & archetype, the mapgen OPTIMIZE metric | B1.4.18 | ✔️ | tools/mapmetrics.mjs. Baseline (farm 96², seeds 1/2/3/42/99): roadConnectivity 0.988 (seed 99 dips 0.948 — disconnected dirt pockets, tracked), blocks 51 @ median 12 tiles, 24 lot kinds @ 4.17 bits, nameUniqueness 0.631, farmShare 0.219, waterShare 0.046 (oceanside 0.211). Future gen changes are judged by delta against these |
 | B1.5 | B1/buildings | Buildings (§6) | Full table incl. Watchtowers fort×5, Hotlines 75% intercept | B1.1 | ✔️ | m1.test.ts green |
 | B1.6 | B1/units | Units (§7) | Couriers (robbable), Vans (mobile pressure/screening), invisible Agents | B1.5 | ✔️ | m1.test.ts green |
 | B1.7 | B1/pvp | PvP trio (§13/§15) | Raids, Scandal 50%-notify→Publish, Court Defection | B1.6 | ✔️ | m1.test.ts green |

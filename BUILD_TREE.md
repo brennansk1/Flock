@@ -220,11 +220,10 @@ B1  ✔️ SIM — deterministic gameplay core (@flock/sim, runs bit-identically
 │   │   │            all mapgen fields inside hashState (→ lockstep gate)
 │   │   └── B1.4.18.3 ✔️ Seed logging — QA samples named by seed
 │   │                (11/21/42/77/99); every failure reproducible
-│   └── B1.4.19 ⬜ QUALITY METRICS (procgen rule §4) — measured map QUALITY
-│                beyond pass/fail: block-size distribution, road-network
-│                connectivity ratio, lot-variety index, name-uniqueness
-│                rate, farm-share % (only this one measured today).
-│                OPTIMIZE metric ledger for future tuning — NOT BUILT
+│   └── B1.4.19 ✔️ QUALITY METRICS (procgen rule §4) — tools/mapmetrics.mjs:
+│                road connectivity, block count/median/p90, lot variety +
+│                entropy, name uniqueness, farm/water share, per seed batch
+│                & archetype; baseline values recorded in the Manifest
 ├── B1.5  ✔️ buildings.ts — full §6 table (Compounds…Supplement Labs)
 ├── B1.6  ✔️ entities.ts — Couriers, Vans, invisible Agents (§7)
 ├── B1.7  ✔️ PvP trio — raids / scandal→publish / court defection (§13/§15)

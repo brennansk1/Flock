@@ -413,8 +413,11 @@ B9  🔨 THE MISSION REWORK — core loop v3 (DESIGN_MISSIONS.md is the contract
 │   ├── M4.1 ✔️🖼️ Territory glow — converted town paints itself in owner
 │   │            colour (outer-boundary edges, tick-shimmer); the map-
 │   │            painting dopamine. Vision-QA'd (05db354, QA gallery/M4Glow)
-│   └── M4.2 ⬜ Key-building sieges — tug-of-war meter per civic/anchor lot
-│                (25–40 s), decay when uncontested; right-rail bars
+│   └── M4.2 🔨 Key-building sieges
+│       ├── M4.2a ✔️ Siege pace (civic/anchor lots resist ×3.5 → ~25–40 s) +
+│       │            computeSiegeState contract for the bars (5f73d67)
+│       └── M4.2b 🔨 HUD tug-of-war capture bars in the Key Buildings panel
+│                    (delegated to Sonnet against computeSiegeState)
 ├── B9.5 ⬜ M5 Bot brain v3 — three verbs (send/recall/upgrade); botleague +
 │            playtest campaigns re-baselined (gate: lead share < 0.90)
 ├── B9.6 ⬜ M6 Client — RIGHT-CLICK MISSION WHEEL (Spread/Tend/Crusade arcs

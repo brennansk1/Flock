@@ -406,12 +406,15 @@ B9  🔨 THE MISSION REWORK — core loop v3 (DESIGN_MISSIONS.md is the contract
 │   │   │            bots, tutorial); strikes un-gated → money op (b235dcd)
 │   │   └── M3.3c ⬜ Hard-purge inert building code + m1 building-tests;
 │   │                retarget Visitors radio_static (broadcast gone → no-op)
-│   └── M3.4 ⬜ Archetype rebalance RE-RUN (after M3.3 closes money→commune→
-│                flock): botleague until all 4 cults in ~22–28% band; income
-│                (circle) + retention (radiant) now have real win-paths.
-│                First pass done (PT-0010): FAIL→PASS, 6.5×→1.55× spread
-├── B9.4 ⬜ M4 Key-building sieges — tug-of-war meter per civic/anchor lot,
-│            decay when uncontested, glow-outline state for converted homes
+│   └── M3.4 ✔️ Archetype rebalance re-run post-M3.3 — PASS, holds in the
+│                1.55× band (dawn 31.9/vis 26.9/circle 20.6/radiant 20.6);
+│                final human-tune deferred to B7.9 (PT-0013, 4c0a06c)
+├── B9.4 🔨 M4 Glow + sieges
+│   ├── M4.1 ✔️🖼️ Territory glow — converted town paints itself in owner
+│   │            colour (outer-boundary edges, tick-shimmer); the map-
+│   │            painting dopamine. Vision-QA'd (05db354, QA gallery/M4Glow)
+│   └── M4.2 ⬜ Key-building sieges — tug-of-war meter per civic/anchor lot
+│                (25–40 s), decay when uncontested; right-rail bars
 ├── B9.5 ⬜ M5 Bot brain v3 — three verbs (send/recall/upgrade); botleague +
 │            playtest campaigns re-baselined (gate: lead share < 0.90)
 ├── B9.6 ⬜ M6 Client — RIGHT-CLICK MISSION WHEEL (Spread/Tend/Crusade arcs

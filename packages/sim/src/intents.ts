@@ -13,6 +13,8 @@ export const IntentType = {
   SET_STANCE: "SET_STANCE",
   OPEN_FRONT: "OPEN_FRONT",
   CLOSE_FRONT: "CLOSE_FRONT",
+  MISSION_SEND: "MISSION_SEND",
+  MISSION_RECALL: "MISSION_RECALL",
   BUILD: "BUILD",
   BUY_PROPERTY: "BUY_PROPERTY",
   CANCEL_BUILD: "CANCEL_BUILD",
@@ -53,6 +55,11 @@ export type Intent =
   | { t: typeof IntentType.SET_STANCE; player: PlayerId; stance: Stance }
   | { t: typeof IntentType.OPEN_FRONT; player: PlayerId; tiles: TileId[] }
   | { t: typeof IntentType.CLOSE_FRONT; player: PlayerId; front: number }
+  /** v3 missions (DESIGN_MISSIONS.md §1): send `permille`‰ of the flock to
+   * work the town around `tile` in the chosen per-sortie mode. */
+  | { t: typeof IntentType.MISSION_SEND; player: PlayerId; tile: TileId; permille: number; mode: Stance }
+  /** Recall the cohort in `slot` — they walk home (friction is the point). */
+  | { t: typeof IntentType.MISSION_RECALL; player: PlayerId; slot: number }
   | { t: typeof IntentType.BUILD; player: PlayerId; building: BuildingType; tile: TileId }
   | { t: typeof IntentType.BUY_PROPERTY; player: PlayerId; tile: TileId }
   | { t: typeof IntentType.CANCEL_BUILD; player: PlayerId; tile: TileId }

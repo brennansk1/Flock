@@ -42,5 +42,6 @@ export function newPlayer(
     faithHoldTicks: 0,
     parcels: 0,
     channelTicks: 0,
+    cohorts: [],
   };
 }

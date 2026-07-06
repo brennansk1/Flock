@@ -69,6 +69,14 @@ export interface RawBalance {
     sawmill_build_mult?: number;
     lighthouse_outreach_bonus?: number;
   };
+  /** v3 missions (DESIGN_MISSIONS.md) — optional for older files. */
+  missions?: {
+    inner_circle_permille?: number;
+    min_send_permille?: number;
+    max_send_permille?: number;
+    /** M1 interim fixed recall time (ticks); M2 replaces with travel model */
+    recall_ticks?: number;
+  };
 }
 
 export interface ArchetypeCoeffs {
@@ -130,6 +138,12 @@ export interface Balance {
     anchorTitheMult: Fixed;
     sawmillBuildMult: Fixed;
     lighthouseOutreachBonus: number;
+  };
+  missions: {
+    innerCirclePermille: number;
+    minSendPermille: number;
+    maxSendPermille: number;
+    recallTicks: number;
   };
 }
 
@@ -205,6 +219,12 @@ export function loadBalance(raw: RawBalance): Balance {
       anchorTitheMult: fromFloat(raw.civics?.anchor_tithe_mult ?? 1.1),
       sawmillBuildMult: fromFloat(raw.civics?.sawmill_build_mult ?? 0.88),
       lighthouseOutreachBonus: raw.civics?.lighthouse_outreach_bonus ?? 2,
+    },
+    missions: {
+      innerCirclePermille: raw.missions?.inner_circle_permille ?? 200,
+      minSendPermille: raw.missions?.min_send_permille ?? 100,
+      maxSendPermille: raw.missions?.max_send_permille ?? 900,
+      recallTicks: raw.missions?.recall_ticks ?? 100,
     },
   };
 }

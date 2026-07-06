@@ -23,6 +23,7 @@ import {
   Landmark,
   Lot,
   MatchStatus,
+  MAX_COHORTS,
   type Building,
   type PlayerState,
   type SimState,
@@ -789,6 +790,44 @@ export function applyIntent(s: SimState, intent: Intent, b: Balance): void {
       break;
     }
 
+    case IntentType.MISSION_SEND: {
+      // v3 missions (DESIGN_MISSIONS.md §1): commit a slice of the flock to
+      // work the town around a target. Mass is CONSERVED — it leaves the
+      // home flock now and only returns when a recall completes. The inner
+      // circle (20‰ floor) can never deploy: one bad minute must be a
+      // setback, not an elimination.
+      if (!p.spawned || !p.alive) break;
+      const w = s.world;
+      const tgt = intent.tile;
+      if (tgt < 0 || tgt >= w.terrain.length) break;
+      const mode = intent.mode;
+      if (mode !== Stance.Spread && mode !== Stance.Tend && mode !== Stance.Crusade) break;
+      if (p.cohorts.length >= MAX_COHORTS) break;
+      const pm = Math.max(
+        b.missions.minSendPermille,
+        Math.min(b.missions.maxSendPermille, intent.permille | 0),
+      );
+      const deployed = p.cohorts.reduce((a, c) => add(a, c.mass), 0 as Fixed);
+      const flockTotal = add(p.followers, deployed);
+      // integer permille, rounded DOWN — the inner circle holds exactly
+      const perMille = div(flockTotal, fromInt(1000));
+      const deployCap = mul(perMille, fromInt(1000 - b.missions.innerCirclePermille));
+      const headroom = sub(deployCap, deployed);
+      const mass = min(min(mul(perMille, fromInt(pm)), headroom), p.followers);
+      if (mass <= 0) break;
+      p.followers = sub(p.followers, mass);
+      p.cohorts.push({ target: tgt, mode, mass, age: 0, recalling: false, recallAge: 0 });
+      break;
+    }
+
+    case IntentType.MISSION_RECALL: {
+      const c = p.cohorts[intent.slot | 0];
+      if (!c || c.recalling) break;
+      c.recalling = true;
+      c.recallAge = 0;
+      break;
+    }
+
     case IntentType.BUILD: {
       // Full §6 table. Satellites are placed by the Saucer ability, not BUILD.
       // Compounds rise on owned lots OR in the open country near your flock —
@@ -1102,6 +1141,22 @@ function stepEffects(s: SimState, b: Balance): void {
     if (p.atonementTicks > 0) p.atonementTicks--;
     if (p.judasTicks > 0) p.judasTicks--;
     if (p.retentionDebuffTicks > 0) p.retentionDebuffTicks--;
+
+    // Cohort upkeep (v3 missions, M1 substrate): age the sorties; a
+    // completed recall returns its mass to the home flock. NOTE (🧩 M2):
+    // the fixed recall timer is the M1 interim — M2 replaces it with the
+    // travel model (distance-based march home, vulnerable in transit).
+    if (p.cohorts.length > 0) {
+      for (const c of p.cohorts) {
+        c.age++;
+        if (c.recalling) c.recallAge++;
+      }
+      const returned = p.cohorts.filter((c) => c.recalling && c.recallAge >= b.missions.recallTicks);
+      if (returned.length > 0) {
+        for (const c of returned) p.followers = add(p.followers, c.mass);
+        p.cohorts = p.cohorts.filter((c) => !(c.recalling && c.recallAge >= b.missions.recallTicks));
+      }
+    }
 
     // Doctrinal victory progress (§18, Revelation): Faith pinned at 100 for
     // 90s, then a 20s uninterrupted channel at an owned Megachurch.

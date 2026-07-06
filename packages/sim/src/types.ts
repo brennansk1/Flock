@@ -203,6 +203,31 @@ export interface Front {
   tiles: TileId[];
 }
 
+/**
+ * A deployed cohort (v3 missions — DESIGN_MISSIONS.md §1): a slice of the
+ * flock sent to work a part of town. `mode` reuses the Stance vocabulary
+ * per-sortie ("this wave is a crusade"). Mass is CONSERVED: it leaves
+ * `followers` on SEND and returns when the recall completes — deployed
+ * followers are a stake, not a projection.
+ */
+export interface Cohort {
+  /** anchor tile the cohort was sent at */
+  target: TileId;
+  /** per-sortie mode: Spread converts, Tend holds, Crusade burns */
+  mode: Stance;
+  /** follower-mass committed (Q16.16) */
+  mass: Fixed;
+  /** ticks since dispatch (drives march-out + the M2 arrival model) */
+  age: number;
+  /** walking home; mass rejoins the flock when the return completes */
+  recalling: boolean;
+  /** ticks since recall began */
+  recallAge: number;
+}
+
+/** Max concurrent cohorts — the readability cap (DESIGN_MISSIONS.md §1). */
+export const MAX_COHORTS = 3;
+
 /** Per-player runtime state (§3). */
 export interface PlayerState {
   id: PlayerId;
@@ -252,6 +277,8 @@ export interface PlayerState {
   channelTicks: number;
   /** Land parcels bought (§18 rev.) — drives escalating BUY_PROPERTY cost. */
   parcels: number;
+  /** Deployed cohorts (v3 missions) — at most MAX_COHORTS live entries. */
+  cohorts: Cohort[];
 }
 
 /** Recap event log (§25): the raw material for headlines and cards. */

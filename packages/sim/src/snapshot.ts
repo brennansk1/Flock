@@ -34,7 +34,7 @@ import type {
 } from "./types.js";
 import type { Street } from "./names.js";
 
-export const SNAPSHOT_VERSION = 8;
+export const SNAPSHOT_VERSION = 9; // v9: PlayerState.cohorts (v3 missions)
 
 export interface Snapshot {
   v: number;
@@ -127,7 +127,12 @@ export function toSnapshot(s: SimState): Snapshot {
       biome: [...w.biome],
       property: [...w.property],
     },
-    players: s.players.map((p) => ({ ...p, cooldowns: { ...p.cooldowns }, doctrine: [...p.doctrine] })),
+    players: s.players.map((p) => ({
+      ...p,
+      cooldowns: { ...p.cooldowns },
+      doctrine: [...p.doctrine],
+      cohorts: p.cohorts.map((c) => ({ ...c })),
+    })),
     fronts: s.fronts.map((f) => ({ ...f, tiles: [...f.tiles] })),
     nextFrontId: s.nextFrontId,
     progress: [...s.progress.entries()].sort((a, z) => a[0] - z[0]),
@@ -205,6 +210,7 @@ export function fromSnapshot(snap: Snapshot): SimState {
       ...p,
       cooldowns: { ...p.cooldowns },
       doctrine: [...p.doctrine],
+      cohorts: p.cohorts.map((c) => ({ ...c })),
     })),
     fronts: snap.fronts.map((f) => ({ ...f, tiles: [...f.tiles] })),
     nextFrontId: snap.nextFrontId,

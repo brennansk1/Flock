@@ -379,11 +379,15 @@ B8  ✔️ PLAYTEST READINESS — the 2026-07-02 sprint (rooms, civic day, safet
 ├── B8.15 ✔️ All-clickable — SCHEME panel gives every PvP/ops action a button (no hotkey needed)
 
 B9  🔨 THE MISSION REWORK — core loop v3 (DESIGN_MISSIONS.md is the contract)
-├── B9.1 ⬜ M1 Cohort substrate — cohort state {target, mode, mass} ×3 max,
-│            SEND/RECALL intents, inner-circle floor, snapshot v9 + hash
-├── B9.2 ⬜ M2 Presence conversion engine — cohort mass replaces front
-│            pressure through the EXISTING factor pipeline (archetype/
-│            doctrine/district/civics/road mults survive); fronts deleted ✂
+├── B9.1 ✔️ M1 Cohort substrate — cohort state {target, mode, mass} ×3 max,
+│            SEND/RECALL intents, EXACT inner-circle floor, snapshot v9 +
+│            hash; 5 gates; lockstep smoke on v9 (commit c53af4e)
+├── B9.2 🔨 M2 Presence conversion engine — DONE (M2a, db8376a): travel
+│   │        model (march out / walk home, stateless distance), door-work
+│   │        auto-spread through the unchanged factor pipeline, Tend holds,
+│   │        Crusade attrition+Heat, JUDAS on allied doors; 97/97 + 4-engine
+│   │        PASS. REMAINING (M2b): migrate bots/client/tests off fronts,
+│   │        then delete fronts ✂
 ├── B9.3 ⬜ M3 Economy rewire — recruits-from-believers growth; rituals ✂ →
 │            doctrine costs Faith; build palette ✂ → commune stages 1–5
 ├── B9.4 ⬜ M4 Key-building sieges — tug-of-war meter per civic/anchor lot,

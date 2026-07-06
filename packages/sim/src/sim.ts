@@ -807,7 +807,7 @@ export function applyIntent(s: SimState, intent: Intent, b: Balance): void {
       const inWilderness = claimableTerrain(w.terrain[t]!) && w.property[t] === p.id;
       if (!onOwnedLot && !inWilderness) break;
       if (s.buildings.some((bd) => bd.tile === t)) break; // 1 per tile (§6)
-      const cost = buildingCost(s, p.id, type);
+      const cost = buildingCost(s, p.id, type, computeCivicControl(s), b); // sawmill discount (§2A)
       if (p.usd < cost) break;
       p.usd = sub(p.usd, cost);
       s.buildings.push({
@@ -840,7 +840,7 @@ export function applyIntent(s: SimState, intent: Intent, b: Balance): void {
       if (idx < 0) break;
       const bd = s.buildings[idx]!;
       // refund half of the *current* price tier — close enough, and simple
-      const refund = div(buildingCost(s, p.id, bd.type), fromInt(2));
+      const refund = div(buildingCost(s, p.id, bd.type, computeCivicControl(s), b), fromInt(2));
       if (bd.type === "compound" && p.compounds > 0) p.compounds--;
       s.buildings.splice(idx, 1);
       p.usd = add(p.usd, refund);
@@ -1024,6 +1024,14 @@ function stepEconomy(s: SimState, b: Balance): void {
     let tithePerSec = mul(mul(b.economy.tithePerFollower, p.followers), mul(incomeAvg, dissentTax));
     tithePerSec = mul(tithePerSec, b.archetypes[p.archetype].income);
     tithePerSec = mul(tithePerSec, titheMult(p)); // B1 Tithing Drill +10% (§10)
+    // Economic anchor (§2A mechanics, B1.4.20): whoever holds the town's
+    // granary — or the cannery that replaced it on the coast — skims the
+    // harvest money. One anchor per town; the mult applies once.
+    if (
+      controlsCivic(civics, Lot.GrainElevator, p.id) ||
+      controlsCivic(civics, Lot.Cannery, p.id)
+    )
+      tithePerSec = mul(tithePerSec, b.civics.anchorTitheMult);
     const tithe = mul(tithePerSec, dt);
     p.usd = add(p.usd, tithe);
     p.usdEarned = add(p.usdEarned, tithe);

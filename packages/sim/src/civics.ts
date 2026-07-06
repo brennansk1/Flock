@@ -29,6 +29,14 @@ export const CIVIC_LOTS: readonly Lot[] = [
   Lot.HighSchool,
   Lot.Supermarket,
   Lot.Church,
+  // ECONOMIC ANCHORS (§2A mechanics, B1.4.20): every town archetype carries
+  // its own prize — the granary (or the cannery that §2A swaps in for it),
+  // the sawmill, the lighthouse. Not every anchor exists on every map; the
+  // HUD lists only what this town actually has.
+  Lot.GrainElevator,
+  Lot.Cannery,
+  Lot.Sawmill,
+  Lot.Lighthouse,
 ];
 
 /** Human-readable effect line per civic lot (client HUD + docs). */
@@ -38,6 +46,10 @@ export const CIVIC_EFFECTS: Record<number, string> = {
   [Lot.HighSchool]: "youth recruitment — faster follower growth",
   [Lot.Supermarket]: "control the food — your flock holds firmer",
   [Lot.Church]: "the pulpit is yours — Faith climbs",
+  [Lot.GrainElevator]: "the harvest money flows through you — richer tithe",
+  [Lot.Cannery]: "the fish money flows through you — richer tithe",
+  [Lot.Sawmill]: "lumber at cost — cheaper construction",
+  [Lot.Lighthouse]: "the beacon draws seekers — farther compound outreach",
 };
 
 /**

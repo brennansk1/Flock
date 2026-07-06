@@ -64,6 +64,10 @@ export interface RawBalance {
     highschool_growth_mult: number;
     grocery_defense_mult: number;
     church_faith_per_s: number;
+    /** §2A economic anchors (B1.4.20) — optional for older files. */
+    anchor_tithe_mult?: number;
+    sawmill_build_mult?: number;
+    lighthouse_outreach_bonus?: number;
   };
 }
 
@@ -123,6 +127,9 @@ export interface Balance {
     highschoolGrowthMult: Fixed;
     groceryDefenseMult: Fixed;
     churchFaithPerS: Fixed;
+    anchorTitheMult: Fixed;
+    sawmillBuildMult: Fixed;
+    lighthouseOutreachBonus: number;
   };
 }
 
@@ -195,6 +202,9 @@ export function loadBalance(raw: RawBalance): Balance {
       highschoolGrowthMult: fromFloat(raw.civics?.highschool_growth_mult ?? 1.15),
       groceryDefenseMult: fromFloat(raw.civics?.grocery_defense_mult ?? 1.2),
       churchFaithPerS: fromFloat(raw.civics?.church_faith_per_s ?? 0.1),
+      anchorTitheMult: fromFloat(raw.civics?.anchor_tithe_mult ?? 1.1),
+      sawmillBuildMult: fromFloat(raw.civics?.sawmill_build_mult ?? 0.88),
+      lighthouseOutreachBonus: raw.civics?.lighthouse_outreach_bonus ?? 2,
     },
   };
 }

@@ -1208,9 +1208,11 @@ export class Hud {
     }
 
     // build palette: live cost, affordability greying, armed highlight
+    // (civic control passed so a held sawmill shows its discounted price)
+    const civicsNow = computeCivicControl(s);
     this.el.builds.querySelectorAll<HTMLElement>("[data-build]").forEach((b) => {
       const type = b.dataset.build as BuildingType;
-      const cost = toInt(buildingCost(s, me.id, type));
+      const cost = toInt(buildingCost(s, me.id, type, civicsNow, this.g.balance));
       const armed = this.ui.placement?.mode === "build" && this.ui.placement.building === type;
       b.classList.toggle("arm", armed);
       b.classList.toggle("cant", usd < cost && !armed);
@@ -1410,9 +1412,17 @@ export class Hud {
       [Lot.HighSchool]: "High School",
       [Lot.Supermarket]: "Grocery",
       [Lot.Church]: "Church",
+      [Lot.GrainElevator]: "Grain Elevator",
+      [Lot.Cannery]: "Cannery",
+      [Lot.Sawmill]: "Sawmill",
+      [Lot.Lighthouse]: "Lighthouse",
     };
+    // §2A anchors only exist on their archetype's map — list what THIS town has
+    const present = new Set<number>();
+    for (let t = 0; t < w.lot.length; t++) if (w.lot[t] !== 0) present.add(w.lot[t]!);
     let html = `<h4>Key Buildings</h4>`;
     for (const lot of CIVIC_LOTS) {
+      if (!present.has(lot)) continue;
       const holder = control.get(lot) ?? 0;
       const mine = holder === this.g.playerId;
       const holderName =

@@ -9,7 +9,9 @@
 
 import { add, mul, fromInt, fromFloat, ONE, type Fixed } from "./fixed.js";
 import type { Balance } from "./balance.js";
+import { controlsCivic } from "./civics.js";
 import {
+  Lot,
   Terrain,
   TileState,
   type Building,
@@ -91,8 +93,20 @@ export function countBuildings(s: SimState, player: PlayerId, type: Building["ty
   return n;
 }
 
-/** Cost of the player's next building of `type`, with per-copy growth. */
-export function buildingCost(s: SimState, player: PlayerId, type: Building["type"]): Fixed {
+/**
+ * Cost of the player's next building of `type`, with per-copy growth.
+ * Sawmill anchor (§2A mechanics, B1.4.20): lumber at cost — pass the caller's
+ * per-tick/per-render civic-control map + balance and the discount applies.
+ * Without them the base price holds (control is a pure function of state, so
+ * every price-displaying or price-charging caller CAN and SHOULD supply it).
+ */
+export function buildingCost(
+  s: SimState,
+  player: PlayerId,
+  type: Building["type"],
+  civics?: Map<number, PlayerId>,
+  b?: Balance,
+): Fixed {
   const def = BUILDING_DEFS[type];
   let cost = fromInt(def.cost);
   if (def.costGrowth !== 1) {
@@ -100,6 +114,8 @@ export function buildingCost(s: SimState, player: PlayerId, type: Building["type
     const existing = countBuildings(s, player, type);
     for (let i = 0; i < existing; i++) cost = mul(cost, growth);
   }
+  if (civics && b && controlsCivic(civics, Lot.Sawmill, player))
+    cost = mul(cost, b.civics.sawmillBuildMult);
   return cost;
 }
 

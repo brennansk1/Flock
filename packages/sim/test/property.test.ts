@@ -29,6 +29,7 @@ import {
   followerCap,
   propertyStats,
   propertyCost,
+  buildingCost,
   computeCivicControl,
   IntentType,
   Terrain,
@@ -192,6 +193,82 @@ test("civics: control resolves deterministically and the sheriff cools Heat fast
   const h1 = toInt(s.players[0]!.heat);
   const h2 = toInt(s.players[1]!.heat);
   assert.ok(h1 < h2, `sheriff controller cools faster (${h1} < ${h2})`);
+});
+
+test("§2A anchors: the granary pays and the sawmill discounts (B1.4.20)", () => {
+  const w = tinyWorld();
+  const g1 = 12 * 32 + 18;
+  w.lot[g1] = Lot.GrainElevator;
+  w.lot[g1 + 1] = Lot.GrainElevator;
+  const sm = 13 * 32 + 18;
+  w.lot[sm] = Lot.Sawmill;
+  // SAME archetype both seats: the A/B must isolate the anchor mult, not
+  // compare dawn-vs-circle income coefficients
+  const s = createSim({
+    seed: 9,
+    balance,
+    world: w,
+    spawns: [
+      { id: 1, archetype: "dawn" },
+      { id: 2, archetype: "dawn" },
+    ],
+  });
+  step(s, turn(0, [
+    { t: IntentType.SPAWN, player: 1, tile: 4 * 32 + 4 },
+    { t: IntentType.SPAWN, player: 2, tile: 27 * 32 + 27 },
+  ]), balance);
+
+  // player 1 converts the granary + the sawmill
+  for (const t of [g1, g1 + 1, sm]) {
+    w.owner[t] = 1;
+    w.state[t] = TileState.Believer;
+  }
+  s.players[0]!.ownedTiles += 3;
+  const control = computeCivicControl(s);
+  assert.equal(control.get(Lot.GrainElevator), 1, "player 1 holds the granary");
+  assert.equal(control.get(Lot.Sawmill), 1, "player 1 holds the sawmill");
+
+  // SAWMILL: lumber at cost — the holder builds cheaper, price is visible
+  const c1 = toInt(buildingCost(s, 1, "watchtower", control, balance));
+  const c2 = toInt(buildingCost(s, 2, "watchtower", control, balance));
+  assert.ok(c1 < c2, `sawmill holder builds cheaper (${c1} < ${c2})`);
+
+  // GRANARY: the harvest money flows — same followers, richer tithe
+  s.players[0]!.followers = s.players[1]!.followers;
+  s.players[0]!.usdEarned = fromInt(0);
+  s.players[1]!.usdEarned = fromInt(0);
+  for (let i = 1; i <= 100; i++) step(s, turn(i), balance);
+  const e1 = toInt(s.players[0]!.usdEarned);
+  const e2 = toInt(s.players[1]!.usdEarned);
+  assert.ok(e1 > e2, `granary holder earns more (${e1} > ${e2})`);
+});
+
+test("§2A anchors: the lighthouse extends compound outreach (B1.4.20)", () => {
+  const w = tinyWorld();
+  // lighthouse at the town's FAR corner from the target (creep can't confound)
+  const lh = 19 * 32 + 19;
+  w.lot[lh] = Lot.Lighthouse;
+  w.pop[lh] = 0;
+  const s = createSim({ seed: 10, balance, world: w, spawns: [{ id: 1, archetype: "dawn" }] });
+  // compound at (4,4); town corner (12,12) is ~11.3 away — OUTSIDE the base
+  // outreach radius (10), INSIDE the lighthouse-boosted reach (12)
+  step(s, turn(0, [{ t: IntentType.SPAWN, player: 1, tile: 4 * 32 + 4 }]), balance);
+  const target = 12 * 32 + 12;
+  step(s, turn(1, [{ t: IntentType.OPEN_FRONT, player: 1, tiles: [target] }]), balance);
+  for (let i = 2; i <= 250; i++) step(s, turn(i), balance);
+  assert.notEqual(w.owner[target], 1, "out of reach without the lighthouse");
+
+  // hand player 1 the light — the beacon draws seekers
+  w.owner[lh] = 1;
+  w.state[lh] = TileState.Believer;
+  s.players[0]!.ownedTiles += 1;
+  assert.equal(computeCivicControl(s).get(Lot.Lighthouse), 1);
+  let flipped = false;
+  for (let i = 251; i <= 900 && !flipped; i++) {
+    step(s, turn(i), balance);
+    flipped = w.owner[target] === 1;
+  }
+  assert.ok(flipped, "the same front reaches the target once the light is held");
 });
 
 test("property + parcels survive the snapshot round-trip hash-identically", () => {

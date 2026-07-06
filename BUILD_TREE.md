@@ -230,11 +230,17 @@ B1  ✔️ SIM — deterministic gameplay core (@flock/sim, runs bit-identically
 │   │            road connectivity, block count/median/p90, lot variety +
 │   │            entropy, name uniqueness, farm/water share, per seed batch
 │   │            & archetype; baseline values recorded in the Manifest
-│   ├── B1.4.20 ⬜ ARCHETYPE MECHANICAL IDENTITY — EXTEND candidate from the
-│   │            spatial Depth Review (PT-0003): biomes/pier/sawmill/cannery
-│   │            have zero gameplay hooks; archetypes differentiate through
-│   │            geometry alone. DELIBERATELY DEFERRED until human playtests
-│   │            (B7.9) say the base game wants it — restraint over polish
+│   ├── B1.4.20 ✔️🎮 ARCHETYPE MECHANICAL IDENTITY — economic-anchor civics
+│   │   │        (user waived the B7.9 gate). Zero new sim state: the anchors
+│   │   │        join the proven civics-control engine (B1.18)
+│   │   ├── B1.4.20.1 ✔️ Granary/Cannery — hold the town's economic anchor
+│   │   │            (elevator, or the cannery §2A swaps in) → tithe ×1.1
+│   │   ├── B1.4.20.2 ✔️ Sawmill — lumber at cost → build prices ×0.88,
+│   │   │            discounted price shown live in the build palette
+│   │   ├── B1.4.20.3 ✔️ Lighthouse — the beacon draws seekers → compound
+│   │   │            outreach radius +2
+│   │   └── B1.4.20.4 ✔️ HUD — Key Buildings panel lists only the anchors
+│   │                THIS town has; balance knobs hot-patchable
 │   └── B1.4.21 ⬜ TRANSCENDENTAL-FREE MAPGEN — 3 clusters remain (fields
 │                v2 retired the meander + biome rims): coastline wobble,
 │                town footprint rim, organicBlob rim. Risk CONTAINED by

@@ -100,3 +100,15 @@ the geometry already plays.
   All matches ended. Observation (N=3, hold loosely): median lead share fell
   to 0.72–0.89 from PT-0003/4's 0.94–0.98 — the smallholding ring may be
   breaking up runaway early expansion. Re-read when humans play (B7.9).
+
+## PT-0006 — 2026-07-05 — economic-anchor mechanics smoke (B1.4.20)
+
+- **Nodes:** B1.4.20.* (granary/cannery tithe, sawmill discount, lighthouse
+  outreach — first mechanics keyed to the §2A anchors)
+- **Scenario:** 15 bot matches (5 townTypes × 3 seeds) with anchors live;
+  plus 3 A/B engine gates in property.test.ts.
+- **Verdict: PASS.** Founding 4/4 everywhere; all matches ended (33–67%
+  pre-timer dominations); pacing in band (7.9–12 min medians). Bots don't
+  TARGET anchors yet — they benefit only incidentally when conversion sweeps
+  over them; deliberate anchor play is a human behavior to watch for at B7.9,
+  and a possible future bot-brain hint (not filed — wait for human signal).

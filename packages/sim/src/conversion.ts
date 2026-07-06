@@ -278,12 +278,17 @@ export function resolveConversion(s: SimState, b: Balance): void {
   const withinOutreach = (pid: PlayerId, t: TileId): boolean => {
     const list = outreach.get(pid);
     if (!list) return false;
+    // Lighthouse anchor (§2A mechanics, B1.4.20): the beacon draws seekers —
+    // its keeper's missionaries range farther from every compound
+    const r = controlsCivic(civics, Lot.Lighthouse, pid)
+      ? outR + b.civics.lighthouseOutreachBonus
+      : outR;
     const x = t % w.width;
     const y = (t / w.width) | 0;
     for (const c of list) {
       const dx = (c % w.width) - x;
       const dy = ((c / w.width) | 0) - y;
-      if (dx * dx + dy * dy <= outR * outR) return true;
+      if (dx * dx + dy * dy <= r * r) return true;
     }
     return false;
   };

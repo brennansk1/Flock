@@ -231,3 +231,21 @@ rebalance re-run AFTER M3.3, when the economic loop closes. Filed as B9.3.M3.4.
   soft cut. Visitors' radio_static targets broadcast towers → now a no-op;
   retarget is kit-polish (filed). Client tray/tutorial build-verified, not yet
   browser-verified (M6 reworks the tray anyway).
+
+## PT-0013 — 2026-07-06 — M3.4 archetype rebalance re-run (post-M3.3)
+
+- **Nodes:** B9.3 M3.4 (balance re-run after the economy closed)
+- **Method:** botleague, 160 church-tier 4p matches, post-M3.3 build.
+- **Verdict: PASS, no coefficient change.** dawn 31.9 · visitors 26.9 ·
+  circle 20.6 · radiant 20.6 — identical to the PT-0010 final. The completed
+  economy (commune stages + palette cut) shifted all cults proportionally, so
+  the PT-0010 balance HELD: 1.55× spread, no dominant pick, no broken cult.
+  dawn's residual 31.9% is bot-FFA noise (aggression over-rewarded when nothing
+  punishes overextension); pushing it lower would flatten its identity.
+  DEFINITIVE final tune deferred to human playtests (B7.9) — bot FFA can't
+  fairly resolve the last few points.
+- **Delegation note:** the M3.3c purge was delegated to a Sonnet agent under
+  worktree isolation, which checked out a STALE base (575658f, pre-mission-
+  rework) — the agent correctly refused rather than damaging real mechanics.
+  Lesson: worktree isolation doesn't inherit this session's committed HEAD
+  here; delegate in the main tree.

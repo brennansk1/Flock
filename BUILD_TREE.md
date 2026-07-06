@@ -361,6 +361,9 @@ tracked as **B4.4.3**, not hidden. No catch-all UI nodes remain.
 B8  ✔️ PLAYTEST READINESS — the 2026-07-02 sprint (rooms, civic day, safety, sims)
 ├── B8.1 ✔️ Private rooms — code-gated matches + host knobs (bots/size/town/founding)
 ├── B8.2 ✔️ Civic day — street-accurate resident routines (sidewalks, cars, rush hours)
+│   └── B8.2.1 ✔️🖼️ Street-true routing — dots follow the REAL road graph
+│                (cached BFS), turns at true intersections, lunch runs
+│                depart the workplace, night streets read dead (2026-07-05)
 ├── B8.3 ✔️ Conversion read — person figures colored by conversion state
 ├── B8.4 ✔️ Ownership glow — cult buildings ringed in owner color
 ├── B8.5 ✔️ Population scaling — souls ∝ map area (constant density)

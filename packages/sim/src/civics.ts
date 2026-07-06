@@ -95,6 +95,71 @@ export function computeCivicControl(s: SimState): Map<number, PlayerId> {
   return control;
 }
 
+/**
+ * Siege state per key-building type (v3 §3), for the HUD tug-of-war bars.
+ * Aggregates all instances of each lot type present on the map:
+ *   holder     — who controls it now (0 = uncontrolled / mostly neutral)
+ *   leader     — the player holding the most of its tiles (0 = none)
+ *   leaderFill — fraction 0..1 of the type's tiles the leader holds
+ *   contested  — >1 player holds tiles (the bar should flash)
+ * Only lot types actually present on the map get an entry.
+ */
+export interface SiegeBar {
+  lot: number;
+  holder: PlayerId;
+  leader: PlayerId;
+  leaderFill: number;
+  contested: boolean;
+}
+
+export function computeSiegeState(s: SimState): SiegeBar[] {
+  const w = s.world;
+  const watch = new Set<number>(CIVIC_LOTS);
+  const total = new Map<number, number>(); // lot → total tiles of that type
+  const per = new Map<number, Map<PlayerId, number>>(); // lot → owner → believer tiles
+  for (let t = 0; t < w.lot.length; t++) {
+    const lot = w.lot[t]!;
+    if (!watch.has(lot)) continue;
+    total.set(lot, (total.get(lot) ?? 0) + 1);
+    const owner = w.owner[t]!;
+    if (owner === NEUTRAL || w.state[t] !== TileState.Believer) continue;
+    let m = per.get(lot);
+    if (!m) {
+      m = new Map();
+      per.set(lot, m);
+    }
+    m.set(owner, (m.get(owner) ?? 0) + 1);
+  }
+  const control = computeCivicControl(s);
+  const out: SiegeBar[] = [];
+  for (const lot of CIVIC_LOTS) {
+    const tot = total.get(lot);
+    if (!tot) continue; // this town doesn't have this building
+    const m = per.get(lot);
+    let leader: PlayerId = 0;
+    let leaderN = 0;
+    let owners = 0;
+    if (m) {
+      for (const pid of [...m.keys()].sort((a, z) => a - z)) {
+        const n = m.get(pid)!;
+        if (n > 0) owners++;
+        if (n > leaderN) {
+          leaderN = n;
+          leader = pid;
+        }
+      }
+    }
+    out.push({
+      lot,
+      holder: control.get(lot) ?? 0,
+      leader,
+      leaderFill: leaderN / tot,
+      contested: owners > 1,
+    });
+  }
+  return out;
+}
+
 /** Does `pid` control the given civic lot? Convenience for the engines. */
 export function controlsCivic(control: Map<number, PlayerId>, lot: number, pid: PlayerId): boolean {
   return control.get(lot) === pid;

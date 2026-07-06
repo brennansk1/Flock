@@ -72,6 +72,8 @@ export interface RawBalance {
     anchor_tithe_mult?: number;
     sawmill_build_mult?: number;
     lighthouse_outreach_bonus?: number;
+    /** v3 §3: key buildings are sieges — resistance ×this (≈25–40 s to take) */
+    siege_resist_mult?: number;
   };
   /** v3 missions (DESIGN_MISSIONS.md) — optional for older files. */
   missions?: {
@@ -152,6 +154,7 @@ export interface Balance {
     anchorTitheMult: Fixed;
     sawmillBuildMult: Fixed;
     lighthouseOutreachBonus: number;
+    siegeResistMult: Fixed;
   };
   missions: {
     innerCirclePermille: number;
@@ -241,6 +244,7 @@ export function loadBalance(raw: RawBalance): Balance {
       anchorTitheMult: fromFloat(raw.civics?.anchor_tithe_mult ?? 1.1),
       sawmillBuildMult: fromFloat(raw.civics?.sawmill_build_mult ?? 0.88),
       lighthouseOutreachBonus: raw.civics?.lighthouse_outreach_bonus ?? 2,
+      siegeResistMult: fromFloat(raw.civics?.siege_resist_mult ?? 3.5),
     },
     missions: {
       innerCirclePermille: raw.missions?.inner_circle_permille ?? 200,

@@ -20,6 +20,8 @@ import {
   Stance,
   NEUTRAL,
   TileState,
+  Lot,
+  computeSiegeState,
   type RawBalance,
   type SimState,
   type Turn,
@@ -183,4 +185,31 @@ test("a CRUSADE cohort presses faster than a TEND cohort", () => {
   const tend = capturedAfter(Stance.Tend);
   const crusade = capturedAfter(Stance.Crusade);
   assert.ok(crusade > tend, `crusade (${crusade}) should out-capture tend (${tend})`);
+});
+
+test("key buildings are SIEGES — slower to take + reported in siege state (v3 M4)", () => {
+  const s = twoCults();
+  compoundAt(s, 1, 12 * W + 3);
+  const target = 12 * W + 6; // cohort anchor (plain)
+  const sheriff = 13 * W + 6; // dist 1 from anchor — a key building
+  const house = 11 * W + 6; // dist 1 from anchor — a plain house
+  s.world.lot[sheriff] = Lot.Sheriff;
+  const turns = new Map<number, Turn>([[0, sendTurn(1, target, Stance.Spread)]]);
+  let houseFlip = -1;
+  let sheriffFlip = -1;
+  for (let n = 0; n < 4000 && (houseFlip < 0 || sheriffFlip < 0); n++) {
+    step(s, turns.get(n) ?? emptyTurn(n), balance);
+    if (houseFlip < 0 && s.world.owner[house] === 1) houseFlip = n;
+    if (sheriffFlip < 0 && s.world.owner[sheriff] === 1) sheriffFlip = n;
+  }
+  assert.ok(houseFlip > 0, "the plain house flipped");
+  assert.ok(
+    sheriffFlip > houseFlip * 1.8,
+    `sheriff is a siege: took ${sheriffFlip} vs house ${houseFlip}`,
+  );
+  // once p1 holds the sheriff, the HUD siege state reports it
+  const bar = computeSiegeState(s).find((b) => b.lot === Lot.Sheriff);
+  assert.ok(bar, "sheriff has a siege bar");
+  assert.equal(bar!.leader, 1, "p1 leads the sheriff siege");
+  assert.ok(bar!.leaderFill > 0, "capture fill reported");
 });

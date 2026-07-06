@@ -41,6 +41,10 @@ import {
   type PlayerId,
 } from "./types.js";
 import { areAllied, commitBetrayal, grudgeMult } from "./diplomacy.js";
+import { CIVIC_LOTS } from "./civics.js";
+
+/** Civic + economic-anchor lots capture slowly — they are SIEGES (v3 §3). */
+const KEY_BUILDING_LOTS: ReadonlySet<number> = new Set<number>(CIVIC_LOTS);
 import { fortMultAt, compoundDefenseAt, destroyBuildingsOnTile } from "./buildings.js";
 import { computeCivicControl, controlsCivic } from "./civics.js";
 import {
@@ -392,8 +396,11 @@ export function resolveConversion(s: SimState, b: Balance): void {
           if (tb) res = mul(res, add(ONE, tb));
         }
         if (w.landmark[t] !== 0) res = mul(res, fromInt(2)); // landmarks 0.5× capture (§12)
+        if (KEY_BUILDING_LOTS.has(w.lot[t]!)) res = mul(res, b.civics.siegeResistMult); // v3 siege
       } else if (w.landmark[t] !== 0) {
         res = mul(res, fromInt(2));
+      } else if (KEY_BUILDING_LOTS.has(w.lot[t]!)) {
+        res = mul(res, b.civics.siegeResistMult); // key buildings are SIEGES (v3 §3)
       }
       pr = div(pr, res);
 

@@ -389,8 +389,13 @@ B9  🔨 THE MISSION REWORK — core loop v3 (DESIGN_MISSIONS.md is the contract
 │            interim send, snapshot v10, 6 test files migrated to cohorts.
 │            97/97 sim + 14/14 server, 4-engine PASS. BOT LEAD SHARE
 │            0.52–0.66 (was 0.94–0.98) — the anti-snowball gate (<0.90) MET
-├── B9.3 ⬜ M3 Economy rewire — recruits-from-believers growth; rituals ✂ →
-│            doctrine costs Faith; build palette ✂ → commune stages 1–5
+├── B9.3 🔨 M3 Economy rewire
+│   ├── M3.1 ✔️ Recruits-from-believers — growth = held believer souls
+│   │            (base + pop×rate); loop closes, snowball held (c0832d0)
+│   ├── M3.2 ⬜ Rituals ✂ → Faith spent directly on doctrine; best ritual
+│   │            effects migrate into doctrine nodes
+│   └── M3.3 ⬜ Build palette ✂ → commune stages 1–5 (money sink: flock cap +
+│                van/bus capacity); cut-building effects fold into stages
 ├── B9.4 ⬜ M4 Key-building sieges — tug-of-war meter per civic/anchor lot,
 │            decay when uncontested, glow-outline state for converted homes
 ├── B9.5 ⬜ M5 Bot brain v3 — three verbs (send/recall/upgrade); botleague +

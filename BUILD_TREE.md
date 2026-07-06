@@ -395,9 +395,10 @@ B9  🔨 THE MISSION REWORK — core loop v3 (DESIGN_MISSIONS.md is the contract
 │   ├── M3.2 🔨 Faith → doctrine
 │   │   ├── M3.2a ✔️ Doctrine picks SPEND Faith (cost 15); Tend cohorts bank
 │   │   │            Faith (tall play); milestone gating removed (846dccd)
-│   │   └── M3.2b ⬜ Cut the ritual system ✂ — RITUAL intent + applyRitual +
-│   │                KIT ritual entries + bot sermon + client ritual UI
-│   │                (8 files; inert sermon/atonement fields → purge later)
+│   │   └── M3.2b ✔️🖼️ Ritual system CUT ✂ — RITUAL intent + applyRitual +
+│   │                KIT ritual entries + bot sermon + all client ritual UI
+│   │                removed (8 files); inert fields kept vestigial (no hash
+│   │                bump); browser-verified clean boot (644b50c)
 │   └── M3.3 ⬜ Build palette ✂ → commune stages 1–5 (money sink: flock cap +
 │                van/bus capacity); cut-building effects fold into stages
 ├── B9.4 ⬜ M4 Key-building sieges — tug-of-war meter per civic/anchor lot,

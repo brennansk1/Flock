@@ -89,6 +89,27 @@ test("SPAWN founds a wilderness property with compound, felled trees, bused cong
   assert.ok(s.players[0]!.alive, "compound keeps the cult alive at 0 tiles");
 });
 
+test("commune stages: money raises the flock cap; caps at stage 5 (v3 M3.3)", () => {
+  const w = tinyWorld();
+  const s = createSim({ seed: 1, balance, world: w, spawns: [{ id: 1, archetype: "dawn" }] });
+  step(s, turn(0, [{ t: IntentType.SPAWN, player: 1, tile: 4 * 32 + 4 }]), balance);
+  const p = s.players[0]!;
+  assert.equal(p.compounds, 1, "founds at stage 1");
+  const cap1 = toInt(followerCap(p, balance, s));
+
+  // fund and upgrade one stage → cap rises, money spent
+  p.usd = fromInt(500_000);
+  const usdBefore = toInt(p.usd);
+  step(s, turn(1, [{ t: IntentType.UPGRADE_COMMUNE, player: 1 }]), balance);
+  assert.equal(p.compounds, 2, "raised to stage 2");
+  assert.ok(toInt(p.usd) < usdBefore, "money spent on the upgrade");
+  assert.ok(toInt(followerCap(p, balance, s)) > cap1, "flock cap rose with the stage");
+
+  // spam upgrades: the commune tops out at stage 5
+  for (let i = 2; i < 12; i++) step(s, turn(i, [{ t: IntentType.UPGRADE_COMMUNE, player: 1 }]), balance);
+  assert.equal(p.compounds, 5, "commune capped at stage 5");
+});
+
 test("wilderness BUILD requires own property; BUY_PROPERTY expands the empire", () => {
   const w = tinyWorld();
   const s = createSim({ seed: 2, balance, world: w, spawns: [{ id: 1, archetype: "circle" }] });

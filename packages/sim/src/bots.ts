@@ -123,8 +123,8 @@ function borderRival(sim: SimState, playerId: PlayerId): PlayerId {
 
 /** A coherent doctrine build order (defensive sim ignores illegal/early picks). */
 const CHURCH_DOCTRINE = ["B1", "T1", "B2", "T2", "I1", "B3", "T3"];
+// (compound removed — the commune upgrades via UPGRADE_COMMUNE, not BUILD)
 const CHURCH_BUILDS: BuildingType[] = [
-  "compound",
   "collection_plate",
   "watchtower",
   "broadcast_tower",
@@ -212,7 +212,11 @@ export function botTurn(sim: SimState, bot: BotState, rng: RngState): Intent[] {
   }
 
   // ---- economy script (Sect + Church) ------------------------------------
-  const builds = bot.tier === "church" ? CHURCH_BUILDS : (["compound", "collection_plate", "watchtower"] as const);
+  // v3 money→power: pour spare cash into commune stages (raises the flock cap)
+  if (usd(p) > 25_000 && nextRange(rng, 3) === 0) {
+    out.push({ t: IntentType.UPGRADE_COMMUNE, player: bot.playerId });
+  }
+  const builds = bot.tier === "church" ? CHURCH_BUILDS : (["collection_plate", "watchtower"] as const);
   if (usd(p) > 35_000 && nextRange(rng, bot.tier === "church" ? 4 : 6) === 0) {
     const building = builds[nextRange(rng, builds.length)]!;
     // build on own land when there's room, else on an owned town lot

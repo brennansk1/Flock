@@ -119,7 +119,7 @@ const SIGNATURE: Record<string, PowerDef> = {
 };
 
 const BUILDS = [
-  { id: "compound", key: "B", label: "COMPOUND", ic: "house", desc: "Your HQ. Raises the follower cap and anchors territory." },
+  { id: "compound", key: "B", label: "COMMUNE", ic: "house", desc: "Your HQ. Click to UPGRADE it a stage (1→5) — each stage raises your flock cap." },
   { id: "watchtower", key: "T", label: "TOWER", ic: "tower", desc: "5× fort defense + reveals enemy agents nearby." },
   { id: "collection_plate", key: "C", label: "PLATE", ic: "plate", desc: "Tithe node. Couriers carry its income — and can be robbed." },
   { id: "broadcast_tower", key: "Y", label: "BROADCAST", ic: "antenna", desc: "Required for Propaganda Strikes (K)." },
@@ -903,6 +903,12 @@ export class Hud {
   }
 
   private armBuild(building: string, key: string): void {
+    // v3: the COMMUNE isn't placed — it upgrades in place. Click = spend to
+    // raise a stage (no armed placement).
+    if (building === "compound") {
+      this.send({ t: "UPGRADE_COMMUNE" } as never);
+      return;
+    }
     if (this.ui.placement?.mode === "build" && this.ui.placement.building === building) {
       this.arm(null); // toggle off
     } else {

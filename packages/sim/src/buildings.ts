@@ -45,7 +45,7 @@ export const STAFF_RADIUS = 6;
 
 /** Authoritative table (§6). Satellite is the Visitors' Saucer chapel (§11.4). */
 export const BUILDING_DEFS: Record<Building["type"], BuildingDef> = {
-  compound: { cost: 15_000, costGrowth: 1.35, buildTicks: 20 * TPS, radius: 8, max: 8, staff: 40 },
+  compound: { cost: 15_000, costGrowth: 1.35, buildTicks: 20 * TPS, radius: 8, max: 1, staff: 40 },
   collection_plate: { cost: 10_000, costGrowth: 1, buildTicks: 15 * TPS, radius: 0, max: 6, staff: 25 },
   watchtower: { cost: 12_000, costGrowth: 1.25, buildTicks: 18 * TPS, radius: 6, max: 10, staff: 20 },
   broadcast_tower: { cost: 250_000, costGrowth: 1, buildTicks: 45 * TPS, radius: 0, max: 2, staff: 90 },

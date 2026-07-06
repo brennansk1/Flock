@@ -14,6 +14,7 @@ export const IntentType = {
   MISSION_SEND: "MISSION_SEND",
   MISSION_RECALL: "MISSION_RECALL",
   BUILD: "BUILD",
+  UPGRADE_COMMUNE: "UPGRADE_COMMUNE",
   BUY_PROPERTY: "BUY_PROPERTY",
   CANCEL_BUILD: "CANCEL_BUILD",
   ABILITY: "ABILITY",
@@ -54,6 +55,9 @@ export type Intent =
   /** Recall the cohort in `slot` — they walk home (friction is the point). */
   | { t: typeof IntentType.MISSION_RECALL; player: PlayerId; slot: number }
   | { t: typeof IntentType.BUILD; player: PlayerId; building: BuildingType; tile: TileId }
+  /** v3 (DESIGN_MISSIONS.md §2): pay to raise the commune one stage (1→5),
+   * lifting the flock cap. The commune is the only buildable. */
+  | { t: typeof IntentType.UPGRADE_COMMUNE; player: PlayerId }
   | { t: typeof IntentType.BUY_PROPERTY; player: PlayerId; tile: TileId }
   | { t: typeof IntentType.CANCEL_BUILD; player: PlayerId; tile: TileId }
   | { t: typeof IntentType.ABILITY; player: PlayerId; ability: string; target?: TileId }

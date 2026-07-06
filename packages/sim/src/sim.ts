@@ -234,7 +234,12 @@ export function followerCap(p: PlayerState, b: Balance, s?: SimState): Fixed {
   return cap;
 }
 
-/** Compound cost: $15,000 × 1.35^(existing compounds − 1); the first is free (§6). */
+/** The commune tops out at stage 5 (v3 §2). `p.compounds` IS the stage: 1 at
+ *  founding, up to COMMUNE_MAX_STAGE via UPGRADE_COMMUNE. */
+export const COMMUNE_MAX_STAGE = 5;
+
+/** Cost to raise the commune the NEXT stage: $15,000 × 1.35^(stage−1). Same
+ *  escalation the old multi-compound build used — reused as the money sink. */
 export function compoundCost(p: PlayerState): Fixed {
   let cost = fromInt(15000);
   const growth = fp(1.35);
@@ -765,6 +770,18 @@ export function applyIntent(s: SimState, intent: Intent, b: Balance): void {
         carveDirtLane(w, t); // the access road auto-generates
       }
       if (type === "compound") p.compounds++;
+      break;
+    }
+
+    case IntentType.UPGRADE_COMMUNE: {
+      // v3 money→power loop (§2): pay to raise the commune one stage (1→5),
+      // lifting the flock cap via followerCap's per-stage term. No new
+      // building — the single founding commune grows in place.
+      if (!p.spawned || p.compounds >= COMMUNE_MAX_STAGE) break;
+      const cost = compoundCost(p);
+      if (p.usd < cost) break;
+      p.usd = sub(p.usd, cost);
+      p.compounds++;
       break;
     }
 

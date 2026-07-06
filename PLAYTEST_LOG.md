@@ -201,3 +201,16 @@ from-believers, the WIN CONDITION only rewards expansion (r0), so income
 money→commune-stages→flock-cap. dawn's residual 31.9% edge (aggression, un-
 punished by bots) and radiant's turtle identity both want a DEFINITIVE
 rebalance re-run AFTER M3.3, when the economic loop closes. Filed as B9.3.M3.4.
+
+## PT-0011 — 2026-07-06 — M3.3a commune stages (money→flock loop)
+
+- **Nodes:** B9.3 M3.3a (the commune's money-sink upgrade path)
+- **Scenario:** commune-stage unit test + 15-match campaign + determinism.
+- **Verdict: LOOP LIVE.** UPGRADE_COMMUNE raises the commune stage 1→5
+  (reusing p.compounds as the stage counter), each stage lifting followerCap;
+  physical compounds capped at 1 (no more multi-compound building); escalating
+  cost ($15k×1.35^stage). Bots pour spare cash into upgrades. This closes the
+  money→commune→flock-cap→more-cohorts loop the design (and M3.4's balance
+  re-run) needs. Founding 4/4; lead share 0.54–0.62 (snowball still held);
+  97/97 sim + 14/14 server; 4-engine determinism PASS. The other 4 buildings
+  (plate/watchtower/broadcast/lab) still exist — cut in M3.3b.

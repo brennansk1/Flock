@@ -118,12 +118,11 @@ const SIGNATURE: Record<string, PowerDef> = {
   visitors: { id: "saucer_landing", label: "Saucer Landing", cd: "saucer_landing", cost: () => ({ usd: KIT.saucerLanding.cost }) },
 };
 
+// v3 (M3.3b): the commune is the ONLY buildable — the old placeable palette
+// (tower/plate/broadcast/lab) is cut; their roles fold into commune stages,
+// doctrine, and money ops.
 const BUILDS = [
   { id: "compound", key: "B", label: "COMMUNE", ic: "house", desc: "Your HQ. Click to UPGRADE it a stage (1→5) — each stage raises your flock cap." },
-  { id: "watchtower", key: "T", label: "TOWER", ic: "tower", desc: "5× fort defense + reveals enemy agents nearby." },
-  { id: "collection_plate", key: "C", label: "PLATE", ic: "plate", desc: "Tithe node. Couriers carry its income — and can be robbed." },
-  { id: "broadcast_tower", key: "Y", label: "BROADCAST", ic: "antenna", desc: "Required for Propaganda Strikes (K)." },
-  { id: "supplement_lab", key: "L", label: "LAB", ic: "flask", desc: "Converts Faith into steady income (Radiant)." },
 ] as const;
 
 

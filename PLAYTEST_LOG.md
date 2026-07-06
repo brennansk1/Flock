@@ -214,3 +214,20 @@ rebalance re-run AFTER M3.3, when the economic loop closes. Filed as B9.3.M3.4.
   re-run) needs. Founding 4/4; lead share 0.54–0.62 (snowball still held);
   97/97 sim + 14/14 server; 4-engine determinism PASS. The other 4 buildings
   (plate/watchtower/broadcast/lab) still exist — cut in M3.3b.
+
+## PT-0012 — 2026-07-06 — M3.3b build palette soft-cut (commune-only)
+
+- **Nodes:** B9.3 M3.3b (placeable buildings removed from play)
+- **Scenario:** suite + 15-match campaign + determinism.
+- **Verdict: PASS (soft cut).** The 4 placeable buildings (collection_plate/
+  watchtower/broadcast_tower/supplement_lab) are removed from every play
+  surface — client build tray (COMMUNE only), bot build-lists, and tutorial
+  ("PASS THE PLATE"→"UPGRADE YOUR COMMUNE"; "RAISE A WATCHTOWER" cut). Strikes
+  un-gated from the (now unbuildable) broadcast tower → a pure money op. Dead
+  helpers pruned (CHURCH_BUILDS, samplePropertyFree, freeBroadcastTower import).
+  Founding 4/4; lead share 0.54–0.62; 97/97 sim + 14/14 server; 4-engine PASS.
+- **Deferred (tracked M3.3c):** the buildings' sim CODE + m1 building-tests are
+  left INERT (unreachable in play) rather than hard-purged — a token-efficient
+  soft cut. Visitors' radio_static targets broadcast towers → now a no-op;
+  retarget is kit-polish (filed). Client tray/tutorial build-verified, not yet
+  browser-verified (M6 reworks the tray anyway).

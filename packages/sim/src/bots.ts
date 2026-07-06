@@ -17,7 +17,7 @@
  *              (focus the strongest border rival), prophecy/signature, scandal.
  */
 
-import { IntentType, type Intent, type BuildingType } from "./intents.js";
+import { IntentType, type Intent } from "./intents.js";
 import { toInt } from "./fixed.js";
 import { nextRange, type RngState } from "./rng.js";
 import { Stance, Terrain, MAX_COHORTS, type PlayerId, type SimState, type PlayerState } from "./types.js";
@@ -123,12 +123,6 @@ function borderRival(sim: SimState, playerId: PlayerId): PlayerId {
 
 /** A coherent doctrine build order (defensive sim ignores illegal/early picks). */
 const CHURCH_DOCTRINE = ["B1", "T1", "B2", "T2", "I1", "B3", "T3"];
-// (compound removed — the commune upgrades via UPGRADE_COMMUNE, not BUILD)
-const CHURCH_BUILDS: BuildingType[] = [
-  "collection_plate",
-  "watchtower",
-  "broadcast_tower",
-];
 
 /**
  * Produce this bot's intents for the current tick. Caller should gate on
@@ -153,19 +147,6 @@ function nearestCitizen(w: SimState["world"], from: number, maxR: number): numbe
   return -1;
 }
 
-/** A free tile of the bot's own property (for wilderness construction). */
-function samplePropertyFree(sim: SimState, rng: RngState, pid: number): number {
-  const w = sim.world;
-  const candidates: number[] = [];
-  for (let t = 0; t < w.property.length; t++) {
-    if (w.property[t] !== pid) continue;
-    if (sim.buildings.some((bd) => bd.tile === t)) continue;
-    candidates.push(t);
-    if (candidates.length >= 32) break;
-  }
-  if (candidates.length === 0) return -1;
-  return candidates[nextRange(rng, candidates.length)]!;
-}
 
 export function botTurn(sim: SimState, bot: BotState, rng: RngState): Intent[] {
   const out: Intent[] = [];
@@ -216,13 +197,7 @@ export function botTurn(sim: SimState, bot: BotState, rng: RngState): Intent[] {
   if (usd(p) > 25_000 && nextRange(rng, 3) === 0) {
     out.push({ t: IntentType.UPGRADE_COMMUNE, player: bot.playerId });
   }
-  const builds = bot.tier === "church" ? CHURCH_BUILDS : (["collection_plate", "watchtower"] as const);
-  if (usd(p) > 35_000 && nextRange(rng, bot.tier === "church" ? 4 : 6) === 0) {
-    const building = builds[nextRange(rng, builds.length)]!;
-    // build on own land when there's room, else on an owned town lot
-    const site = samplePropertyFree(sim, rng, bot.playerId);
-    out.push({ t: IntentType.BUILD, player: bot.playerId, building, tile: site >= 0 ? site : origin });
-  }
+  // (v3 M3.3b: placeable buildings cut — bots grow via commune upgrades above)
   // land acquisition (§18 rev.): buy the next parcel before crowding bites
   if (usd(p) > 60_000 && nextRange(rng, 10) === 0) {
     const dir2 = nextRange(rng, 4);

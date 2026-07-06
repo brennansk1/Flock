@@ -41,7 +41,6 @@ import {
   BUILDING_DEFS,
   buildingCost,
   countBuildings,
-  freeBroadcastTower,
   vanCapacity,
   stepBuildings,
 } from "./buildings.js";
@@ -841,10 +840,10 @@ export function applyIntent(s: SimState, intent: Intent, b: Balance): void {
     }
 
     case IntentType.STRIKE: {
-      // §8: needs a free Broadcast Tower; pay up front; charge → warn → land.
+      // §8 strikes are a pure MONEY op in v3 (broadcast_tower cut, M3.3b) —
+      // no structure gate; pay up front; charge → warn → land.
       const def = STRIKE_DEFS[intent.strike];
       if (!def) break;
-      if (!freeBroadcastTower(s, p.id)) break;
       const w = s.world;
       const t = intent.target;
       if (t < 0 || t >= w.owner.length) break;

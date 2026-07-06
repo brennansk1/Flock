@@ -230,12 +230,12 @@ const STEPS: TutStep[] = [
     },
   },
   {
-    title: "PASS THE PLATE",
-    body: "$30,000 wired to your treasury. In the BUILD tray, click PLATE, then click any tile on YOUR LAND (the area staked around your compound, shown with a faint border) — Collection Plates tithe your converted followers.",
-    hint: "Place the plate on YOUR land: your staked compound area or any tile you've converted. The tool stays armed on a miss — just click again.",
-    glow: '[data-build="collection_plate"]',
+    title: "UPGRADE YOUR COMMUNE",
+    body: "$30,000 wired in. Your COMMUNE is your only building — and money makes it stronger. Click COMMUNE in the BUILD tray to raise it a stage (1→5); each stage lifts your FLOCK CAP so you can field more believers. Tithe income → bigger commune → bigger flock.",
+    hint: "Click the COMMUNE button in the build tray — it upgrades in place, no tile to click.",
+    glow: '[data-build="compound"]',
     enter: (g) => money(g, 30_000),
-    done: (g) => g.sim.buildings.some((b) => b.player === 1 && b.type === "collection_plate"),
+    done: (g) => (me(g)?.compounds ?? 0) >= 2,
   },
   {
     title: "BUY LAND",
@@ -252,14 +252,6 @@ const STEPS: TutStep[] = [
     glow: '[data-scheme="van"]',
     enter: (g) => money(g, 40_000),
     done: (g) => g.sim.vans.some((v) => v.player === 1),
-  },
-  {
-    title: "RAISE A WATCHTOWER",
-    body: "The Sleeper Cult could flip your tiles while you're not watching. A Watchtower makes your land 5× harder to steal and reveals enemy agents operating in your territory. Click TOWER in BUILD and place it on your land.",
-    hint: "Same placement rule as the plate: your staked parcel or any converted tile.",
-    glow: '[data-build="watchtower"]',
-    enter: (g) => money(g, 30_000),
-    done: (g) => g.sim.buildings.some((b) => b.player === 1 && b.type === "watchtower"),
   },
   {
     title: "SCOUT THE RIVALS",

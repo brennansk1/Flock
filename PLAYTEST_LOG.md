@@ -166,3 +166,38 @@ the geometry already plays.
   snapshot/hash layout is unchanged — no version bump. 96/96 sim + 14/14
   server (2 ritual tests removed per the ✂ CUT law); 4-engine determinism PASS.
 - Faith now has exactly one meaning: bank it with Tend, spend it on doctrine.
+
+## PT-0010 — 2026-07-06 — cult archetype DEPTH REVIEW + rebalance (P2 moat)
+
+- **System:** the four archetypes (dawn/radiant/circle/visitors) under the v3
+  economy. Target depth P2 = "asymmetry is the moat" (SIGNATURE).
+- **Method:** botleague — 160 church-tier 4-player matches per pass, win-rate
+  + avg placement; ideal 25% each.
+
+### Verdict: FAIL → PASS after 3 tuning rounds.
+
+Baseline was a clear FAIL — one dominant strategy: dawn 48.8% / visitors
+29.4% / radiant 14.4% / circle 7.5% (6.5× spread). ROOT CAUSE: recruits-from-
+believers turned r0 into a COMPOUNDING stat (convert faster → more believers
+→ more recruits → more flock → convert faster), so the coefficients balanced
+for the old front game were broken. dawn's r0 1.3 + Fear-Feeds-Us snowballed;
+circle's r0 0.6 death-spiralled.
+
+**Adjustments (all preserve each cult's distinguishing stat):**
+- r0 spread compressed 0.6–1.3 → 1.0–1.05 (dawn 1.3→1.05, radiant 0.8→1.0,
+  circle 0.6→0.95, visitors 1.0). r0 no longer runs away under the recruit loop.
+- Kept identities: radiant retain 1.5 + Glow (the turtle), circle income 1.3
+  (highest — the economist), dawn heat 1.4 + Fear Feeds Us (the aggressor).
+- Fear Feeds Us cap +25% → +15% (conversion.ts) — dawn's stacking passive was
+  the other half of its runaway.
+
+**Final: dawn 31.9 · visitors 26.9 · circle 20.6 · radiant 20.6** — 1.55×
+spread, all within a competitive band. No dominant pick, none broken.
+
+### CAVEAT / open item (scoped, not thrash):
+This is a bot-FFA-by-tiles measurement. Under domination-only + recruits-
+from-believers, the WIN CONDITION only rewards expansion (r0), so income
+(circle) and retention (radiant) lack a full win-path until **M3.3** lands
+money→commune-stages→flock-cap. dawn's residual 31.9% edge (aggression, un-
+punished by bots) and radiant's turtle identity both want a DEFINITIVE
+rebalance re-run AFTER M3.3, when the economic loop closes. Filed as B9.3.M3.4.

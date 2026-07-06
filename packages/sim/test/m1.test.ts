@@ -176,14 +176,19 @@ test("buildings are destroyed, not captured, when their tile flips", () => {
 test("deprogramming raid scars a blob and spikes district dissent", () => {
   const s = duel();
   p(s, 1).usd = fromInt(50_000);
-  const tilesBefore = p(s, 2).ownedTiles;
   run(s, 1, [{ t: IntentType.AGENT_DISPATCH, player: 1, district: Districts.Trailer, mission: "deprogram" }]);
   assert.equal(s.agents.length, 1, "agent dispatched");
   run(s, 800); // travel (~24s) + 6s channel, well inside the 90s scar window
   assert.equal(s.agents.length, 0, "agent expired after the raid");
-  assert.ok(p(s, 2).ownedTiles < tilesBefore, "victim lost tiles to apostasy");
+  // measure the raid's DIRECT effect (apostasy + scars) — net ownedTiles is
+  // confounded by the victim's ambient creep during the long channel window
+  let apostate = 0;
   let scarred = 0;
-  for (let t = 0; t < s.world.scarTicks.length; t++) if (s.world.scarTicks[t]! > 0) scarred++;
+  for (let t = 0; t < s.world.state.length; t++) {
+    if (s.world.state[t] === TileState.Apostate) apostate++;
+    if (s.world.scarTicks[t]! > 0) scarred++;
+  }
+  assert.ok(apostate > 0, "the raid turned believers apostate");
   assert.ok(scarred > 0, "apostate scar tissue exists");
 });
 

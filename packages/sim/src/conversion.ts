@@ -160,18 +160,20 @@ interface ContestedWork {
 
 /**
  * Per-attacker global pressure multiplier: Final Dawn's Fear Feeds Us passive
- * (§11.1, retargeted in M2: +2% per cohort deployed ANYWHERE — any player's,
- * matching the old any-front rule — cap +25%) × Sermon's +5% (§9).
+ * (§11.1, retargeted in M2: +2% per cohort deployed ANYWHERE — any player's).
+ * Cap trimmed +25% → +15% in the v3 balance pass: under recruits-from-
+ * believers, r0 already compounds, so dawn's stacking passive made it a
+ * runaway winner (48.8% → target ~25%). (Sermon buff is vestigial: rituals cut.)
  */
 function attackerGlobalMult(s: SimState, p: PlayerState): Fixed {
   let m = ONE;
   if (p.archetype === "dawn") {
     let cohorts = 0;
     for (const pl of s.players) cohorts += pl.cohorts.length;
-    const fearPct = Math.min(25, cohorts * 2);
+    const fearPct = Math.min(15, cohorts * 2);
     m = mul(m, add(ONE, div(fromInt(fearPct), HUNDRED)));
   }
-  if (p.sermonBuffTicks > 0) m = mul(m, fp(1.05));
+  if (p.sermonBuffTicks > 0) m = mul(m, fp(1.05)); // vestigial (always 0)
   return m;
 }
 

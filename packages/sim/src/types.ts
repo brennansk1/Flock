@@ -234,9 +234,10 @@ export interface PlayerState {
   spawned: boolean;
   /** remaining cooldown ticks per ritual/ability id; absent = ready */
   cooldowns: Record<string, number>;
-  /** Sermon's +5% conversion buff, remaining ticks (§9) */
+  /** VESTIGIAL (rituals cut, v3 M3.2b): always 0 now — kept to preserve the
+   *  snapshot/hash layout; purge with the next SNAPSHOT_VERSION bump. */
   sermonBuffTicks: number;
-  /** Day of Atonement: dissent decay ×4 while > 0, remaining ticks (§9) */
+  /** VESTIGIAL (rituals cut, v3 M3.2b): always 0 now — see sermonBuffTicks. */
   atonementTicks: number;
   /** Final Dawn: Prophecy Countdown is once per match (§11.1) */
   prophecyUsed: boolean;

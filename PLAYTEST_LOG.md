@@ -151,3 +151,18 @@ the geometry already plays.
 - **Test recalibration:** the church-vs-drifter test moved to a generated
   town (a featureless pop-0 grid can't express AI skill under presence
   conversion + territory economy — both cults saturate their half equally).
+
+## PT-0009 — 2026-07-06 — M3.2b rituals cut (Faith→doctrine only)
+
+- **Nodes:** B9.3 M3.2b (the ritual system removed)
+- **Scenario:** browser boot of the client after cutting rituals across 8
+  files; full suite; determinism gate.
+- **Verdict: CLEAN CUT.** The RITUAL intent, applyRitual, KIT ritual entries,
+  bot sermon-send, and all client ritual UI (panel, Q/W/E/R hotkeys, tutorial
+  step, help text) are gone. Browser check: no "RITUALS" text, no ritual
+  buttons, app mounts, zero console errors; help line updated to
+  "1/2/3 stances · D/F powers · G signature · V van · ⇧C recall…".
+  Inert sermonBuffTicks/atonementTicks fields kept (marked vestigial) so the
+  snapshot/hash layout is unchanged — no version bump. 96/96 sim + 14/14
+  server (2 ritual tests removed per the ✂ CUT law); 4-engine determinism PASS.
+- Faith now has exactly one meaning: bank it with Tend, spend it on doctrine.

@@ -226,10 +226,6 @@ export function botTurn(sim: SimState, bot: BotState, rng: RngState): Intent[] {
     out.push({ t: IntentType.BUY_PROPERTY, player: bot.playerId, tile: origin + off });
   }
 
-  // keep Faith healthy
-  if (nextRange(rng, 40) === 0) {
-    out.push({ t: IntentType.RITUAL, player: bot.playerId, ritual: "sermon" });
-  }
 
   if (bot.tier === "sect") {
     // Sects play their gimmick naively: occasional signature, mild crusade.

@@ -277,9 +277,6 @@ function wireInput(app: Application, map: MapRenderer, g: GameSession, hud: Hud)
         case "strike":
           g.sendIntent({ t: IntentType.STRIKE, strike: placement.strike as never, target: center });
           return;
-        case "ritual":
-          g.sendIntent({ t: IntentType.RITUAL, ritual: placement.ritual as never, tile: center, district });
-          return;
         case "ability":
           g.sendIntent({ t: IntentType.ABILITY, ability: placement.ability, target: center });
           return;
@@ -349,16 +346,7 @@ function wireInput(app: Application, map: MapRenderer, g: GameSession, hud: Hud)
       case "1": return g.sendIntent({ t: IntentType.SET_STANCE, stance: Stance.Tend });
       case "2": return g.sendIntent({ t: IntentType.SET_STANCE, stance: Stance.Spread });
       case "3": return g.sendIntent({ t: IntentType.SET_STANCE, stance: Stance.Crusade });
-      // rituals Q/W/E/R (§9, §27)
-      case "q": return g.sendIntent({ t: IntentType.RITUAL, ritual: "sermon" });
-      case "w":
-        if (hover >= 0) g.sendIntent({ t: IntentType.RITUAL, ritual: "midnight_festival", tile: hover });
-        return;
-      case "e":
-        if (hover >= 0)
-          g.sendIntent({ t: IntentType.RITUAL, ritual: "the_offering", tile: hover, district: hoverDistrict });
-        return;
-      case "r": return g.sendIntent({ t: IntentType.RITUAL, ritual: "day_of_atonement" });
+      // (rituals cut in v3 — Q/W/E/R freed up; Faith now buys doctrine)
       // archetype actives D/F + signature G (§27)
       case "d":
         return g.sendIntent({ t: IntentType.ABILITY, ability: ACTIVE_D[me.archetype]!, ...(hover >= 0 ? { target: hover } : {}) });

@@ -12,7 +12,7 @@
  * Layout (desktop; rails collapse via the ◄/► pixel toggles):
  *   share bar   believer share of the town, own cult first (top:0, 26px)
  *   top bar     FLOCK · TREASURY · FAITH · HEAT · MATCH · LEADER
- *   left rail   STANCE (1/2/3) · RITUALS (Q/W/E/R) · POWERS (D/F/G)
+ *   left rail   STANCE (1/2/3) · POWERS (D/F/G) · SCHEME
  *   bottom      BUILD tray (click → placement mode) · DOCTRINE (badge) · minimap
  *   right rail  CONGREGATIONS (ally/mark) · key buildings · DRAMA FEED · chat
  *
@@ -55,7 +55,6 @@ import type { GameSession, ClientIntent } from "./net.js";
 export type PlacementKind =
   | { mode: "build"; building: string; key: string }
   | { mode: "strike"; strike: string }
-  | { mode: "ritual"; ritual: string }
   | { mode: "ability"; ability: string }
   | { mode: "property" }
   // ── SCHEME actions (§13/§15/§16): every one is fully clickable, no hotkey
@@ -119,13 +118,6 @@ const SIGNATURE: Record<string, PowerDef> = {
   visitors: { id: "saucer_landing", label: "Saucer Landing", cd: "saucer_landing", cost: () => ({ usd: KIT.saucerLanding.cost }) },
 };
 
-const RITUALS = [
-  { id: "sermon", key: "Q", label: "SERMON", targeted: false, desc: "Spend Faith for a town-wide +5% conversion buff." },
-  { id: "midnight_festival", key: "W", label: "FESTIVAL", targeted: true, desc: "Place a 2× neutral-conversion aura. Click a tile to anchor it." },
-  { id: "the_offering", key: "E", label: "OFFERING", targeted: true, desc: "Sacrifice followers in a district for a Faith surge. Click to choose." },
-  { id: "day_of_atonement", key: "R", label: "APOLOGY", targeted: false, desc: "Public Apology — pauses conversion gains while Dissent & Heat vent rapidly." },
-] as const;
-
 const BUILDS = [
   { id: "compound", key: "B", label: "COMPOUND", ic: "house", desc: "Your HQ. Raises the follower cap and anchors territory." },
   { id: "watchtower", key: "T", label: "TOWER", ic: "tower", desc: "5× fort defense + reveals enemy agents nearby." },
@@ -134,13 +126,6 @@ const BUILDS = [
   { id: "supplement_lab", key: "L", label: "LAB", ic: "flask", desc: "Converts Faith into steady income (Radiant)." },
 ] as const;
 
-/** Ritual Faith costs (base; Sermon gains Faith instead of spending it). */
-const RITUAL_FAITH: Record<string, number> = {
-  sermon: 0,
-  midnight_festival: KIT.festival.cost,
-  the_offering: KIT.offering.faithCost,
-  day_of_atonement: KIT.atonement.cost,
-};
 
 /**
  * SCHEME actions — the PvP/ops verbs, each a clickable button. `arm` sets a
@@ -453,7 +438,6 @@ interface ElCache {
   timer: HTMLElement;
   leader: HTMLElement;
   stanceGroup: HTMLElement;
-  ritualGroup: HTMLElement;
   actD: HTMLElement;
   actF: HTMLElement;
   actG: HTMLElement;
@@ -664,7 +648,7 @@ export class Hud {
     const STAT_TIP: Record<string, string> = {
       followers: "FLOCK — your followers. This is your strength AND your health: fronts spend them, and losing them all eliminates you.",
       usd: "TREASURY — cash from tithes. Spend it on buildings, land, and vans.",
-      faith: "FAITH — powers rituals (0–100, drifts to 50). Sermon builds it; the Offering trades followers for it.",
+      faith: "FAITH — your conviction (0–100, drifts to 50). Bank it with TEND missions, then spend it on DOCTRINE (the B.I.T.E. tree).",
       heat: "HEAT — how much the town suspects you (0–100). Crusade and strikes raise it. Above 60 the Concerned Parents show up to harass you.",
       timer: "MATCH — time left. When it hits zero the biggest cult wins.",
       leader: "LEADER — the largest cult's share of the whole town. Convert 72% to win outright.",
@@ -690,7 +674,7 @@ export class Hud {
     this.el.faith_sub!.textContent = "/100";
     this.root.appendChild(top);
 
-    // ---- left rail: stance / rituals / powers + collapse ------------------
+    // ---- left rail: stance / powers / scheme + collapse -------------------
     const rail = document.createElement("div");
     rail.className = "fk-rail";
     const railStack = document.createElement("div");
@@ -705,21 +689,6 @@ export class Hud {
       stanceG.appendChild(b);
     }
     this.el.stanceGroup = stanceG;
-
-    const ritualG = this.group("RITUALS");
-    for (const r of RITUALS) {
-      const b = this.btn(
-        r.label,
-        r.key,
-        () => (r.targeted ? this.arm({ mode: "ritual", ritual: r.id }) : this.send({ t: "RITUAL", ritual: r.id as never })),
-        { cost: true },
-      );
-      b.dataset.cd = r.id;
-      const fc = RITUAL_FAITH[r.id] ?? 0;
-      b.title = `${r.label} — ${r.desc}${fc ? ` (costs ${fc} Faith)` : " (free)"}`;
-      ritualG.appendChild(b);
-    }
-    this.el.ritualGroup = ritualG;
 
     const actG = this.group("POWERS");
     this.el.actD = this.btn("—", "D", () => this.fireActive("D"), { ic: "eye", cls: "fk-pow", cost: true });
@@ -763,7 +732,7 @@ export class Hud {
     schemeBody.appendChild(schemeGrid);
     this.el.scheme = schemeGrid;
 
-    railStack.append(stanceG, ritualG, actG, schemeG);
+    railStack.append(stanceG, actG, schemeG);
     rail.append(railStack, this.collapse(railStack, "◄", "►"));
     this.root.appendChild(rail);
 
@@ -902,7 +871,7 @@ export class Hud {
     help.className = "fk-helpbtn";
     help.textContent = "?";
     help.title =
-      "Controls — 1/2/3 stance · Q/W/E/R rituals · D/F powers · G signature · B/T/C/Y/L build · N buy land · H dissent map · Esc cancel (click for the full sheet)";
+      "Controls — 1/2/3 stance · D/F powers · G signature · B/T/C/Y/L build · N buy land · H dissent map · Esc cancel (click for the full sheet)";
     help.onclick = () => this.toggleHelp();
     this.root.appendChild(help);
   }
@@ -923,7 +892,7 @@ export class Hud {
       <b style="color:#e0a422">Goal</b> — convert the town. Watch the bar up top; reach the win % to dominate.<br/>
       <b style="color:#e0a422">Map</b> — click a tile to open a front there · drag to pan · wheel to zoom · click the minimap to jump.<br/>
       <b style="color:#e0a422">Stance</b> — 1 Tend (defend) · 2 Spread (grow) · 3 Crusade (push hard, +Heat).<br/>
-      <b style="color:#e0a422">Rituals</b> — Q Sermon · W Festival · E Offering · R Public Apology (vents Heat).<br/>
+      <b style="color:#e0a422">Faith</b> — bank it with TEND missions, spend it on the DOCTRINE tree.<br/>
       <b style="color:#e0a422">Powers</b> — D / F archetype actives · G signature (your big play).<br/>
       <b style="color:#e0a422">Build</b> — click a palette button then a tile, or press B/T/C/Y/L. N buys land · H toggles the dissent map. Greyed = can't afford.<br/>
       <b style="color:#e0a422">Scheme</b> — click a SCHEME button then a target (or hotkeys: A raid · X snoop · P scandal · K strike · V van · O/I alliances). Esc cancels.<br/>
@@ -1155,26 +1124,10 @@ export class Hud {
       b.classList.toggle("on", b.dataset.stance === me.stance);
     });
 
-    // ritual cooldowns + Faith affordability + numeric countdown
-    const faith = toFloat(me.faith);
-    this.el.ritualGroup.querySelectorAll<HTMLElement>("[data-cd]").forEach((b) => {
-      const id = b.dataset.cd!;
-      const cd = me.cooldowns[id] ?? 0;
-      const fc = RITUAL_FAITH[id] ?? 0;
-      // Sermon requires calm (§9): visibly locked during CRUSADE instead of
-      // silently no-oping — the tutorial harness caught this dead-end.
-      const crusadeLock = id === "sermon" && me.stance === Stance.Crusade;
-      b.classList.toggle("cd", cd > 0);
-      b.classList.toggle("cant", crusadeLock || (cd <= 0 && fc > 0 && faith < fc));
-      const costEl = b.querySelector<HTMLElement>(".cost");
-      if (costEl)
-        costEl.textContent = crusadeLock ? "calm!" : cd > 0 ? `${Math.ceil(cd / 10)}s` : fc ? `${fc}✛` : "free";
-      if (crusadeLock) b.title = "SERMON — preaching needs calm: switch to TEND or SPREAD first.";
-    });
-
     // powers: labels, live costs, affordability greying, cooldown countdowns —
-    // the same treatment builds/rituals get (§27)
+    // the same treatment builds get (§27)
     const usd = toInt(me.usd);
+    const faith = toFloat(me.faith);
     const powers = [
       { el: this.el.actD, def: ACTIVE_D[me.archetype]!, key: "D", role: "archetype power; some target a tile" },
       { el: this.el.actF, def: ACTIVE_F[me.archetype]!, key: "F", role: "archetype power; some target a tile" },

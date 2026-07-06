@@ -3,7 +3,7 @@
  * everyone. No server, no matchmaking: the deterministic @flock/sim runs
  * locally on a fixed seed with one deliberately sleepy rival bot, while a
  * step engine walks the player through the core loop, gating each step on
- * REAL sim state (found → front → stance → ritual → build → land → van →
+ * REAL sim state (found → mission → stance → power → build → land → van →
  * tower → doctrine → convert). Doubles as a gameplay QA harness: every step
  * exercises a live system on a reproducible world.
  */
@@ -211,12 +211,6 @@ const STEPS: TutStep[] = [
     done: (g) => g.sim.foundingTicksLeft === 0 && (me(g)?.cohorts.length ?? 0) > 0,
   },
   {
-    title: "PREACH — CAST SERMON",
-    body: "Rituals build or spend FAITH. Click SERMON in the RITUALS panel (or press Q) — it's free and gives a short conversion boost. Short cooldown, cast it often.",
-    glow: '[data-cd="sermon"]',
-    done: (g) => ((me(g)?.cooldowns ?? {})["sermon"] ?? 0) > 0,
-  },
-  {
     title: "SET YOUR TEMPO — CRUSADE",
     body: "Press 3 or click CRUSADE — maximum conversion pressure. Watch Heat climb. Now press 2 to switch back to SPREAD before the next step (if Heat hits 60, the town retaliates). TEND (1) heals dissent and cools things down fastest.",
     glow: '[data-stance="crusade"]',
@@ -300,25 +294,21 @@ const STEPS: TutStep[] = [
   },
   {
     title: "WRITE THE DOCTRINE",
-    body: "Tutorial gift: a DOCTRINE point. Open the DOCTRINE panel and choose any node — each permanently upgrades your cult. The four tracks (Behavior, Information, Thought, Emotion) shape your long-term strategy. Picks are forever.",
+    body: "FAITH buys DOCTRINE. Tutorial gift: a full Faith bar. Open the DOCTRINE panel and choose any node — each spends Faith and permanently upgrades your cult. The four tracks (Behavior, Information, Thought, Emotion) shape your long-term strategy. Picks are forever. (In a real match you bank Faith by playing TEND missions.)",
     glow: ".fk-doc",
-    enter: (g) => {
-      const p = me(g);
-      if (p) p.maxFollowers = fromInt(2_000); // milestone: 1 point earned
-      faith(g, 50);
-    },
+    enter: (g) => faith(g, 90),
     done: (g) => (me(g)?.doctrine.length ?? 0) >= 1,
   },
   {
     title: "NOW WIN IT",
-    body: "Put it together and out-convert the Sleeper Cult: keep fronts open where your territory meets town, cast SERMON on cooldown, and lean into SPREAD or CRUSADE. Convert 30 households to seal your first victory. (The rival only holds one slow front — press it and the town is yours.)",
-    hint: "Open a new front every time one stalls, right where your color meets neutral houses. Watch the LEADER % strip climb.",
+    body: "Put it together and out-convert the Sleeper Cult: send missions where your territory meets town, RECALL a cohort when Heat climbs, and pick your mode — SPREAD to convert, CRUSADE to punch through, TEND to hold and bank Faith. Convert 30 households to seal your first victory.",
+    hint: "Send a fresh mission whenever a cohort finishes its block, right where your color meets neutral houses. Watch the LEADER % strip climb.",
     enter: (g) => money(g, 40_000),
     done: (g) => (me(g)?.ownedTiles ?? 0) >= 30,
   },
   {
     title: "🏆 VICTORY — YOU OUT-CONVERTED THE SLEEPER CULT",
-    body: "That's the whole loop: found → press fronts → manage Heat & Dissent → tithe, expand, armor up → shape your Doctrine. Three ways to win a real match: DOMINATION (hold 72% of town) · DOCTRINAL (hold 100 Faith 90s, then channel at the Megachurch) · ECONOMIC (bank the cash target — Prosperity Circle). Out there the rivals fight back and nothing is disabled — but you're ready. Click FINISH to return to the menu.",
+    body: "That's the whole loop: found → send missions → manage Heat & Dissent → tithe, expand, armor up → bank Faith and shape your Doctrine. To win a real match: DOMINATION — hold the biggest share of town when the clock runs out, or 72% to end it early. Out there the rivals fight back and nothing is disabled — but you're ready. Click FINISH to return to the menu.",
   },
 ];
 

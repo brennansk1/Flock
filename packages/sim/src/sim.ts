@@ -4,7 +4,7 @@
  * next state — that is the lockstep contract.
  *
  * M0 systems in this file: state construction, intent application (stances,
- * spawns, missions, compounds, rituals §9, Final Dawn kit §11.1), the per-tick
+ * spawns, missions, compounds, kit actives §11.1), the per-tick
  * economy/decay loop (§3), timed-effect countdowns, Prophecy resolution, and
  * the victory/elimination state machine (§18). Conversion resolution (§4)
  * lives in conversion.ts.
@@ -84,19 +84,9 @@ const TPS = 10;
  */
 const MAX_PATH_TILES = 1024;
 
-/** Ritual/ability tuning (§9, §11.1). ITVs; promote to balance.json when tuned. */
+/** Ability tuning (§11.1). ITVs; promote to balance.json when tuned.
+ *  (Rituals were cut in v3 M3.2b — Faith now buys doctrine directly.) */
 export const KIT = {
-  sermon: { cooldown: 30 * TPS, faithGain: 12, buffTicks: 20 * TPS },
-  festival: { cost: 25, cooldown: 120 * TPS, radius: 10, durTicks: 30 * TPS, heat: 8 },
-  offering: {
-    faithCost: 10,
-    followerCost: 200,
-    faithGain: 20,
-    cooldown: 90 * TPS,
-    dissent: 4,
-    heat: 5,
-  },
-  atonement: { cost: 20, cooldown: 180 * TPS, durTicks: 30 * TPS },
   streetProphet: { cost: 12_000, cooldown: 45 * TPS, durTicks: 30 * TPS },
   stockpileSermon: { cost: 30, cooldown: 90 * TPS, durTicks: 12 * TPS, afterDissent: 10 },
   prophecy: {
@@ -242,13 +232,6 @@ export function followerCap(p: PlayerState, b: Balance, s?: SimState): Fixed {
     }
   }
   return cap;
-}
-
-/** Ritual Faith cost after Fairground festival 50% (§12). */
-function ritualFaithCost(s: SimState, p: PlayerState, base: number, festival = false): Fixed {
-  let cost = fromInt(base);
-  if (festival && ownsLandmark(s, p.id, Landmark.Fairground)) cost = mul(cost, fp(0.5));
-  return cost;
 }
 
 /** Compound cost: $15,000 × 1.35^(existing compounds − 1); the first is free (§6). */
@@ -420,70 +403,6 @@ function addDistrictDissent(w: World, district: DistrictId, amount: number): voi
   for (let t = 0; t < w.district.length; t++) {
     if (w.district[t] !== district || w.terrain[t] !== Terrain.Citizen) continue;
     w.dissent[t] = min(add(w.dissent[t]!, amt), HUNDRED);
-  }
-}
-
-function applyRitual(s: SimState, p: PlayerState, b: Balance, intent: Intent): void {
-  if (intent.t !== IntentType.RITUAL) return;
-  switch (intent.ritual) {
-    case "sermon": {
-      // §9: must be in Tend/Spread; channel modeled as cooldown for M0.
-      if (p.stance === Stance.Crusade || onCooldown(p, "sermon")) return;
-      p.faith = clamp(add(p.faith, fromInt(KIT.sermon.faithGain)), 0, HUNDRED);
-      p.sermonBuffTicks = KIT.sermon.buffTicks;
-      startCooldown(p, "sermon", KIT.sermon.cooldown);
-      return;
-    }
-    case "midnight_festival": {
-      const cost = ritualFaithCost(s, p, KIT.festival.cost, true); // Fairground 50% (§12)
-      if (onCooldown(p, "festival") || p.faith < cost) return;
-      const tile = intent.tile ?? -1;
-      if (tile < 0 || tile >= s.world.terrain.length) return;
-      p.faith = sub(p.faith, cost);
-      const radius = ownsLandmark(s, p.id, Landmark.Fairground)
-        ? Math.floor(KIT.festival.radius * 1.5) // Fairground +50% radius (§12)
-        : KIT.festival.radius;
-      s.auras.push({
-        player: p.id,
-        tile,
-        radius,
-        ticksLeft: KIT.festival.durTicks,
-        kind: "festival",
-      });
-      gainHeat(p, b, KIT.festival.heat);
-      startCooldown(p, "festival", KIT.festival.cooldown);
-      return;
-    }
-    case "the_offering": {
-      if (
-        onCooldown(p, "offering") ||
-        p.faith < fromInt(KIT.offering.faithCost) ||
-        p.followers < fromInt(KIT.offering.followerCost)
-      )
-        return;
-      // pay 10 Faith + 200 followers; gain +20 Faith (cartoon poof + halo, always)
-      p.faith = clamp(
-        add(sub(p.faith, fromInt(KIT.offering.faithCost)), fromInt(KIT.offering.faithGain)),
-        0,
-        HUNDRED,
-      );
-      p.followers = sub(p.followers, fromInt(KIT.offering.followerCost));
-      const district =
-        intent.district ?? (intent.tile !== undefined ? s.world.district[intent.tile]! : 0);
-      // B3 Curfews: own-action dissent −40% (§10); integer math keeps it exact
-      const dAmt = Math.floor((KIT.offering.dissent * toFloatlessPct(ownDissentMult(p))) / 100);
-      if (district > 0) addDistrictDissent(s.world, district, dAmt);
-      gainHeat(p, b, KIT.offering.heat);
-      startCooldown(p, "offering", KIT.offering.cooldown);
-      return;
-    }
-    case "day_of_atonement": {
-      if (onCooldown(p, "atonement") || p.faith < fromInt(KIT.atonement.cost)) return;
-      p.faith = sub(p.faith, fromInt(KIT.atonement.cost));
-      p.atonementTicks = KIT.atonement.durTicks;
-      startCooldown(p, "atonement", KIT.atonement.cooldown);
-      return;
-    }
   }
 }
 
@@ -948,10 +867,6 @@ export function applyIntent(s: SimState, intent: Intent, b: Balance): void {
 
     case IntentType.PUBLISH_SCANDAL:
       publishScandal(s, p, intent.target, b);
-      break;
-
-    case IntentType.RITUAL:
-      applyRitual(s, p, b, intent);
       break;
 
     case IntentType.ABILITY:

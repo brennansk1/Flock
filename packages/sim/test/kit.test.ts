@@ -95,36 +95,8 @@ function soloSim(): SimState {
   return s;
 }
 
-test("Sermon grants faith and respects its cooldown", () => {
-  const s = soloSim();
-  const p = s.players[0]!;
-  const f0 = toFloat(p.faith);
-  const sermon: Intent = { t: IntentType.RITUAL, player: 1, ritual: "sermon" };
-  run(s, 3, turnsOf({ [s.tick]: [sermon] }));
-  const f1 = toFloat(p.faith);
-  assert.ok(f1 > f0 + 10, `sermon should add ~12 faith (${f0} -> ${f1})`);
-
-  // immediate re-cast is blocked by cooldown
-  run(s, 3, turnsOf({ [s.tick]: [sermon] }));
-  assert.ok(toFloat(p.faith) < f1 + 5, "second sermon inside cooldown must not fire");
-});
-
-test("The Offering trades followers for faith and adds dissent + heat", () => {
-  const s = soloSim();
-  const p = s.players[0]!;
-  p.faith = fromInt(50);
-  const followers0 = toInt(p.followers);
-  const offering: Intent = {
-    t: IntentType.RITUAL,
-    player: 1,
-    ritual: "the_offering",
-    district: Districts.Suburbs,
-  };
-  run(s, 2, turnsOf({ [s.tick]: [offering] }));
-  assert.ok(toInt(p.followers) <= followers0 - 190, "200 followers poofed (cartoon halo)");
-  assert.ok(toFloat(p.faith) > 50, "net faith gain");
-  assert.ok(toFloat(p.heat) > 0, "offering generates heat");
-});
+// (Sermon + The Offering ritual tests removed — rituals ✂ cut in v3 M3.2b;
+//  Faith now buys doctrine directly, banked by Tend missions.)
 
 // ---------- Final Dawn kit ----------
 

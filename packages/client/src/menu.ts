@@ -204,7 +204,7 @@ const tierBadge = (tier: string): string =>
   `<span style="font-family:'Press Start 2P',monospace;font-size:7px;letter-spacing:.5px;color:${TIER_COLORS[tier] ?? MUTED}">${esc(tier)}</span>`;
 
 const KEYS_LINE =
-  "KEYS — 1/2/3 stance · QWER ritual · D/F power · G signature · B/T/C/Y/U/H build · V van · ⇧C close front · Z cancel build · F8 surrender · ⏸ pause (solo) · Esc cancel";
+  "KEYS — 1/2/3 stance · D/F power · G signature · B/T/C/Y/U/H build · V van · ⇧C recall · Z cancel build · F8 surrender · ⏸ pause (solo) · Esc cancel";
 
 // per-accent button styles (ported from the prototype's renderVals)
 const soloCss = (a: ArchDef): string =>
@@ -405,7 +405,7 @@ function renderPlay(panel: HTMLDivElement): void {
         </div>
       </div>
       <div style="font-family:'VT323',monospace;font-size:15px;color:${DIM};max-width:640px;text-align:center">
-        click a glowing spot to found · click to convert · 1/2/3 stances · QWER rituals · D/F powers · G signature · V van · ⇧C close front · Z cancel build · F8 surrender · ⏸ pause (solo)
+        click a glowing spot to found · click to convert · 1/2/3 stances · D/F powers · G signature · V van · ⇧C recall · Z cancel build · F8 surrender · ⏸ pause (solo)
       </div>
     </div>`;
 

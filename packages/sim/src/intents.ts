@@ -16,7 +16,6 @@ export const IntentType = {
   BUILD: "BUILD",
   BUY_PROPERTY: "BUY_PROPERTY",
   CANCEL_BUILD: "CANCEL_BUILD",
-  RITUAL: "RITUAL",
   ABILITY: "ABILITY",
   SIGNATURE: "SIGNATURE",
   STRIKE: "STRIKE",
@@ -44,8 +43,6 @@ export type BuildingType =
 
 export type StrikeType = "pamphlet_bomb" | "prime_time_expose" | "manifesto_drop";
 
-export type RitualId = "sermon" | "midnight_festival" | "the_offering" | "day_of_atonement";
-
 export type AgentMission = "deprogram" | "scandal";
 
 export type Intent =
@@ -59,14 +56,6 @@ export type Intent =
   | { t: typeof IntentType.BUILD; player: PlayerId; building: BuildingType; tile: TileId }
   | { t: typeof IntentType.BUY_PROPERTY; player: PlayerId; tile: TileId }
   | { t: typeof IntentType.CANCEL_BUILD; player: PlayerId; tile: TileId }
-  | {
-      t: typeof IntentType.RITUAL;
-      player: PlayerId;
-      ritual: RitualId;
-      /** anchor tile for placed effects (Festival aura, Offering host district) */
-      tile?: TileId;
-      district?: DistrictId;
-    }
   | { t: typeof IntentType.ABILITY; player: PlayerId; ability: string; target?: TileId }
   | { t: typeof IntentType.SIGNATURE; player: PlayerId; payload?: Record<string, number> }
   | { t: typeof IntentType.STRIKE; player: PlayerId; strike: StrikeType; target: TileId }

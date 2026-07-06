@@ -696,6 +696,10 @@ export function renderTown(sim: SimState, opts: RenderOpts = {}): RenderedFrame 
   drawResidents(sim, tick, fog, put);
   drawUnits(sim, opts.viewer ?? 0, fog, put);
 
+  // ---- pass 3.5: TERRITORY BORDERS (v3 M4 glow) — your converted town
+  // paints itself in your colour as it grows (the OpenFront read) ----
+  drawTerritoryBorders(sim, tick, fog, put);
+
   // ---- pass 4: fog dimming (operate on output blocks) ----
   if (fog) {
     for (let ty = vy; ty < vy + vh; ty++) {
@@ -3599,6 +3603,40 @@ const UNIT_SPRITES = {
  * see where conversion is supercharged. Festival reads warm-gold, retreat
  * reads bloom-green. Animated by frameTick for a gentle glimmer.
  */
+/**
+ * TERRITORY BORDERS (v3 M4 glow): paint an owner-colour edge wherever a
+ * converted citizen tile meets non-owned ground — the OpenFront map-painting
+ * read, so your town grows in YOUR colour as you convert it. Only the outer
+ * boundary of a holding is drawn (same-owner neighbours suppress the shared
+ * edge), so interiors stay readable (Visual QA restraint). A gentle
+ * tick-shimmer reads as "glow". Render-only, deterministic in tick.
+ */
+function drawTerritoryBorders(sim: SimState, tick: number, fog: Uint8Array | null, put: Put): void {
+  const w = sim.world;
+  const pulse = 1 + 0.14 * Math.sin(tick * 0.12); // shimmer, not a hard box
+  const colorOf = new Map<number, RGB>();
+  for (let t = 0; t < w.owner.length; t++) {
+    const o = w.owner[t]!;
+    if (o === NEUTRAL || w.state[t] !== TileState.Believer || w.terrain[t] !== Terrain.Citizen) continue;
+    if (fog && fog[t] !== 1) continue;
+    let col = colorOf.get(o);
+    if (!col) {
+      col = shade(hexToRgb(colorForPlayer(o)), pulse);
+      colorOf.set(o, col);
+    }
+    const x = t % w.width;
+    const y = (t / w.width) | 0;
+    const gx0 = x * TILE_PX;
+    const gy0 = y * TILE_PX;
+    const mine = (nt: number): boolean =>
+      nt >= 0 && nt < w.owner.length && w.owner[nt] === o && w.state[nt] === TileState.Believer;
+    if (y === 0 || !mine(t - w.width)) for (let k = 0; k < TILE_PX; k++) put(gx0 + k, gy0, col);
+    if (y === w.height - 1 || !mine(t + w.width)) for (let k = 0; k < TILE_PX; k++) put(gx0 + k, gy0 + TILE_PX - 1, col);
+    if (x === 0 || !mine(t - 1)) for (let k = 0; k < TILE_PX; k++) put(gx0, gy0 + k, col);
+    if (x === w.width - 1 || !mine(t + 1)) for (let k = 0; k < TILE_PX; k++) put(gx0 + TILE_PX - 1, gy0 + k, col);
+  }
+}
+
 function drawEffects(sim: SimState, tick: number, fog: Uint8Array | null, put: Put): void {
   const w = sim.world;
   for (const aura of sim.auras) {

@@ -249,3 +249,18 @@ rebalance re-run AFTER M3.3, when the economic loop closes. Filed as B9.3.M3.4.
   rework) — the agent correctly refused rather than damaging real mechanics.
   Lesson: worktree isolation doesn't inherit this session's committed HEAD
   here; delegate in the main tree.
+
+## PT-0014 — 2026-07-06 — M4 territory glow (map-painting feedback) 🖼️
+
+- **Nodes:** B9.4 M4 (glow-outline for converted territory)
+- **Fantasy:** DESIGN_MISSIONS.md §6 + the #1 .io engagement driver (map
+  painting). Converted town paints itself in your colour as it grows.
+- **Verdict: PASS (vision-QA'd).** drawTerritoryBorders paints owner-colour
+  edges where a converted citizen tile meets non-owned ground — outer
+  boundary only (same-owner edges suppressed), gentle tick shimmer = glow.
+  Rendered a 4-cult mid-match (126 converted tiles): red/green/blue regions
+  read distinctly at map scale AND at LOD-3; interiors stay readable (houses,
+  streets, people visible); per-tile ownership shows a block converting
+  house-by-house. Readability + restraint both PASS. Render-only
+  (deterministic in tick); 97/97 sim + 14/14 server; 4-engine PASS.
+  Artifacts: QA gallery/M4Glow/. Siege tug-of-war bars are the remaining M4 piece.

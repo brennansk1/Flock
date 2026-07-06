@@ -76,7 +76,8 @@ test("cohorts: mass is conserved through send and completed recall", () => {
 
   step(s, turn(2, [{ t: IntentType.MISSION_RECALL, player: 1, slot: 0 }]), balance);
   assert.ok(p.cohorts[0]!.recalling, "recall flagged");
-  for (let i = 3; i < 3 + balance.missions.recallTicks + 2; i++) step(s, turn(i), balance);
+  // travel model (M2): they WALK home — generous bound, assert they made it
+  for (let i = 3; i < 300 && p.cohorts.length > 0; i++) step(s, turn(i), balance);
   assert.equal(p.cohorts.length, 0, "cohort came home");
   // growth ran during the wait, so followers >= the conserved total
   assert.ok(toInt(p.followers) >= toInt(before), "mass returned (plus growth)");
@@ -128,6 +129,48 @@ test("cohorts survive the snapshot round-trip hash-identically (v9)", () => {
   const restored = fromSnapshot(toSnapshot(s));
   assert.equal(hashState(restored), hashState(s));
   assert.deepEqual(restored.players[0]!.cohorts, s.players[0]!.cohorts);
+});
+
+test("a spread cohort converts the doors around its target — presence, not adjacency", () => {
+  const s = spawned();
+  const p = s.players[0]!;
+  const target = 15 * 32 + 15; // deep in town, ~21 tiles from the compound
+  step(s, turn(1, [
+    { t: IntentType.MISSION_SEND, player: 1, tile: target, permille: 700, mode: Stance.Spread },
+  ]), balance);
+  const w = s.world;
+  const ownedNearTarget = (): number => {
+    let n = 0;
+    for (let dy = -4; dy <= 4; dy++)
+      for (let dx = -4; dx <= 4; dx++) {
+        const t = (15 + dy) * 32 + 15 + dx;
+        if (w.owner[t] === 1) n++;
+      }
+    return n;
+  };
+  // still marching: nothing near the target flips in the first 30 ticks
+  for (let i = 2; i < 32; i++) step(s, turn(i), balance);
+  assert.equal(ownedNearTarget(), 0, "no conversion before the sortie arrives");
+  // on the ground: the doors start opening
+  let flipped = 0;
+  for (let i = 32; i < 900 && flipped === 0; i++) {
+    step(s, turn(i), balance);
+    flipped = ownedNearTarget();
+  }
+  assert.ok(flipped > 0, "presence converts around the target with zero adjacency");
+});
+
+test("a crusade wears the flock down and stokes Heat", () => {
+  const s = spawned();
+  const p = s.players[0]!;
+  step(s, turn(1, [
+    { t: IntentType.MISSION_SEND, player: 1, tile: 15 * 32 + 15, permille: 600, mode: Stance.Crusade },
+  ]), balance);
+  const massAtSend = p.cohorts[0]!.mass;
+  const heatAtSend = p.heat;
+  for (let i = 2; i < 400; i++) step(s, turn(i), balance);
+  assert.ok(p.cohorts[0]!.mass < massAtSend, "attrition bit the deployed mass");
+  assert.ok(p.heat > heatAtSend, "the hard sell drew Heat");
 });
 
 test("the hash sees cohort state", () => {

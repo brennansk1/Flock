@@ -74,8 +74,14 @@ export interface RawBalance {
     inner_circle_permille?: number;
     min_send_permille?: number;
     max_send_permille?: number;
-    /** M1 interim fixed recall time (ticks); M2 replaces with travel model */
+    /** legacy M1 knob, superseded by the travel model (ignored) */
     recall_ticks?: number;
+    march_ticks_per_tile?: number;
+    work_radius?: number;
+    followers_per_door?: number;
+    max_doors?: number;
+    crusade_attrition_permille_per_s?: number;
+    tend_hold_divisor?: number;
   };
 }
 
@@ -143,7 +149,12 @@ export interface Balance {
     innerCirclePermille: number;
     minSendPermille: number;
     maxSendPermille: number;
-    recallTicks: number;
+    marchTicksPerTile: number;
+    workRadius: number;
+    followersPerDoor: number;
+    maxDoors: number;
+    crusadeAttritionPermillePerS: number;
+    tendHoldDivisor: number;
   };
 }
 
@@ -224,7 +235,12 @@ export function loadBalance(raw: RawBalance): Balance {
       innerCirclePermille: raw.missions?.inner_circle_permille ?? 200,
       minSendPermille: raw.missions?.min_send_permille ?? 100,
       maxSendPermille: raw.missions?.max_send_permille ?? 900,
-      recallTicks: raw.missions?.recall_ticks ?? 100,
+      marchTicksPerTile: raw.missions?.march_ticks_per_tile ?? 2,
+      workRadius: raw.missions?.work_radius ?? 6,
+      followersPerDoor: raw.missions?.followers_per_door ?? 15,
+      maxDoors: raw.missions?.max_doors ?? 12,
+      crusadeAttritionPermillePerS: raw.missions?.crusade_attrition_permille_per_s ?? 2,
+      tendHoldDivisor: raw.missions?.tend_hold_divisor ?? 200,
     },
   };
 }

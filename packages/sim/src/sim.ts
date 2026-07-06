@@ -24,6 +24,7 @@ import {
   Lot,
   MatchStatus,
   MAX_COHORTS,
+  type Cohort,
   type Building,
   type PlayerState,
   type SimState,
@@ -33,6 +34,7 @@ import {
   type DistrictId,
 } from "./types.js";
 import { resolveConversion } from "./conversion.js";
+import { cohortTransit, cohortArrived } from "./cohorts.js";
 import { carveDirtLane } from "./mapgen.js";
 import { newPlayer } from "./player.js";
 import {
@@ -1142,19 +1144,24 @@ function stepEffects(s: SimState, b: Balance): void {
     if (p.judasTicks > 0) p.judasTicks--;
     if (p.retentionDebuffTicks > 0) p.retentionDebuffTicks--;
 
-    // Cohort upkeep (v3 missions, M1 substrate): age the sorties; a
-    // completed recall returns its mass to the home flock. NOTE (🧩 M2):
-    // the fixed recall timer is the M1 interim — M2 replaces it with the
-    // travel model (distance-based march home, vulnerable in transit).
+    // Cohort upkeep (v3 missions, M2 travel model): the sortie marches out
+    // at marchTicksPerTile from the nearest compound, works on arrival, and
+    // walks the same distance home on recall — friction both ways. Crusade
+    // cohorts pay attrition and stoke Heat while deployed.
     if (p.cohorts.length > 0) {
+      const attr = fp(1 - b.missions.crusadeAttritionPermillePerS / 1000 / 10); // per tick
       for (const c of p.cohorts) {
         c.age++;
         if (c.recalling) c.recallAge++;
+        if (!c.recalling && c.mode === Stance.Crusade && cohortArrived(s, p, c, b)) {
+          c.mass = mul(c.mass, attr); // the hard sell wears the flock down
+          p.heat = clamp(add(p.heat, mul(mul(b.stances.crusade.heatPerS, fp(0.5)), b.dt)), 0, HUNDRED);
+        }
       }
-      const returned = p.cohorts.filter((c) => c.recalling && c.recallAge >= b.missions.recallTicks);
-      if (returned.length > 0) {
-        for (const c of returned) p.followers = add(p.followers, c.mass);
-        p.cohorts = p.cohorts.filter((c) => !(c.recalling && c.recallAge >= b.missions.recallTicks));
+      const done = (c: Cohort): boolean => c.recalling && c.recallAge >= cohortTransit(s, p, c, b);
+      if (p.cohorts.some(done)) {
+        for (const c of p.cohorts) if (done(c)) p.followers = add(p.followers, c.mass);
+        p.cohorts = p.cohorts.filter((c) => !done(c));
       }
     }
 

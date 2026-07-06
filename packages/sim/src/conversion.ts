@@ -20,7 +20,8 @@
  * (players by array order, tiles ascending) — the lockstep contract.
  */
 
-import { add, sub, mul, div, min, fromInt, ONE, type Fixed } from "./fixed.js";
+import { add, sub, mul, div, min, fromInt, toInt, ONE, type Fixed } from "./fixed.js";
+import { cohortArrived } from "./cohorts.js";
 import type { Balance, ArchetypeCoeffs } from "./balance.js";
 import {
   NEUTRAL,
@@ -70,6 +71,18 @@ function coeffsOf(b: Balance, p: PlayerState): ArchetypeCoeffs {
 
 function stanceOf(b: Balance, p: PlayerState): { commit: Fixed; mult: Fixed } {
   switch (p.stance) {
+    case Stance.Tend:
+      return b.stances.tend;
+    case Stance.Crusade:
+      return b.stances.crusade;
+    default:
+      return b.stances.spread;
+  }
+}
+
+/** Per-sortie mode → the same tuning table (v3 missions: mode is chosen per cohort). */
+function modeOf(b: Balance, mode: Stance): { commit: Fixed; mult: Fixed } {
+  switch (mode) {
     case Stance.Tend:
       return b.stances.tend;
     case Stance.Crusade:
@@ -332,6 +345,67 @@ export function resolveConversion(s: SimState, b: Balance): void {
     }
   }
 
+  // ---- Pass 1b: COHORT PRESENCE (v3 missions M2) — the deployed flock works
+  // the doors around its target: nearest-unconverted-first auto-spread, door
+  // count scaled by mass. Presence IS access: no adjacency requirement, no
+  // compound outreach needed. Tend cohorts convert nothing — they hold the
+  // zone (consumed as extra resistance in Pass 2).
+  const tendBoost = new Map<TileId, Fixed>();
+  for (const p of s.players) {
+    if (!p.alive) continue;
+    for (const c of p.cohorts) {
+      if (c.recalling || c.mass <= 0 || !cohortArrived(s, p, c, b)) continue;
+      const cx = c.target % w.width;
+      const cy = (c.target / w.width) | 0;
+      const R = b.missions.workRadius;
+      if (c.mode === Stance.Tend) {
+        const boost = div(c.mass, fromInt(b.missions.tendHoldDivisor));
+        for (let dy = -R; dy <= R; dy++) {
+          for (let dx = -R; dx <= R; dx++) {
+            if (dx * dx + dy * dy > R * R) continue;
+            const x = cx + dx;
+            const y = cy + dy;
+            if (x < 0 || y < 0 || x >= w.width || y >= w.height) continue;
+            const t = y * w.width + x;
+            if (w.owner[t] === p.id && w.state[t] === TileState.Believer)
+              tendBoost.set(t, add(tendBoost.get(t) ?? 0, boost));
+          }
+        }
+        continue;
+      }
+      const cands: { t: TileId; d: number }[] = [];
+      for (let dy = -R; dy <= R; dy++) {
+        for (let dx = -R; dx <= R; dx++) {
+          if (dx * dx + dy * dy > R * R) continue;
+          const x = cx + dx;
+          const y = cy + dy;
+          if (x < 0 || y < 0 || x >= w.width || y >= w.height) continue;
+          const t = y * w.width + x;
+          if (!convertible(w, t) || w.owner[t] === p.id) continue;
+          cands.push({ t, d: dx * dx + dy * dy });
+        }
+      }
+      if (cands.length === 0) continue;
+      cands.sort((a, z) => a.d - z.d || a.t - z.t); // nearest door first, stable
+      const doors = Math.max(
+        1,
+        Math.min(b.missions.maxDoors, 1 + Math.floor(toInt(c.mass) / b.missions.followersPerDoor)),
+      );
+      const tiles = cands.slice(0, doors).map((e) => e.t).sort((a, z) => a - z);
+      for (const t of tiles) {
+        const o = w.owner[t]!;
+        if (o !== NEUTRAL && areAllied(s, p.id, o)) commitBetrayal(s, p, o); // JUDAS by sortie
+      }
+      const st = modeOf(b, c.mode);
+      const perTile = min(div(c.mass, fromInt(tiles.length)), b.conversion.maxEffPerBorderTile);
+      work.push({ player: p, tiles, attackersPerTile: perTile, stanceMult: st.mult });
+      for (const t of tiles) {
+        const o = w.owner[t]!;
+        if (o !== NEUTRAL) defendedCount.set(o, (defendedCount.get(o) ?? 0) + 1);
+      }
+    }
+  }
+
   // Defender spread: uncommitted followers split across all tiles under attack.
   const defendersPerTile = new Map<PlayerId, Fixed>();
   for (const [pid, count] of defendedCount) {
@@ -390,6 +464,8 @@ export function resolveConversion(s: SimState, b: Balance): void {
           res = mul(res, stanceDefenseMult(b, defender)); // Tend +20% / Crusade −25% (§5)
           if (defender.judasTicks > 0) res = mul(res, fp(0.5)); // JUDAS shock (§16)
           if (defender.retentionDebuffTicks > 0) res = mul(res, fp(0.5)); // Exposé (§8)
+          const tb = tendBoost.get(t); // a Tend cohort holds this ground (v3)
+          if (tb) res = mul(res, add(ONE, tb));
         }
         if (w.landmark[t] !== 0) res = mul(res, fromInt(2)); // landmarks 0.5× capture (§12)
       } else if (w.landmark[t] !== 0) {

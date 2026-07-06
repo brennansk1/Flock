@@ -399,8 +399,14 @@ B9  🔨 THE MISSION REWORK — core loop v3 (DESIGN_MISSIONS.md is the contract
 │   │                KIT ritual entries + bot sermon + all client ritual UI
 │   │                removed (8 files); inert fields kept vestigial (no hash
 │   │                bump); browser-verified clean boot (644b50c)
-│   └── M3.3 ⬜ Build palette ✂ → commune stages 1–5 (money sink: flock cap +
-│                van/bus capacity); cut-building effects fold into stages
+│   ├── M3.3 ⬜ Build palette ✂ → commune stages 1–5 (money sink: flock cap +
+│   │            van/bus capacity); cut-building effects fold into stages.
+│   │            Also retarget Visitors radio_static (broadcast_tower cut) +
+│   │            Radiant supplement_lab income (both die with the palette)
+│   └── M3.4 ⬜ Archetype rebalance RE-RUN (after M3.3 closes money→commune→
+│                flock): botleague until all 4 cults in ~22–28% band; income
+│                (circle) + retention (radiant) now have real win-paths.
+│                First pass done (PT-0010): FAIL→PASS, 6.5×→1.55× spread
 ├── B9.4 ⬜ M4 Key-building sieges — tug-of-war meter per civic/anchor lot,
 │            decay when uncontested, glow-outline state for converted homes
 ├── B9.5 ⬜ M5 Bot brain v3 — three verbs (send/recall/upgrade); botleague +

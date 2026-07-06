@@ -996,9 +996,11 @@ function stepEconomy(s: SimState, b: Balance): void {
   const w = s.world;
   const civics = computeCivicControl(s); // key-building takeovers (§13 rev.)
 
-  // Per-owner aggregates over owned tiles: income coeff sum + dissent sum.
+  // Per-owner aggregates over owned tiles: income coeff sum + dissent sum +
+  // believer souls (v3: converted townsfolk recruit into the mobile flock).
   const incomeSum = new Map<PlayerId, Fixed>();
   const dissentSum = new Map<PlayerId, Fixed>();
+  const believerPop = new Map<PlayerId, Fixed>();
   for (let t = 0; t < w.owner.length; t++) {
     const o = w.owner[t]!;
     if (o === NEUTRAL || w.state[t] !== TileState.Believer) continue;
@@ -1008,24 +1010,29 @@ function stepEconomy(s: SimState, b: Balance): void {
       (w.flags[t]! & TileFlag.Downline) !== 0 ? mul(dc.income, fromInt(2)) : dc.income;
     incomeSum.set(o, add(incomeSum.get(o) ?? 0, income));
     dissentSum.set(o, add(dissentSum.get(o) ?? 0, w.dissent[t]!));
+    believerPop.set(o, add(believerPop.get(o) ?? 0, fromInt(w.pop[t]!)));
   }
 
   for (const p of s.players) {
     if (!p.alive) continue;
 
-    // Followers — logistic growth (§3.1). faith_growth_mod = 0.8 + Faith/250.
+    // Followers grow from BELIEVERS (v3 §4): converted townsfolk recruit into
+    // the mobile flock — territory feeds the army, closing the core loop.
+    // recruits/s = (base + believerPop × per-believer) × faith/stance/civic mods.
+    // A small base keeps a young cult trickling before it holds ground; the cap
+    // (raised by commune stages, M3.3) is the ceiling.
     const cap = followerCap(p, b, s);
-    if (cap > 0) {
-      let faithGrowthMod = add(fp(0.8), div(p.faith, fromInt(250)));
-      // stance growth side-effects (§5): Tend +10%, CRUSADE −20%
-      if (p.stance === Stance.Tend) faithGrowthMod = mul(faithGrowthMod, fp(1.1));
-      else if (p.stance === Stance.Crusade) faithGrowthMod = mul(faithGrowthMod, fp(0.8));
-      const utilization = sub(ONE, div(p.followers, cap)); // (1 − F/cap)
-      let dF = mul(b.economy.followerGrowth, mul(p.followers, utilization));
-      dF = mul(dF, faithGrowthMod);
+    if (cap > 0 && p.followers < cap) {
+      let mod = add(fp(0.8), div(p.faith, fromInt(250))); // faith_growth_mod
+      if (p.stance === Stance.Tend) mod = mul(mod, fp(1.1)); // nurture recruits better
+      else if (p.stance === Stance.Crusade) mod = mul(mod, fp(0.8));
       // High-school takeover: youth recruitment feeds the flock (§13 rev.)
-      if (controlsCivic(civics, Lot.HighSchool, p.id)) dF = mul(dF, b.civics.highschoolGrowthMult);
-      p.followers = clamp(add(p.followers, mul(dF, dt)), 0, cap);
+      if (controlsCivic(civics, Lot.HighSchool, p.id)) mod = mul(mod, b.civics.highschoolGrowthMult);
+      const recruits = add(
+        b.economy.baseRecruitsPerS,
+        mul(believerPop.get(p.id) ?? 0, b.economy.recruitsPerBeliever),
+      );
+      p.followers = clamp(add(p.followers, mul(mul(recruits, mod), dt)), 0, cap);
     }
 
     // Tithe (§3.2): $/sec = tithe_per_follower × F × income_avg × dissent_tax,

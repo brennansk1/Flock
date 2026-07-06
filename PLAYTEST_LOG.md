@@ -131,3 +131,23 @@ the geometry already plays.
     is deliberately simple (M5 tunes it; human play is the real test, B7.9).
 - **Open:** M5 must confirm the low lead share isn't just "bots too passive
   to win" (a decisive-rate floor belongs in the M5 gate alongside lead share).
+
+## PT-0008 — 2026-07-06 — M3.1 recruits-from-believers (the loop closes)
+
+- **Nodes:** B9.3 M3.1 (economy: territory feeds the flock)
+- **Scenario:** 15 bot matches (5 townTypes × 3 seeds); plus a church-vs-drifter
+  growth probe on a generated town.
+- **Verdict: THE LOOP CLOSES, snowball gain HELD.**
+  - Growth is now driven by held believer souls (recruits/s = base 1 +
+    believerPop × 0.005, × faith/stance/civic mods), replacing logistic
+    follower-growth. Probe: church flock 0→15→54→606 tracking tiles
+    10→22→50→109 — territory demonstrably feeds the army.
+  - Founding 4/4 every match; median lead share 0.51–0.59 (was 0.94–0.98 on
+    the front game, ~0.55 at PT-0007) — recruits did NOT re-introduce the
+    snowball. Median tiles 349–392, up from PT-0007's 297–424 (more flock to
+    deploy → more conversion).
+  - Decisive% still 0 (no 72% dominations; all timer). Persistent — belongs
+    to the M5 bot-brain gate, not the economy.
+- **Test recalibration:** the church-vs-drifter test moved to a generated
+  town (a featureless pop-0 grid can't express AI skill under presence
+  conversion + territory economy — both cults saturate their half equally).

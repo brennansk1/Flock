@@ -13,7 +13,9 @@
     "cap_per_compound": 25000,
     "courier_per_tile": 4,
     "courier_cap": 1200,
-    "courier_interval_s": 20
+    "courier_interval_s": 20,
+    "recruits_per_believer": 0.005,
+    "base_recruits_per_s": 1
   },
   "conversion": {
     "base_pressure": 14.0,

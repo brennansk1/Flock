@@ -15,6 +15,7 @@ import {
   loadBalance,
   createSim,
   createWorld,
+  generateWorld,
   step,
   fromInt,
   seedRng,
@@ -34,6 +35,9 @@ const balance = loadBalance(raw);
 function world24() {
   const w = createWorld(24, 24);
   for (let i = 0; i < w.susceptibility.length; i++) w.susceptibility[i] = fromInt(50);
+  // populate the grid — v3 growth is recruits-from-BELIEVERS, so a bare
+  // world (pop 0) starves every cult equally and hides AI skill
+  for (let i = 0; i < w.pop.length; i++) w.pop[i] = 3;
   return w;
 }
 
@@ -42,11 +46,11 @@ function bot(playerId: number, tier: BotState["tier"], aggression = 0): BotState
 }
 
 /** Run a headless match where each player is driven by a bot brain. */
-function runMatch(seed: number, bots: BotState[], ticks: number) {
+function runMatch(seed: number, bots: BotState[], ticks: number, world = world24()) {
   const s = createSim({
     seed,
     balance,
-    world: world24(),
+    world,
     spawns: bots.map((b) => ({ id: b.playerId, archetype: "dawn" as const })),
     timerTicks: 0,
     dominationPermille: 1000,
@@ -83,11 +87,13 @@ test("a bot brain run is deterministic (same seed ⇒ same final state)", () => 
 });
 
 test("Established Church establishes itself and outgrows a lone Drifter", () => {
-  const s = runMatch(7, [bot(1, "church", 2), bot(2, "drifter")], 260);
+  // On a REAL town (roads/districts/uneven pop) the church's targeting and
+  // discipline compound; a featureless grid lets a drifter saturate its half
+  // just as fast. 60s window under v3's territory-driven growth.
+  const s = runMatch(7, [bot(1, "church", 2), bot(2, "drifter")], 600, generateWorld(7, 24, 24));
   const church = s.players[0]!;
   const drifter = s.players[1]!;
   assert.ok(church.spawned && church.ownedTiles > 0, "church holds territory");
-  // the major's pre-seed + disciplined script should out-expand the drifter
   assert.ok(
     church.ownedTiles > drifter.ownedTiles,
     `church (${church.ownedTiles}) should outgrow drifter (${drifter.ownedTiles})`,

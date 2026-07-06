@@ -3151,6 +3151,55 @@ interface Spot { tile: number; owner: number; lot: number }
 interface Leg { x0: number; y0: number; x1: number; y1: number; len: number; onRoad: boolean }
 
 /**
+ * ROAD-GRAPH ROUTING (dot-pathing upgrade): the old two-elbow route assumed
+ * a continuous road spanned the whole horizontal + vertical legs — on the
+ * jittered plat it often didn't, so walkers cut across lawns and THROUGH
+ * houses mid-block. Routes now follow the actual street network: BFS over
+ * Road/Dirt tiles (4-connected, fixed neighbor order — deterministic),
+ * cached per world + endpoint pair (the road net never changes mid-match,
+ * and forward/reverse share one search).
+ */
+const ROUTE_CACHE = new WeakMap<World, Map<number, number[] | null>>();
+
+function roadPath(w: World, from: number, to: number): number[] | null {
+  let cache = ROUTE_CACHE.get(w);
+  if (!cache) {
+    cache = new Map();
+    ROUTE_CACHE.set(w, cache);
+  }
+  const n = w.terrain.length;
+  const key = from * n + to;
+  const hit = cache.get(key);
+  if (hit !== undefined) return hit;
+  const walkable = (t: number): boolean =>
+    w.terrain[t] === Terrain.Road || w.terrain[t] === Terrain.Dirt;
+  let path: number[] | null = null;
+  if (walkable(from) && walkable(to)) {
+    const parent = new Int32Array(n).fill(-2); // -2 unseen, -1 root
+    parent[from] = -1;
+    const queue = [from];
+    for (let qi = 0; qi < queue.length; qi++) {
+      const c = queue[qi]!;
+      if (c === to) break;
+      const x = c % w.width;
+      for (const nb of [c - w.width, c + w.width, x > 0 ? c - 1 : -1, x < w.width - 1 ? c + 1 : -1]) {
+        if (nb < 0 || nb >= n || parent[nb] !== -2 || !walkable(nb)) continue;
+        parent[nb] = c;
+        queue.push(nb);
+      }
+    }
+    if (parent[to] !== -2) {
+      path = [];
+      for (let c = to; c !== -1; c = parent[c]!) path.push(c);
+      path.reverse();
+    }
+  }
+  cache.set(key, path);
+  cache.set(to * n + from, path ? [...path].reverse() : null);
+  return path;
+}
+
+/**
  * Build the street route home→dest as legs: door → fronting street →
  * Manhattan elbow along the grid → dest street → dest door. Falls back to a
  * straight elbow when a tile has no fronting road (shouldn't happen — the
@@ -3198,8 +3247,39 @@ function buildRoute(
   const drx = (dr % w.width) * TILE_PX + 4;
   const dry = ((dr / w.width) | 0) * TILE_PX + 4;
   push(homePx, homePy, hrx, hry, false); // door → street
-  push(hrx, hry, drx, hry, true); // along the home street
-  push(drx, hry, drx, dry, true); // turn onto the dest street
+  const path = roadPath(w, hr, dr);
+  if (path && path.length > 1) {
+    // follow the REAL street network, compressed into straight legs —
+    // turns land on actual intersections, so crossings happen where a
+    // pedestrian would cross and cars never leave pavement
+    let sx = hrx;
+    let sy = hry;
+    let runDx = 0;
+    let runDy = 0;
+    for (let i = 1; i < path.length; i++) {
+      const px = (path[i]! % w.width) * TILE_PX + 4;
+      const py = ((path[i]! / w.width) | 0) * TILE_PX + 4;
+      const prevPx = (path[i - 1]! % w.width) * TILE_PX + 4;
+      const prevPy = ((path[i - 1]! / w.width) | 0) * TILE_PX + 4;
+      const dx = Math.sign(px - prevPx);
+      const dy = Math.sign(py - prevPy);
+      if ((dx !== runDx || dy !== runDy) && (runDx !== 0 || runDy !== 0)) {
+        push(sx, sy, prevPx, prevPy, true); // the straight run ends: emit it
+        sx = prevPx;
+        sy = prevPy;
+      }
+      runDx = dx;
+      runDy = dy;
+    }
+    const endPx = (path[path.length - 1]! % w.width) * TILE_PX + 4;
+    const endPy = ((path[path.length - 1]! / w.width) | 0) * TILE_PX + 4;
+    push(sx, sy, endPx, endPy, true);
+  } else {
+    // road nets disconnected between these two (shouldn't happen —
+    // hygiene stitches components): old two-elbow approximation
+    push(hrx, hry, drx, hry, true);
+    push(drx, hry, drx, dry, true);
+  }
   push(drx, dry, destPx, destPy, false); // street → door
   return legs;
 }
@@ -3342,9 +3422,11 @@ function drawResidents(sim: SimState, tick: number, fog: Uint8Array | null, put:
       let dest = -1;
       let phase: "home" | "out" | "back" | "stay" = "home";
       let legStart = 0; // tick the leg began
+      let lunchFromWork = false; // lunch runs depart the workplace, not home
       if (day < T_MORNING) {
-        phase = "home"; // night — indoors (only night owls visible)
-        if (seed % 7 !== 0) continue;
+        phase = "home"; // night — indoors (a rare night owl on the porch;
+        // 3 a.m. streets should read DEAD, not lively)
+        if (seed % 17 !== 0) continue;
       } else if (day < T_WORK && workT >= 0) {
         phase = "out";
         dest = workT;
@@ -3359,8 +3441,11 @@ function drawResidents(sim: SimState, tick: number, fog: Uint8Array | null, put:
         phase = "stay";
         dest = workT;
       } else if (day < T_LUNCH1 && workT >= 0 && doesLunch) {
-        // lunch errand: quick round trip to the shop/diner
+        // lunch errand: quick round trip to the shop/diner FROM WORK —
+        // the old route ran home→shop, so midday read as residential
+        // streams instead of workers stepping out (pathing-upgrade fix)
         dest = errandT;
+        lunchFromWork = true;
         const lf = (day - T_LUNCH0) / (T_LUNCH1 - T_LUNCH0);
         phase = lf < 0.35 ? "out" : lf < 0.65 ? "stay" : "back";
         legStart = lf < 0.35 ? T_LUNCH0 : T_LUNCH0 + Math.floor((T_LUNCH1 - T_LUNCH0) * 0.65);
@@ -3400,13 +3485,25 @@ function drawResidents(sim: SimState, tick: number, fog: Uint8Array | null, put:
         px = homeX + (((tick >> 4) + i) % 3) - 1;
         py = homeY;
       } else {
-        const dx0 = (dest % w.width) - hx;
-        const dy0 = ((dest / w.width) | 0) - hy;
+        // trip origin: home, except the lunch run which departs the workplace
+        const originT = lunchFromWork && workT >= 0 ? workT : t;
+        const originX =
+          lunchFromWork && workT >= 0
+            ? (workT % w.width) * TILE_PX + 2 + ((seed >> 9) % 4)
+            : homeX;
+        const originY =
+          lunchFromWork && workT >= 0
+            ? ((workT / w.width) | 0) * TILE_PX + TILE_PX - 1
+            : homeY;
+        const ox = originT % w.width;
+        const oy = (originT / w.width) | 0;
+        const dx0 = (dest % w.width) - ox;
+        const dy0 = ((dest / w.width) | 0) - oy;
         const tripTiles = Math.abs(dx0) + Math.abs(dy0);
         asCar = tripTiles > CAR_TRIP && seed % 3 !== 0; // most long trips drive
         const destX = (dest % w.width) * TILE_PX + 2 + ((seed >> 12) % 4);
         const destY = ((dest / w.width) | 0) * TILE_PX + TILE_PX - 1; // the door
-        const legs = buildRoute(w, t, dest, homeX, homeY, destX, destY);
+        const legs = buildRoute(w, originT, dest, originX, originY, destX, destY);
         const total = routeLen(legs);
         const speed = asCar ? CAR_SPEED : WALK_SPEED;
         if (phase === "stay") {
@@ -3430,8 +3527,8 @@ function drawResidents(sim: SimState, tick: number, fog: Uint8Array | null, put:
             if (!(OUTDOOR_LOTS.has(lot) || w.landmark[dest] !== 0)) continue;
           }
           if (phase === "back" && dist >= total) {
-            px = homeX;
-            py = homeY;
+            px = originX;
+            py = originY;
           }
         }
       }

@@ -127,3 +127,27 @@ no fallback) and **the grocery could land on a farmstead 30 tiles out**
 all 18 anchor lots present on 9/9 probe seeds, supermarket ≤8 tiles from
 center, gated by a new mapgen test. Fixed crops: `factory_seed99_fixed.png`,
 `bank_seed42_fixed.png`.
+
+---
+
+## Civic-day dot pathing — investigation + upgrade, 2026-07-05
+
+Investigated B8.2 dot routing end-to-end ([`QA gallery/CivicDay/`](QA%20gallery/CivicDay/),
+pre/post frames at night/rush/workday/lunch/evening + LOD-3 crops).
+
+**Found:** (1) routes were two blind elbows that assumed a continuous road
+spanned both legs — on the jittered plat walkers could cut mid-block (measured
+0.8% of person-pixels off-road at the evening wave; modest but real);
+(2) lunch errands departed HOME while the person was at work; (3) 3 a.m.
+streets had ~86 people out.
+
+**Upgraded:** routes now follow the real street network — BFS over Road/Dirt,
+cached per world+endpoint pair (~21ms one-time warm-up, zero steady-state) —
+so turns land on true intersections (crossings where a pedestrian would
+cross), cars never leave pavement, and the sidewalk right-hand rule applies to
+every leg. Lunch runs depart the workplace. Night owls cut to 1/17.
+
+**Measured after:** on-pavement walkers ×2 (37→76 px at the same frame),
+cut-through halved to ≈2 people (door-leg yard crossings — correct), night
+headcount 86→45, day-phase wave intact (45/150/134/105/524 across the day).
+Suite 90/90 (recap-card render determinism unaffected).

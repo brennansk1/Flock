@@ -377,3 +377,23 @@ B8  ✔️ PLAYTEST READINESS — the 2026-07-02 sprint (rooms, civic day, safet
 ├── B8.13 ✔️ HUD redesign — "Interface Testament v3.0" pixel design system, menu + HUD + loading
 └── B8.14 ✔️ Founding gate + solo pause — match waits for all founders; ⏸/✕ controls top-left
 ├── B8.15 ✔️ All-clickable — SCHEME panel gives every PvP/ops action a button (no hotkey needed)
+
+B9  🔨 THE MISSION REWORK — core loop v3 (DESIGN_MISSIONS.md is the contract)
+├── B9.1 ⬜ M1 Cohort substrate — cohort state {target, mode, mass} ×3 max,
+│            SEND/RECALL intents, inner-circle floor, snapshot v9 + hash
+├── B9.2 ⬜ M2 Presence conversion engine — cohort mass replaces front
+│            pressure through the EXISTING factor pipeline (archetype/
+│            doctrine/district/civics/road mults survive); fronts deleted ✂
+├── B9.3 ⬜ M3 Economy rewire — recruits-from-believers growth; rituals ✂ →
+│            doctrine costs Faith; build palette ✂ → commune stages 1–5
+├── B9.4 ⬜ M4 Key-building sieges — tug-of-war meter per civic/anchor lot,
+│            decay when uncontested, glow-outline state for converted homes
+├── B9.5 ⬜ M5 Bot brain v3 — three verbs (send/recall/upgrade); botleague +
+│            playtest campaigns re-baselined (gate: lead share < 0.90)
+├── B9.6 ⬜ M6 Client — send flow (click + % slider + mode), cohort chips
+│            w/ recall, right-rail building bars, glow outlines, victory
+│            threshold marker + path readout (domination only; Revelation ✂)
+├── B9.7 ⬜ M7 Protocol/rooms/tutorial — wire intents, room defaults,
+│            tutorial rewritten around the three-verb loop
+└── B9.8 ⬜ M8 Audit — Phase-6 sweep: depth review vs §8 gates, QA renders,
+             ✂ ledger closed, docs reconciled with DESIGN.md

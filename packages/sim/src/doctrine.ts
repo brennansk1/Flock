@@ -1,18 +1,20 @@
 /**
- * Doctrine Tree (BITE, §10). 16 nodes, 7 points max, earned at follower
- * milestones. Tier gating: a branch's T3 needs 2 picks in that branch, T4
- * needs 3. Irreversible.
+ * Doctrine Tree (BITE, §10). 16 nodes. v3 (DESIGN_MISSIONS.md §2): FAITH is
+ * the doctrine currency — each pick SPENDS DOCTRINE_FAITH_COST from the 0–100
+ * Faith pool, so buying doctrine now temporarily weakens your conversion Faith
+ * (a real tradeoff). Faith is rebuilt by Tend missions + church control. Tier
+ * gating: a branch's T3 needs 2 picks in that branch, T4 needs 3. Irreversible.
  *
  * Effects are queried by the systems they modify (conversion, economy, raids,
  * strikes) through tiny helpers here — doctrine never pushes state itself.
  */
 
 import type { Fixed } from "./fixed.js";
-import { toFloat } from "./fixed.js";
+import { toFloat, sub, fromInt } from "./fixed.js";
 import type { PlayerState } from "./types.js";
 
-/** Follower milestones that each grant 1 doctrine point (§10). */
-export const MILESTONES = [2_500, 5_000, 10_000, 18_000, 30_000, 50_000, 80_000] as const;
+/** Faith spent per doctrine pick (v3). Promote to balance.json when tuned. */
+export const DOCTRINE_FAITH_COST = 15;
 
 export const DOCTRINE_NODES = [
   "B1", "B2", "B3", "B4", // Behavior — Discipline
@@ -26,23 +28,17 @@ export function hasDoctrine(p: PlayerState, node: DoctrineNode): boolean {
   return p.doctrine.includes(node) || p.pactNode === node;
 }
 
-/** Points earned so far from the player's high-water follower count. */
-export function doctrinePointsEarned(p: PlayerState): number {
-  const peak = toFloat(p.maxFollowers);
-  let pts = 0;
-  for (const m of MILESTONES) if (peak >= m) pts++;
-  return pts;
-}
-
+/** How many nodes the player can afford RIGHT NOW with their Faith (HUD). */
 export function doctrinePointsAvailable(p: PlayerState): number {
-  return doctrinePointsEarned(p) - p.doctrine.length;
+  return Math.floor(toFloat(p.faith) / DOCTRINE_FAITH_COST);
 }
 
-/** Validate and apply a DOCTRINE_PICK. Returns true if the pick landed. */
+/** Validate and apply a DOCTRINE_PICK. Returns true if the pick landed —
+ *  spends DOCTRINE_FAITH_COST Faith (v3). Tier gating unchanged. */
 export function pickDoctrine(p: PlayerState, node: string): boolean {
   if (!(DOCTRINE_NODES as readonly string[]).includes(node)) return false;
   if (p.doctrine.includes(node)) return false;
-  if (doctrinePointsAvailable(p) <= 0) return false;
+  if (toFloat(p.faith) < DOCTRINE_FAITH_COST) return false; // can't afford
 
   const branch = node[0]!;
   const tier = Number(node[1]!);
@@ -50,8 +46,8 @@ export function pickDoctrine(p: PlayerState, node: string): boolean {
   // tiers gate: need 2 in a branch for its T3, 3 for T4 (§10)
   if (tier === 3 && inBranch < 2) return false;
   if (tier === 4 && inBranch < 3) return false;
-  // T1/T2 are open; also require lower duplicates not needed (T2 doesn't need T1)
 
+  p.faith = sub(p.faith, fromInt(DOCTRINE_FAITH_COST)); // conviction spent
   p.doctrine.push(node);
   return true;
 }

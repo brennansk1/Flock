@@ -86,6 +86,8 @@ export interface RawBalance {
     max_doors?: number;
     crusade_attrition_permille_per_s?: number;
     tend_hold_divisor?: number;
+    /** v3: Faith/s a deployed Tend cohort banks — fuels doctrine buys */
+    tend_faith_per_s?: number;
   };
 }
 
@@ -161,6 +163,7 @@ export interface Balance {
     maxDoors: number;
     crusadeAttritionPermillePerS: number;
     tendHoldDivisor: number;
+    tendFaithPerS: Fixed;
   };
 }
 
@@ -249,6 +252,7 @@ export function loadBalance(raw: RawBalance): Balance {
       maxDoors: raw.missions?.max_doors ?? 12,
       crusadeAttritionPermillePerS: raw.missions?.crusade_attrition_permille_per_s ?? 2,
       tendHoldDivisor: raw.missions?.tend_hold_divisor ?? 200,
+      tendFaithPerS: fromFloat(raw.missions?.tend_faith_per_s ?? 0.4),
     },
   };
 }

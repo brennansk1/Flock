@@ -1136,9 +1136,15 @@ function stepEffects(s: SimState, b: Balance): void {
       for (const c of p.cohorts) {
         c.age++;
         if (c.recalling) c.recallAge++;
-        if (!c.recalling && c.mode === Stance.Crusade && cohortArrived(s, p, c, b)) {
-          c.mass = mul(c.mass, attr); // the hard sell wears the flock down
-          p.heat = clamp(add(p.heat, mul(mul(b.stances.crusade.heatPerS, fp(0.5)), b.dt)), 0, HUNDRED);
+        if (!c.recalling && cohortArrived(s, p, c, b)) {
+          if (c.mode === Stance.Crusade) {
+            c.mass = mul(c.mass, attr); // the hard sell wears the flock down
+            p.heat = clamp(add(p.heat, mul(mul(b.stances.crusade.heatPerS, fp(0.5)), b.dt)), 0, HUNDRED);
+          } else if (c.mode === Stance.Tend) {
+            // Tend gathers the faithful (v3 §2): a working tend mission is the
+            // Faith engine — this is how you bank conviction to buy doctrine.
+            p.faith = clamp(add(p.faith, mul(b.missions.tendFaithPerS, b.dt)), 0, HUNDRED);
+          }
         }
       }
       const done = (c: Cohort): boolean => c.recalling && c.recallAge >= cohortTransit(s, p, c, b);

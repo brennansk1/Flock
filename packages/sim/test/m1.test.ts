@@ -274,20 +274,33 @@ test("schism: oversized, dissent-ridden cult splinters into a new sect", () => {
 
 // ---------------- doctrine ----------------
 
-test("doctrine: milestones grant points, tiers gate, effects apply", () => {
+test("doctrine: Faith is the currency, tiers gate, effects apply (v3)", () => {
   const s = duel();
   const me = p(s, 1);
-  me.maxFollowers = fromInt(10_000); // 3 milestones → 3 points
+  // three picks cost 3×15 = 45 Faith; fund exactly that
+  me.faith = fromInt(45);
   run(s, 1, [{ t: IntentType.DOCTRINE_PICK, player: 1, node: "T4" }]);
-  assert.equal(me.doctrine.length, 0, "T4 must be tier-gated");
+  assert.equal(me.doctrine.length, 0, "T4 must be tier-gated (needs 3 in branch)");
   run(s, 1, [
     { t: IntentType.DOCTRINE_PICK, player: 1, node: "T1" },
     { t: IntentType.DOCTRINE_PICK, player: 1, node: "T2" },
     { t: IntentType.DOCTRINE_PICK, player: 1, node: "T3" },
   ]);
   assert.deepEqual(me.doctrine, ["T1", "T2", "T3"], "three picks landed");
+  assert.ok(toInt(me.faith) < 5, "Faith was spent (≈0 after 45 of 45)");
   run(s, 1, [{ t: IntentType.DOCTRINE_PICK, player: 1, node: "B1" }]);
-  assert.equal(me.doctrine.length, 3, "no points left — 4th pick refused");
+  assert.equal(me.doctrine.length, 3, "no Faith left — 4th pick refused");
+});
+
+test("doctrine: a deployed Tend cohort banks Faith to spend (v3)", () => {
+  const s = duel();
+  const me = p(s, 1);
+  compoundAt(s, 1, 12 * W + 3);
+  me.faith = fromInt(10); // below the 15 cost — can't buy yet
+  run(s, 1, [send(1, 12 * W + 5, Stance.Tend)]);
+  const before = toInt(me.faith);
+  run(s, 400); // the tend cohort marches in and gathers the faithful
+  assert.ok(toInt(me.faith) > before, "Tend banked Faith while deployed");
 });
 
 // ---------------- archetype kits ----------------

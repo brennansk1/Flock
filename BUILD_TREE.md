@@ -399,10 +399,12 @@ B9  🔨 THE MISSION REWORK — core loop v3 (DESIGN_MISSIONS.md is the contract
 │   │                KIT ritual entries + bot sermon + all client ritual UI
 │   │                removed (8 files); inert fields kept vestigial (no hash
 │   │                bump); browser-verified clean boot (644b50c)
-│   ├── M3.3 ⬜ Build palette ✂ → commune stages 1–5 (money sink: flock cap +
-│   │            van/bus capacity); cut-building effects fold into stages.
-│   │            Also retarget Visitors radio_static (broadcast_tower cut) +
-│   │            Radiant supplement_lab income (both die with the palette)
+│   ├── M3.3 🔨 Build palette → commune stages
+│   │   ├── M3.3a ✔️ Commune stages 1–5 (UPGRADE_COMMUNE money sink → flock
+│   │   │            cap; compounds capped at 1; money→flock loop live) f4d1604
+│   │   └── M3.3b ⬜ Cut the other 4 buildings ✂ (plate/watchtower/broadcast/
+│   │                lab) + retarget Visitors radio_static + Radiant supp-lab
+│   │                income; client build tray cleanup; fix m1 building tests
 │   └── M3.4 ⬜ Archetype rebalance RE-RUN (after M3.3 closes money→commune→
 │                flock): botleague until all 4 cults in ~22–28% band; income
 │                (circle) + retention (radiant) now have real win-paths.

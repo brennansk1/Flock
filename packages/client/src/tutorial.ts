@@ -143,18 +143,10 @@ function rivalScript(sim: SimState, tick: number): Intent[] {
   if (cand.length === 0) return [];
   cand.sort((a, b) => a.d - b.d || a.t - b.t);
   const anchor = ownsAny ? cand[0]! : nearestTo(cand, RIVAL_SPAWN_TILE, w.width);
-  const ax = anchor.t % w.width;
-  const ay = (anchor.t / w.width) | 0;
-  const tiles: number[] = [];
-  for (let dy = -2; dy <= 2; dy++) {
-    for (let dx = -2; dx <= 2; dx++) {
-      const x = ax + dx;
-      const y = ay + dy;
-      if (x < 0 || y < 0 || x >= w.width || y >= w.height) continue;
-      tiles.push(y * w.width + x);
-    }
-  }
-  return [{ t: "OPEN_FRONT", player: RIVAL_ID, tiles } as Intent];
+  // v3: the rival sends a cohort to work the block it just picked
+  return [
+    { t: "MISSION_SEND", player: RIVAL_ID, tile: anchor.t, permille: 400, mode: "spread" } as Intent,
+  ];
 }
 
 function nearestTo(cand: { t: number; d: number }[], to: number, width: number): { t: number; d: number } {
@@ -213,10 +205,10 @@ const STEPS: TutStep[] = [
     glow: ".fk-top",
   },
   {
-    title: "OPEN A FRONT",
-    body: "Conversion happens along FRONTS. Once the founding window closes, click on the MAP near the EDGE OF TOWN closest to your compound — a dotted border marks your active front.",
-    hint: "Click directly on the town tiles at the edge nearest your compound. The founding window must close first (watch the top-center message).",
-    done: (g) => g.sim.foundingTicksLeft === 0 && g.sim.fronts.some((f) => f.player === 1),
+    title: "SEND A MISSION",
+    body: "Your flock converts by walking into town. Once the founding window closes, click the MAP near the EDGE OF TOWN closest to your compound — your people march out to work that block, converting house by house.",
+    hint: "Click a town tile near your compound to send the flock. The founding window must close first (watch the top-center message).",
+    done: (g) => g.sim.foundingTicksLeft === 0 && (me(g)?.cohorts.length ?? 0) > 0,
   },
   {
     title: "PREACH — CAST SERMON",

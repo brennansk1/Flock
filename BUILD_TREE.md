@@ -382,21 +382,24 @@ B9  🔨 THE MISSION REWORK — core loop v3 (DESIGN_MISSIONS.md is the contract
 ├── B9.1 ✔️ M1 Cohort substrate — cohort state {target, mode, mass} ×3 max,
 │            SEND/RECALL intents, EXACT inner-circle floor, snapshot v9 +
 │            hash; 5 gates; lockstep smoke on v9 (commit c53af4e)
-├── B9.2 🔨 M2 Presence conversion engine — DONE (M2a, db8376a): travel
-│   │        model (march out / walk home, stateless distance), door-work
-│   │        auto-spread through the unchanged factor pipeline, Tend holds,
-│   │        Crusade attrition+Heat, JUDAS on allied doors; 97/97 + 4-engine
-│   │        PASS. REMAINING (M2b): migrate bots/client/tests off fronts,
-│   │        then delete fronts ✂
+├── B9.2 ✔️ M2 Presence conversion engine — travel model (march out / walk
+│            home), door-work auto-spread through the unchanged factor
+│            pipeline, Tend holds, Crusade attrition+Heat, JUDAS on allied
+│            doors (M2a). FRONTS DELETED ✂ (M2b): bots send missions, client
+│            interim send, snapshot v10, 6 test files migrated to cohorts.
+│            97/97 sim + 14/14 server, 4-engine PASS. BOT LEAD SHARE
+│            0.52–0.66 (was 0.94–0.98) — the anti-snowball gate (<0.90) MET
 ├── B9.3 ⬜ M3 Economy rewire — recruits-from-believers growth; rituals ✂ →
 │            doctrine costs Faith; build palette ✂ → commune stages 1–5
 ├── B9.4 ⬜ M4 Key-building sieges — tug-of-war meter per civic/anchor lot,
 │            decay when uncontested, glow-outline state for converted homes
 ├── B9.5 ⬜ M5 Bot brain v3 — three verbs (send/recall/upgrade); botleague +
 │            playtest campaigns re-baselined (gate: lead share < 0.90)
-├── B9.6 ⬜ M6 Client — send flow (click + % slider + mode), cohort chips
-│            w/ recall, right-rail building bars, glow outlines, victory
-│            threshold marker + path readout (domination only; Revelation ✂)
+├── B9.6 ⬜ M6 Client — RIGHT-CLICK MISSION WHEEL (Spread/Tend/Crusade arcs
+│            + %-of-flock slider, targets a map tile OR a key building),
+│            cohort chips w/ recall, right-rail building bars, glow
+│            outlines, victory threshold marker + path readout
+│            (domination only; Revelation ✂). Browser-verified.
 ├── B9.7 ⬜ M7 Protocol/rooms/tutorial — wire intents, room defaults,
 │            tutorial rewritten around the three-verb loop
 └── B9.8 ⬜ M8 Audit — Phase-6 sweep: depth review vs §8 gates, QA renders,

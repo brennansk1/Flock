@@ -194,16 +194,6 @@ export interface World {
 }
 
 /**
- * An active Front (§4): a player's committed push into a target region. The
- * tile list is kept sorted ascending so every machine iterates identically.
- */
-export interface Front {
-  id: number;
-  player: PlayerId;
-  tiles: TileId[];
-}
-
-/**
  * A deployed cohort (v3 missions — DESIGN_MISSIONS.md §1): a slice of the
  * flock sent to work a part of town. `mode` reuses the Stance vocabulary
  * per-sortie ("this wave is a crusade"). Mass is CONSERVED: it leaves
@@ -246,7 +236,7 @@ export interface PlayerState {
   cooldowns: Record<string, number>;
   /** Sermon's +5% conversion buff, remaining ticks (§9) */
   sermonBuffTicks: number;
-  /** Day of Atonement: dissent decay ×4, own fronts frozen, remaining ticks (§9) */
+  /** Day of Atonement: dissent decay ×4 while > 0, remaining ticks (§9) */
   atonementTicks: number;
   /** Final Dawn: Prophecy Countdown is once per match (§11.1) */
   prophecyUsed: boolean;
@@ -463,8 +453,6 @@ export interface SimState {
   rng: RngState;
   world: World;
   players: PlayerState[];
-  fronts: Front[];
-  nextFrontId: number;
   progress: ProgressMap;
   /** count of citizen tiles — the victory-balance unit (§1) */
   populated: number;

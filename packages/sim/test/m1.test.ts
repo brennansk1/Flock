@@ -21,6 +21,7 @@ import {
   toFloat,
   toInt,
   IntentType,
+  Stance,
   TileState,
   Landmark,
   MatchStatus,
@@ -92,6 +93,16 @@ function p(s: SimState, id: number): PlayerState {
   return s.players.find((pl) => pl.id === id)!;
 }
 
+/** Stage a flock (v3 travel model) so cohorts march a short known distance. */
+function compoundAt(s: SimState, pid: number, tile: number): void {
+  s.buildings.push({ id: s.nextEntityId++, player: pid, type: "compound", tile, buildTicksLeft: 0, disabledTicks: 0 });
+}
+
+/** A cohort send — the v3 replacement for opening a front on a tile. */
+function send(pid: number, tile: number, mode: Stance = Stance.Spread, permille = 700): Intent {
+  return { t: IntentType.MISSION_SEND, player: pid, tile, permille, mode };
+}
+
 // ---------------- buildings & couriers ----------------
 
 test("collection plates spawn couriers that deliver route money", () => {
@@ -123,11 +134,12 @@ test("watchtower fort_mult makes its tiles drastically harder to take", () => {
     p(s, 2).usd = fromInt(100_000);
     p(s, 2).followers = fromInt(200); // thin defense so the open case flips fast
     for (let y = 0; y < W; y++) own(s, y * W + 26, 1);
+    compoundAt(s, 1, 10 * W + 26); // stage p1's flock at the col-26 edge
     if (withTower) {
       run(s, 1, [{ t: IntentType.BUILD, player: 2, building: "watchtower", tile: 10 * W + 28 }]);
       run(s, 180); // build it
     }
-    run(s, 1, [{ t: IntentType.OPEN_FRONT, player: 1, tiles: [targetTile] }]);
+    run(s, 1, [send(1, targetTile)]);
     for (let i = 0; i < 6000; i++) {
       step(s, turn(s.tick), balance);
       if (s.world.owner[targetTile] === 1) return i;
@@ -148,10 +160,15 @@ test("buildings are destroyed, not captured, when their tile flips", () => {
   run(s, 1, [{ t: IntentType.BUILD, player: 2, building: "collection_plate", tile }]);
   assert.equal(s.buildings.length, 1);
   for (let y = 0; y < W; y++) own(s, y * W + 26, 1);
-  run(s, 1, [{ t: IntentType.OPEN_FRONT, player: 1, tiles: [tile] }]);
+  compoundAt(s, 1, 10 * W + 26);
+  run(s, 1, [send(1, tile)]);
   run(s, 3000);
   assert.equal(s.world.owner[tile], 1, "tile should have flipped to the attacker");
-  assert.equal(s.buildings.length, 0, "collection_plate must die with its tile");
+  // the plate dies with its tile (the p1 staging compound at col 26 remains)
+  assert.ok(
+    !s.buildings.some((bd) => bd.type === "collection_plate"),
+    "collection_plate must die with its tile",
+  );
 });
 
 // ---------------- agents: raids & scandal ----------------
@@ -221,10 +238,11 @@ test("allies cannot be converted; attacking an ally triggers JUDAS", () => {
   run(s, 1, [{ t: IntentType.ALLY_ACCEPT, player: 2, target: 1 }]);
   assert.equal(s.alliances.length, 1, "alliance formed");
 
-  // p1 opens a front on p2 territory → betrayal
+  // p1 sends a cohort onto p2 territory → betrayal fires when it arrives
   for (let y = 0; y < W; y++) own(s, y * W + 26, 1);
-  run(s, 1, [{ t: IntentType.OPEN_FRONT, player: 1, tiles: [10 * W + 27] }]);
-  run(s, 3);
+  compoundAt(s, 1, 10 * W + 26);
+  run(s, 1, [send(1, 10 * W + 27)]);
+  run(s, 12); // let the cohort march the ~1 tile and work the allied door
   assert.equal(s.alliances.length, 0, "alliance shattered");
   assert.ok(p(s, 1).traitor, "JUDAS mark applied");
   assert.ok(p(s, 1).judasTicks > 0, "retention shock running");
@@ -353,8 +371,8 @@ test("Visitors: Crop Circle accelerates neutral conversion for everyone", () => 
     const me = p(s, 1);
     (me as { archetype: string }).archetype = "visitors";
     me.usd = fromInt(100_000);
-    const targets = Array.from({ length: W }, (_, y) => y * W + 5);
-    const intents: Intent[] = [{ t: IntentType.OPEN_FRONT, player: 1, tiles: targets }];
+    compoundAt(s, 1, 10 * W + 4); // stage at p1's col-4 edge
+    const intents: Intent[] = [send(1, 10 * W + 5)];
     if (withCircle)
       intents.push({ t: IntentType.ABILITY, player: 1, ability: "crop_circle", target: 10 * W + 5 });
     const base = me.ownedTiles;

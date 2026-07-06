@@ -97,6 +97,9 @@ test("Established Church establishes itself and outgrows a lone Drifter", () => 
 test("Church brains attempt the rich intent set; Drifters never build", () => {
   const s = runMatch(3, [bot(1, "church", 2), bot(2, "drifter")], 60);
   const rng = seedRng(123);
+  // clear the church's live cohorts so it has slots free — otherwise the
+  // sample sees only recalls/holds from a maxed-out mission board
+  s.players[0]!.cohorts = [];
   // sample many church decision batches and confirm the richer intent surface
   const seen = new Set<string>();
   for (let i = 0; i < 50; i++) {
@@ -106,6 +109,6 @@ test("Church brains attempt the rich intent set; Drifters never build", () => {
       assert.notEqual(intent.t, IntentType.DOCTRINE_PICK, "drifters never pick doctrine");
     }
   }
-  assert.ok(seen.has(IntentType.OPEN_FRONT), "church expands");
+  assert.ok(seen.has(IntentType.MISSION_SEND), "church expands via missions");
   assert.ok(seen.has(IntentType.SET_STANCE), "church has stance discipline");
 });

@@ -242,7 +242,7 @@ function wireInput(app: Application, map: MapRenderer, g: GameSession, hud: Hud)
   });
 
   // Click (without dragging): resolve an armed HUD action at the tile, else
-  // SPAWN during FOUNDING (§18), else OPEN_FRONT (the default world verb).
+  // SPAWN during FOUNDING (§18), else MISSION_SEND (the default world verb).
   app.canvas.addEventListener("click", (ev) => {
     if (dragMoved) return; // it was a pan, not a click
     const center = map.tileAt(g.sim, ev.offsetX, ev.offsetY);
@@ -306,9 +306,9 @@ function wireInput(app: Application, map: MapRenderer, g: GameSession, hud: Hud)
           g.sendIntent(nearestVanIntent(g, center));
           return;
         case "close_front": {
-          const f = nearestFront(g, center);
-          if (f >= 0) g.sendIntent({ t: IntentType.CLOSE_FRONT, front: f });
-          else pingPrompt("You have no open front near there.");
+          const me = g.sim.players.find((pl) => pl.id === g.playerId);
+          if (me && me.cohorts.length > 0) g.sendIntent({ t: IntentType.MISSION_RECALL, slot: 0 });
+          else pingPrompt("You have no cohort deployed to recall.");
           return;
         }
         case "cancel_build":
@@ -321,18 +321,9 @@ function wireInput(app: Application, map: MapRenderer, g: GameSession, hud: Hud)
       g.sendIntent({ t: IntentType.SPAWN, tile: center });
       return;
     }
-    const cx = center % w.width;
-    const cy = (center / w.width) | 0;
-    const tiles: number[] = [];
-    for (let dy = -2; dy <= 2; dy++) {
-      for (let dx = -2; dx <= 2; dx++) {
-        const x = cx + dx;
-        const y = cy + dy;
-        if (x < 0 || y < 0 || x >= w.width || y >= w.height) continue;
-        tiles.push(y * w.width + x);
-      }
-    }
-    g.sendIntent({ t: IntentType.OPEN_FRONT, tiles });
+    // v3 default verb: send a cohort to work the town around the click, in
+    // the current mode. (M6 adds the %-of-flock slider + explicit mode picker.)
+    g.sendIntent({ t: IntentType.MISSION_SEND, tile: center, permille: 400, mode: meNow?.stance ?? "spread" });
   });
 
   // Typing in any input (the chat box) must never trigger game keybinds.
@@ -418,10 +409,9 @@ function wireInput(app: Application, map: MapRenderer, g: GameSession, hud: Hud)
         if (hover >= 0) g.sendIntent({ t: IntentType.VAN_MOVE, van: -1, path: [hover] });
         return;
       case "C": {
-        // shift+C: close your front nearest the hovered tile (stop the push)
-        if (hover < 0) return;
-        const f = nearestFront(g, hover);
-        if (f >= 0) g.sendIntent({ t: IntentType.CLOSE_FRONT, front: f });
+        // shift+C: recall your oldest deployed cohort (bring the flock home)
+        const me = g.sim.players.find((pl) => pl.id === g.playerId);
+        if (me && me.cohorts.length > 0) g.sendIntent({ t: IntentType.MISSION_RECALL, slot: 0 });
         return;
       }
       case "z":
@@ -493,27 +483,6 @@ function nearestVanIntent(g: GameSession, tile: number): ClientIntent {
     }
   }
   return { t: IntentType.VAN_MOVE, van: best.id, path: [tile] };
-}
-
-/** The id of the player's front nearest `tile`, or -1 if they have none. */
-function nearestFront(g: GameSession, tile: number): number {
-  const W = g.sim.world.width;
-  const hx = tile % W;
-  const hy = (tile / W) | 0;
-  let bestF = -1;
-  let bestD = Infinity;
-  for (const f of g.sim.fronts) {
-    if (f.player !== g.playerId || f.tiles.length === 0) continue;
-    const t0 = f.tiles[0]!;
-    const dx = (t0 % W) - hx;
-    const dy = ((t0 / W) | 0) - hy;
-    const d = dx * dx + dy * dy;
-    if (d < bestD) {
-      bestD = d;
-      bestF = f.id;
-    }
-  }
-  return bestF;
 }
 
 /** Flash a transient guidance line for a mis-aimed armed action. */

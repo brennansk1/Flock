@@ -1,20 +1,23 @@
 /**
- * Conversion resolution (§4) — the combat system.
+ * Conversion resolution — the combat system, rebuilt on PRESENCE
+ * (v3 missions, DESIGN_MISSIONS.md §3).
  *
- * Front-based territorial conversion with SIR flavor:
- *  1. Players commit their stance's follower share to Fronts (target regions).
- *  2. Each tick, committed followers spread evenly over the Front's *contested*
- *     border tiles, capped at `max_eff_per_border_tile` (60) — wide beats tall.
- *  3. Per contested tile:
- *       pressure/s = base × R0 × stance_mult × district_conv × S_mod(neutral)
+ * Deployed cohorts are the only attack source: pressure comes from
+ * follower-mass physically working a zone, never from an abstract order.
+ *  1. Each arrived cohort auto-spreads over the nearest unconverted doors
+ *     around its target (door count scales with mass, capped), attackers
+ *     per door capped at `max_eff_per_border_tile` (60) — wide beats tall.
+ *  2. Per worked tile:
+ *       pressure/s = base × R0 × mode_mult × district_conv × S_mod(neutral)
  *                    × faith_mod × charisma / resistance
  *       resistance = (1 + defenders_per_tile/40) × district_retain
- *                    × fort_mult × defender_faith_mod
- *  4. A tile flips when accumulated pressure ≥ 100 (typ. 1.5–4 s mid-game).
- *  5. Attrition: attacker 0.6/s and defender 0.35/s per contested tile.
- *  6. Ambient creep: every owned border tile passively presses adjacent
+ *                    × fort_mult × defender_faith_mod × Tend presence
+ *  3. A tile flips when accumulated pressure ≥ 100 (houses ~3–6 s under
+ *     solid presence; landmarks/civics resist 2× — sieges).
+ *  4. Attrition: attacker 0.6/s and defender 0.35/s per worked tile.
+ *  5. Ambient creep: every owned border tile passively presses adjacent
  *     neutrals at 0.35 × R0 × district_conv. Healthy cults ooze.
- *  7. Apostate scar tiles are immune to ALL conversion until the scar expires.
+ *  6. Apostate scar tiles are immune to ALL conversion until the scar expires.
  *
  * Everything here is fixed-point, RNG-free, and iterates in stable order
  * (players by array order, tiles ascending) — the lockstep contract.
@@ -146,44 +149,26 @@ const DIRS: ReadonlyArray<readonly [number, number]> = [
   [0, 1],
 ];
 
-/**
- * Does player `p` own any 4-neighbor of `t`, or the lot directly across the
- * street? (Fronts press from adjacency; streets don't stop the sermon.)
- */
-function adjacentToOwned(w: World, t: TileId, p: PlayerId): boolean {
-  let found = false;
-  forEachNeighbor(w, t, (n) => {
-    if (w.owner[n] === p && w.state[n] === TileState.Believer) found = true;
-  });
-  if (found) return true;
-  for (const [dx, dy] of DIRS) {
-    const x = (t % w.width) + dx;
-    const y = ((t / w.width) | 0) + dy;
-    if (x < 0 || y < 0 || x >= w.width || y >= w.height) continue;
-    if (w.terrain[y * w.width + x] !== Terrain.Road) continue;
-    const far = acrossRoad(w, t, dx, dy);
-    if (far >= 0 && w.owner[far] === p && w.state[far] === TileState.Believer) return true;
-  }
-  return false;
-}
-
 interface ContestedWork {
   player: PlayerState;
-  /** Sorted ascending contested tile ids for this player's fronts this tick. */
+  /** Sorted ascending tile ids one cohort works this tick. */
   tiles: TileId[];
-  /** Effective attackers per contested tile (committed/n, capped). */
+  /** Effective attackers per worked tile (mass/doors, capped). */
   attackersPerTile: Fixed;
   stanceMult: Fixed;
 }
 
 /**
  * Per-attacker global pressure multiplier: Final Dawn's Fear Feeds Us passive
- * (+2% per active Front anywhere, cap +25%, §11.1) × Sermon's +5% (§9).
+ * (§11.1, retargeted in M2: +2% per cohort deployed ANYWHERE — any player's,
+ * matching the old any-front rule — cap +25%) × Sermon's +5% (§9).
  */
 function attackerGlobalMult(s: SimState, p: PlayerState): Fixed {
   let m = ONE;
   if (p.archetype === "dawn") {
-    const fearPct = Math.min(25, s.fronts.length * 2);
+    let cohorts = 0;
+    for (const pl of s.players) cohorts += pl.cohorts.length;
+    const fearPct = Math.min(25, cohorts * 2);
     m = mul(m, add(ONE, div(fromInt(fearPct), HUNDRED)));
   }
   if (p.sermonBuffTicks > 0) m = mul(m, fp(1.05));
@@ -265,7 +250,7 @@ function picketMult(s: SimState, attacker: PlayerId, t: TileId): Fixed {
 }
 
 /**
- * Resolve one tick of conversion: front pressure, ambient creep, flips,
+ * Resolve one tick of conversion: cohort presence, ambient creep, flips,
  * attrition, scars. Mutates `s` in place.
  */
 export function resolveConversion(s: SimState, b: Balance): void {
@@ -273,91 +258,28 @@ export function resolveConversion(s: SimState, b: Balance): void {
   const dt = b.dt;
   const civics = computeCivicControl(s); // key-building takeovers (§13 rev.)
 
-  // COMPOUND OUTREACH (§4 rev.): missionaries walk out from an operational
-  // compound, so fronts may press any tile within the outreach radius of one —
-  // this is what makes the wilderness property start (and targeted plays
-  // against specific buildings) work before territory adjacency exists.
-  const outreach = new Map<PlayerId, TileId[]>();
-  for (const bd of s.buildings) {
-    if (bd.type !== "compound" || bd.buildTicksLeft > 0 || bd.disabledTicks > 0) continue;
-    let list = outreach.get(bd.player);
-    if (!list) {
-      list = [];
-      outreach.set(bd.player, list);
-    }
-    list.push(bd.tile);
-  }
-  const outR = b.property.outreachRadius;
-  const withinOutreach = (pid: PlayerId, t: TileId): boolean => {
-    const list = outreach.get(pid);
-    if (!list) return false;
-    // Lighthouse anchor (§2A mechanics, B1.4.20): the beacon draws seekers —
-    // its keeper's missionaries range farther from every compound
-    const r = controlsCivic(civics, Lot.Lighthouse, pid)
-      ? outR + b.civics.lighthouseOutreachBonus
-      : outR;
-    const x = t % w.width;
-    const y = (t / w.width) | 0;
-    for (const c of list) {
-      const dx = (c % w.width) - x;
-      const dy = ((c / w.width) | 0) - y;
-      if (dx * dx + dy * dy <= r * r) return true;
-    }
-    return false;
-  };
-
-  // ---- Pass 1: gather each player's contested tiles from their fronts. ----
   const work: ContestedWork[] = [];
   /** tiles-under-attack count per defending player id (for defender spread). */
   const defendedCount = new Map<PlayerId, number>();
 
-  for (const p of s.players) {
-    if (!p.alive) continue;
-    // Public Apology (ex-Day of Atonement) is a pure cool-down valve now: it
-    // vents Heat + heals Dissent fast (stepEconomy) but NO LONGER freezes your
-    // own fronts — freezing your own attack felt bad to play (§9 rev.).
-    const seen = new Set<TileId>();
-    for (const f of s.fronts) {
-      if (f.player !== p.id) continue;
-      for (const t of f.tiles) {
-        if (seen.has(t)) continue;
-        if (!convertible(w, t)) continue;
-        if (w.owner[t] === p.id) continue;
-        // Opening aggression on an ally is the JUDAS moment (§16); the
-        // alliance shatters and the push proceeds — famous and expensive.
-        const tileOwner = w.owner[t]!;
-        if (tileOwner !== NEUTRAL && areAllied(s, p.id, tileOwner)) {
-          commitBetrayal(s, p, tileOwner);
-        }
-        if (!adjacentToOwned(w, t, p.id) && !withinOutreach(p.id, t)) continue;
-        seen.add(t);
-      }
-    }
-    if (seen.size === 0) continue;
-    const tiles = [...seen].sort((a, z) => a - z);
-    const st = stanceOf(b, p);
-    const committed = mul(p.followers, st.commit);
-    const perTile = min(div(committed, fromInt(tiles.length)), b.conversion.maxEffPerBorderTile);
-    work.push({ player: p, tiles, attackersPerTile: perTile, stanceMult: st.mult });
-    for (const t of tiles) {
-      const owner = w.owner[t]!;
-      if (owner !== NEUTRAL) defendedCount.set(owner, (defendedCount.get(owner) ?? 0) + 1);
-    }
-  }
-
-  // ---- Pass 1b: COHORT PRESENCE (v3 missions M2) — the deployed flock works
+  // ---- Pass 1: COHORT PRESENCE (v3 missions M2) — the deployed flock works
   // the doors around its target: nearest-unconverted-first auto-spread, door
   // count scaled by mass. Presence IS access: no adjacency requirement, no
-  // compound outreach needed. Tend cohorts convert nothing — they hold the
-  // zone (consumed as extra resistance in Pass 2).
+  // compound outreach. Tend cohorts convert nothing — they hold the zone
+  // (consumed as extra resistance in Pass 2).
   const tendBoost = new Map<TileId, Fixed>();
   for (const p of s.players) {
     if (!p.alive) continue;
+    // Lighthouse anchor (§2A mechanics, B1.4.20), retargeted in M2: the beacon
+    // draws seekers — its keeper's cohorts work a wider radius around every
+    // target (it used to extend compound outreach, which died with fronts).
+    const R =
+      b.missions.workRadius +
+      (controlsCivic(civics, Lot.Lighthouse, p.id) ? b.civics.lighthouseOutreachBonus : 0);
     for (const c of p.cohorts) {
       if (c.recalling || c.mass <= 0 || !cohortArrived(s, p, c, b)) continue;
       const cx = c.target % w.width;
       const cy = (c.target / w.width) | 0;
-      const R = b.missions.workRadius;
       if (c.mode === Stance.Tend) {
         const boost = div(c.mass, fromInt(b.missions.tendHoldDivisor));
         for (let dy = -R; dy <= R; dy++) {
@@ -416,7 +338,7 @@ export function resolveConversion(s: SimState, b: Balance): void {
     defendersPerTile.set(pid, div(uncommitted, fromInt(count)));
   }
 
-  // ---- Pass 2: apply front pressure into the progress map. ----
+  // ---- Pass 2: apply presence pressure into the progress map. ----
   for (const wk of work) {
     const p = wk.player;
     const co = coeffsOf(b, p);
@@ -544,9 +466,13 @@ export function resolveConversion(s: SimState, b: Balance): void {
     }
   }
 
-  // tiles each player actively fronted this tick (for Downline creep tagging)
-  const frontedBy = new Map<PlayerId, Set<TileId>>();
-  for (const wk of work) frontedBy.set(wk.player.id, new Set(wk.tiles));
+  // tiles each player's cohorts actively worked this tick (Downline tagging)
+  const workedBy = new Map<PlayerId, Set<TileId>>();
+  for (const wk of work) {
+    let set = workedBy.get(wk.player.id);
+    if (!set) workedBy.set(wk.player.id, (set = new Set()));
+    for (const t of wk.tiles) set.add(t);
+  }
 
   for (const [t, winner] of flipped) {
     const prevOwner = w.owner[t]!;
@@ -570,8 +496,8 @@ export function resolveConversion(s: SimState, b: Balance): void {
     destroyBuildingsOnTile(s, t); // buildings die with their tile (§6)
 
     // Prosperity Circle Downline (§11.3): tiles flipped by creep alone
-    // (never fronted this tick) pay 2× tithe forever.
-    if (p.archetype === "circle" && !(frontedBy.get(winner)?.has(t) ?? false)) {
+    // (never worked by a cohort this tick) pay 2× tithe forever.
+    if (p.archetype === "circle" && !(workedBy.get(winner)?.has(t) ?? false)) {
       w.flags[t] = w.flags[t]! | TileFlag.Downline;
     } else {
       w.flags[t] = w.flags[t]! & ~TileFlag.Downline;

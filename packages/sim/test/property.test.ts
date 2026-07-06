@@ -145,15 +145,16 @@ test("crowding: a full parcel sags the follower cap until more land is bought", 
   assert.ok(crowdedCap < roomyCap, `crowded cap ${crowdedCap} < roomy ${roomyCap}`);
 });
 
-test("compound outreach: fronts press town tiles without territory adjacency", () => {
+test("cohort presence: a mission converts town tiles with no territory adjacency", () => {
   const w = tinyWorld();
   const s = createSim({ seed: 4, balance, world: w, spawns: [{ id: 1, archetype: "dawn" }] });
-  // spawn ~4 tiles from the town edge — inside outreach, outside adjacency
+  // spawn ~10 tiles from the town edge; the cohort marches in and works it —
+  // presence is access, no adjacency needed (the v3 core loop)
   step(s, turn(0, [{ t: IntentType.SPAWN, player: 1, tile: 8 * 32 + 8 }]), balance);
   const townTile = 13 * 32 + 13;
-  step(s, turn(1, [{ t: IntentType.OPEN_FRONT, player: 1, tiles: [townTile, townTile + 1, townTile + 32] }]), balance);
-  for (let i = 2; i < 400 && s.players[0]!.ownedTiles === 0; i++) step(s, turn(i), balance);
-  assert.ok(s.players[0]!.ownedTiles > 0, "outreach front flipped town tiles from the compound");
+  step(s, turn(1, [{ t: IntentType.MISSION_SEND, player: 1, tile: townTile, permille: 700, mode: "spread" }]), balance);
+  for (let i = 2; i < 600 && s.players[0]!.ownedTiles === 0; i++) step(s, turn(i), balance);
+  assert.ok(s.players[0]!.ownedTiles > 0, "the cohort flipped town tiles from a wilderness base");
 });
 
 test("civics: control resolves deterministically and the sheriff cools Heat faster", () => {
@@ -243,32 +244,42 @@ test("§2A anchors: the granary pays and the sawmill discounts (B1.4.20)", () =>
   assert.ok(e1 > e2, `granary holder earns more (${e1} > ${e2})`);
 });
 
-test("§2A anchors: the lighthouse extends compound outreach (B1.4.20)", () => {
-  const w = tinyWorld();
-  // lighthouse at the town's FAR corner from the target (creep can't confound)
-  const lh = 19 * 32 + 19;
+test("§2A anchors: the lighthouse extends the cohort work radius (B1.4.20)", () => {
+  const w = createWorld(32, 32);
+  w.terrain.fill(Terrain.Grass);
+  // ONE convertible house, 7 tiles from the cohort's target — outside the
+  // base work radius (6), inside the lighthouse-boosted reach (8)
+  const target = 10 * 32 + 10;
+  const house = 10 * 32 + 17;
+  w.terrain[house] = Terrain.Citizen;
+  w.pop[house] = 4;
+  w.susceptibility[house] = fromInt(80);
+  // the lighthouse (unpopulated) sits elsewhere; controlling it is the toggle
+  const lh = 20 * 32 + 20;
+  w.terrain[lh] = Terrain.Citizen;
   w.lot[lh] = Lot.Lighthouse;
   w.pop[lh] = 0;
   const s = createSim({ seed: 10, balance, world: w, spawns: [{ id: 1, archetype: "dawn" }] });
-  // compound at (4,4); town corner (12,12) is ~11.3 away — OUTSIDE the base
-  // outreach radius (10), INSIDE the lighthouse-boosted reach (12)
-  step(s, turn(0, [{ t: IntentType.SPAWN, player: 1, tile: 4 * 32 + 4 }]), balance);
-  const target = 12 * 32 + 12;
-  step(s, turn(1, [{ t: IntentType.OPEN_FRONT, player: 1, tiles: [target] }]), balance);
-  for (let i = 2; i <= 250; i++) step(s, turn(i), balance);
-  assert.notEqual(w.owner[target], 1, "out of reach without the lighthouse");
+  s.players[0]!.spawned = true;
+  s.players[0]!.followers = fromInt(1000);
+  s.buildings.push({ id: s.nextEntityId++, player: 1, type: "compound", tile: 10 * 32 + 9, buildTicksLeft: 0, disabledTicks: 0 });
+  // deploy: without the light the house is out of radius, so the cohort — which
+  // has no other doors to work — flips nothing
+  step(s, turn(1, [{ t: IntentType.MISSION_SEND, player: 1, tile: target, permille: 700, mode: "spread" }]), balance);
+  for (let i = 2; i <= 300; i++) step(s, turn(i), balance);
+  assert.notEqual(w.owner[house], 1, "house is out of reach without the lighthouse");
 
-  // hand player 1 the light — the beacon draws seekers
+  // hand player 1 the light — the SAME cohort's radius grows and reaches it
   w.owner[lh] = 1;
   w.state[lh] = TileState.Believer;
   s.players[0]!.ownedTiles += 1;
   assert.equal(computeCivicControl(s).get(Lot.Lighthouse), 1);
   let flipped = false;
-  for (let i = 251; i <= 900 && !flipped; i++) {
+  for (let i = 301; i <= 1400 && !flipped; i++) {
     step(s, turn(i), balance);
-    flipped = w.owner[target] === 1;
+    flipped = w.owner[house] === 1;
   }
-  assert.ok(flipped, "the same front reaches the target once the light is held");
+  assert.ok(flipped, "the boosted work radius reaches the house once the light is held");
 });
 
 test("property + parcels survive the snapshot round-trip hash-identically", () => {

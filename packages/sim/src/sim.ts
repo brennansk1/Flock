@@ -4,7 +4,7 @@
  * next state — that is the lockstep contract.
  *
  * M0 systems in this file: state construction, intent application (stances,
- * spawns, fronts, compounds, rituals §9, Final Dawn kit §11.1), the per-tick
+ * spawns, missions, compounds, rituals §9, Final Dawn kit §11.1), the per-tick
  * economy/decay loop (§3), timed-effect countdowns, Prophecy resolution, and
  * the victory/elimination state machine (§18). Conversion resolution (§4)
  * lives in conversion.ts.
@@ -77,12 +77,11 @@ const FIFTY: Fixed = fromInt(50);
 const TPS = 10;
 
 /**
- * Hard caps on client-supplied array intents (§33 hardening). The sim is
- * defensive by construction, but unbounded arrays would let a hostile client
- * force O(n) work 20×/s; legitimate use is far below these. A click-front is
- * 25 tiles; a van path only needs its endpoints.
+ * Hard cap on client-supplied array intents (§33 hardening). The sim is
+ * defensive by construction, but an unbounded array would let a hostile client
+ * force O(n) work 20×/s; a van path only needs its endpoints. (MISSION_SEND is
+ * scalar-only — its permille payload is clamped where it applies.)
  */
-const MAX_FRONT_TILES = 128;
 const MAX_PATH_TILES = 1024;
 
 /** Ritual/ability tuning (§9, §11.1). ITVs; promote to balance.json when tuned. */
@@ -190,8 +189,6 @@ export function createSim(opts: {
     rng,
     world: opts.world,
     players: opts.spawns.map((s) => newPlayer(s.id, s.archetype, opts.balance)),
-    fronts: [],
-    nextFrontId: 1,
     progress: new Map(),
     populated,
     totalPop,
@@ -768,27 +765,6 @@ export function applyIntent(s: SimState, intent: Intent, b: Balance): void {
       p.usd = sub(p.usd, cost);
       claimParcel(s, p.id, anchor, b.property.parcelRadius);
       p.parcels++;
-      break;
-    }
-
-    case IntentType.OPEN_FRONT: {
-      // Commit toward a target region (§4.1). Tiles are length-capped (a hostile
-      // client must not be able to ship a giant array 20×/s, §33 rate limit),
-      // deduped, sorted, and bounds-checked; eligibility (adjacency,
-      // convertibility) is re-checked every tick by resolveConversion, so stale
-      // fronts are harmless.
-      const w = s.world;
-      const tiles = [...new Set(intent.tiles.slice(0, MAX_FRONT_TILES))]
-        .filter((t) => t >= 0 && t < w.owner.length)
-        .sort((a, z) => a - z);
-      if (tiles.length === 0) break;
-      s.fronts.push({ id: s.nextFrontId++, player: p.id, tiles });
-      break;
-    }
-
-    case IntentType.CLOSE_FRONT: {
-      const idx = s.fronts.findIndex((f) => f.id === intent.front && f.player === p.id);
-      if (idx >= 0) s.fronts.splice(idx, 1);
       break;
     }
 

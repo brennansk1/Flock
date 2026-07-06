@@ -112,3 +112,22 @@ the geometry already plays.
   TARGET anchors yet — they benefit only incidentally when conversion sweeps
   over them; deliberate anchor play is a human behavior to watch for at B7.9,
   and a possible future bot-brain hint (not filed — wait for human signal).
+
+## PT-0007 — 2026-07-05 — v3 mission loop, first bot campaign (M2 complete)
+
+- **Nodes:** B9.1 (M1 cohorts), B9.2 (M2 presence engine), fronts deleted
+- **Scenario:** 10 bot matches (5 townTypes × 2 seeds) on the NEW core loop —
+  bots found, then SEND cohorts (permille slice + per-sortie mode) that march
+  in and convert door-by-door; no fronts exist.
+- **Verdict: STRUCTURALLY PROMISING (bot-only, N=2/type — hold loosely).**
+  - Founding 4/4 every match; all matches completed (at timer).
+  - **Median winner lead share 0.52–0.66 — down from 0.94–0.98 on the old
+    front game.** The mission loop's deploy/expose tension and contained
+    conversion visibly break the runaway snowball. The DESIGN_MISSIONS.md §8
+    success gate (< 0.90) is MET at the bot tier.
+  - Decisive% = 0 (no 72% dominations; all reached timer) and median
+    converted tiles 297–424 (was 480–517): v3 is more contested / slower to
+    snowball, OR bots are naive at mission targeting. Expected — bot brain v3
+    is deliberately simple (M5 tunes it; human play is the real test, B7.9).
+- **Open:** M5 must confirm the low lead share isn't just "bots too passive
+  to win" (a decisive-rate floor belongs in the M5 gate alongside lead share).

@@ -20,7 +20,7 @@
 import { IntentType, type Intent, type BuildingType } from "./intents.js";
 import { toInt } from "./fixed.js";
 import { nextRange, type RngState } from "./rng.js";
-import { Stance, Terrain, type PlayerId, type SimState, type PlayerState } from "./types.js";
+import { Stance, Terrain, MAX_COHORTS, type PlayerId, type SimState, type PlayerState } from "./types.js";
 
 export type BotTier = "drifter" | "sect" | "church";
 
@@ -52,19 +52,37 @@ function sampleOwned(sim: SimState, rng: RngState, playerId: PlayerId, samples =
   return -1;
 }
 
-/** A square of tiles around (cx,cy), clamped to the map. */
-function blockAround(sim: SimState, cx: number, cy: number, rad: number): number[] {
-  const w = sim.world;
-  const tiles: number[] = [];
-  for (let oy = -rad; oy <= rad; oy++) {
-    for (let ox = -rad; ox <= rad; ox++) {
-      const x = cx + ox;
-      const y = cy + oy;
-      if (x < 0 || y < 0 || x >= w.width || y >= w.height) continue;
-      tiles.push(y * w.width + x);
-    }
+/** Cohort commitment by tier — churches send bigger waves (v3 missions). */
+function missionPermille(bot: BotState): number {
+  return bot.tier === "church" ? 600 : bot.tier === "sect" ? 450 : 350;
+}
+
+/**
+ * Send a cohort at `target` in `mode`, respecting the MAX_COHORTS cap: if
+ * full, recall a cohort whose target zone we already hold (its work is done),
+ * freeing a slot next cycle. Deterministic (no rng); a -1 target is a no-op.
+ */
+function sendMission(
+  out: Intent[],
+  sim: SimState,
+  bot: BotState,
+  p: PlayerState,
+  target: number,
+  mode: Stance,
+): void {
+  if (target < 0) return;
+  if (p.cohorts.length < MAX_COHORTS) {
+    out.push({
+      t: IntentType.MISSION_SEND,
+      player: bot.playerId,
+      tile: target,
+      permille: missionPermille(bot),
+      mode,
+    });
+    return;
   }
-  return tiles;
+  const idx = p.cohorts.findIndex((c) => !c.recalling && sim.world.owner[c.target] === bot.playerId);
+  if (idx >= 0) out.push({ t: IntentType.MISSION_RECALL, player: bot.playerId, slot: idx });
 }
 
 /**
@@ -167,19 +185,17 @@ export function botTurn(sim: SimState, bot: BotState, rng: RngState): Intent[] {
 
   // ---- expansion (all tiers expand; reach/discipline differ) -------------
   if (p.ownedTiles === 0) {
-    // beachhead: front the closest citizen block within compound outreach
-    const target = nearestCitizen(w, origin, 12);
-    if (target >= 0) {
-      const fronts = blockAround(sim, target % w.width, (target / w.width) | 0, 2);
-      if (fronts.length > 0) out.push({ t: IntentType.OPEN_FRONT, player: bot.playerId, tiles: fronts });
-    }
+    // beachhead (v3): send the flock at the nearest citizen block
+    sendMission(out, sim, bot, p, nearestCitizen(w, origin, 12), Stance.Spread);
   } else {
     const dir = nextRange(rng, 4);
     const reach = bot.tier === "drifter" ? 3 : 4;
     const dx = dir === 0 ? reach : dir === 1 ? -reach : 0;
     const dy = dir === 2 ? reach : dir === 3 ? -reach : 0;
-    const fronts = blockAround(sim, ox + dx, oy + dy, bot.tier === "drifter" ? 2 : 3);
-    if (fronts.length > 0) out.push({ t: IntentType.OPEN_FRONT, player: bot.playerId, tiles: fronts });
+    const tx = ox + dx;
+    const ty = oy + dy;
+    const target = tx >= 0 && ty >= 0 && tx < w.width && ty < w.height ? ty * w.width + tx : -1;
+    sendMission(out, sim, bot, p, target, Stance.Spread);
   }
 
   // ---- stance discipline -------------------------------------------------
@@ -248,14 +264,10 @@ export function botTurn(sim: SimState, bot: BotState, rng: RngState): Intent[] {
   const rival = borderRival(sim, bot.playerId);
   bot.grudge = rival;
   if (rival !== 0 && bot.aggression >= 1) {
-    // focus a front toward a tile we share a border with the rival on
+    // press the rival border: a cohort auto-spreads to the contested doors.
+    // Aggressive churches send it in as a Crusade.
     const target = sampleOwned(sim, rng, bot.playerId);
-    if (target >= 0) {
-      const tx = target % w.width;
-      const ty = (target / w.width) | 0;
-      const push = blockAround(sim, tx, ty, 2);
-      if (push.length > 0) out.push({ t: IntentType.OPEN_FRONT, player: bot.playerId, tiles: push });
-    }
+    sendMission(out, sim, bot, p, target, bot.aggression >= 2 ? Stance.Crusade : Stance.Spread);
     // publish a scandal on the rival when feeling aggressive (sim gates on evidence)
     if (bot.aggression >= 2 && nextRange(rng, 8) === 0) {
       out.push({ t: IntentType.PUBLISH_SCANDAL, player: bot.playerId, target: rival });

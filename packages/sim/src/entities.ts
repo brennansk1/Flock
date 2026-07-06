@@ -18,6 +18,7 @@ import {
   TileState,
   Landmark,
   type AgentUnit,
+  type Cohort,
   type PlayerId,
   type PlayerState,
   type SimState,
@@ -461,7 +462,7 @@ function pamphletImpact(
 
 /**
  * The Concerned Parents Association: targets only the single highest-Heat
- * player. Heat ≥ 60: picket lines on their busiest front every 60s. Heat ≥ 85:
+ * player. Heat ≥ 60: picket lines on their biggest mission every 60s. Heat ≥ 85:
  * a Deprogrammer Bus raids their highest-dissent district every 45s. Tuned to
  * slow, never to kill.
  */
@@ -487,10 +488,15 @@ export function stepCPA(s: SimState, b: Balance): void {
 
   if (target.heat >= harassFloor && s.tick >= s.cpaNextPicketTick) {
     s.cpaNextPicketTick = s.tick + 60 * TPS;
-    // busiest front: the target player's largest front; picket its first tiles
-    let busiest = s.fronts.filter((f) => f.player === target!.id).sort((a, z) => z.tiles.length - a.tiles.length)[0];
+    // busiest push (M2 retarget: pickets used to anchor on the largest front):
+    // the target's biggest deployed cohort — picket where the flock works.
+    // Ties resolve to the earlier slot; recalled cohorts are already leaving.
+    let busiest: Cohort | undefined;
+    for (const c of target.cohorts) {
+      if (!c.recalling && (!busiest || c.mass > busiest.mass)) busiest = c;
+    }
     const w = s.world;
-    const anchor = busiest?.tiles[0] ?? firstOwnedTile(s, target.id);
+    const anchor = busiest?.target ?? firstOwnedTile(s, target.id);
     if (anchor !== undefined && anchor >= 0) {
       for (let k = 0; k < 2; k++) {
         const off = k * 3;

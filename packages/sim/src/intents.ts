@@ -11,8 +11,6 @@ import type { PlayerId, TileId, DistrictId, Stance } from "./types.js";
 export const IntentType = {
   SPAWN: "SPAWN",
   SET_STANCE: "SET_STANCE",
-  OPEN_FRONT: "OPEN_FRONT",
-  CLOSE_FRONT: "CLOSE_FRONT",
   MISSION_SEND: "MISSION_SEND",
   MISSION_RECALL: "MISSION_RECALL",
   BUILD: "BUILD",
@@ -53,8 +51,6 @@ export type AgentMission = "deprogram" | "scandal";
 export type Intent =
   | { t: typeof IntentType.SPAWN; player: PlayerId; tile: TileId }
   | { t: typeof IntentType.SET_STANCE; player: PlayerId; stance: Stance }
-  | { t: typeof IntentType.OPEN_FRONT; player: PlayerId; tiles: TileId[] }
-  | { t: typeof IntentType.CLOSE_FRONT; player: PlayerId; front: number }
   /** v3 missions (DESIGN_MISSIONS.md §1): send `permille`‰ of the flock to
    * work the town around `tile` in the chosen per-sortie mode. */
   | { t: typeof IntentType.MISSION_SEND; player: PlayerId; tile: TileId; permille: number; mode: Stance }

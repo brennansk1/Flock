@@ -15,11 +15,16 @@ when the heat rises.
 ## 1. The 10-second loop
 
 1. **FOUND** — click wilderness → compound + starting flock _(shipped, keep)_
-2. **SEND** — click anywhere on the map, choose % of flock (slider) and a
-   mode (SPREAD / TEND / CRUSADE). The cohort marches there visibly
+2. **SEND** — **RIGHT-CLICK** the map (a house tile OR a specific key
+   building) to open a **radial wheel** at the cursor with three arcs:
+   **SPREAD / TEND / CRUSADE**. Click an arc to launch the cohort at that
+   target in that mode. (The %-of-flock is a slider on the wheel; default
+   40%, remembered per session.) The cohort marches there visibly
    (street-true routing) and **auto-spreads**: nearest unconverted door
    first, expanding outward. A key building in the zone becomes their focus.
    No steering after send — OpenFront rule: the order IS the strategy.
+   _(Left-click stays reserved for selection/inspection + the founding
+   SPAWN placement.)_
 3. **REACT** — converted houses get a **glowing outline in your color**;
    key-building progress shows as **bars in the right-rail panel**. Rivals'
    cohorts are visible on the streets.
@@ -85,6 +90,14 @@ Elimination = commune destroyed + flock at zero.
 
 ## 6. Presentation contract
 
+- **Mission wheel (the SEND verb)**: right-click a map tile or key building →
+  a radial menu opens at the cursor with three arcs (SPREAD ☘ / TEND ✚ /
+  CRUSADE ✦), a center readout of the target ("Elm St" / "Sheriff"), and a
+  %-of-flock slider ringing the wheel (default 40%, session-remembered).
+  Click an arc → MISSION_SEND{tile, permille, mode}. Esc / click-away cancels.
+  Greys out arcs when flock is at the inner-circle floor or 3 cohorts are
+  live. Keyboard fallback: hover + 1/2/3. Building targets snap the wheel
+  center to the building's anchor tile so sieges are one gesture.
 - Converted houses: **glowing outline, player color**. Default palette =
   archetype color; collision (two players, same archetype) shifts hue —
   colorForPlayer already guarantees uniqueness, reorder its base table to
@@ -131,7 +144,7 @@ on crusade-heavy leaders (unchanged).
 | M3 | Recruits-from-believers; rituals→doctrine Faith costs; palette→commune stages | economy/doctrine tests |
 | M4 | Key-building tug-of-war meters + glow state | contest A/B tests |
 | M5 | Bot brain v3 (three verbs — simpler than today); botleague re-baselined | campaign: gates in §8 |
-| M6 | Client: send flow, cohort chips, building bars, glow outlines, victory readout | Playwright + vision QA |
+| M6 | Client: right-click **mission wheel** (Spread/Tend/Crusade arcs + %-slider, map-tile or building target), cohort chips w/ recall, right-rail building bars, glow outlines, victory readout | Playwright + vision QA (browser-verified) |
 | M7 | Protocol/rooms/tutorial rewrite | lockstep smoke + e2e |
 | M8 | Full audit: depth review, QA renders, docs, ✂ ledger closed | Phase-6 sweep |
 

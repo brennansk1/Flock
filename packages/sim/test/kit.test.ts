@@ -229,3 +229,30 @@ test("timer expiry crowns the largest cult", () => {
   assert.equal(s.status, MatchStatus.Ended, "timer should end the match");
   assert.equal(s.winner, 1, "largest cult wins the tiebreak");
 });
+
+test("radio_static (Visitors) sows dissent through enemy tiles in range (v3 retarget)", () => {
+  // The old effect knocked out Broadcast Towers, which no longer exist — this
+  // pins the retargeted behaviour so the ability can't silently become a no-op.
+  const world = createWorld(24, 24);
+  const s = createSim({
+    seed: 3,
+    balance,
+    world,
+    spawns: [{ id: 1, archetype: "visitors" }, { id: 2, archetype: "dawn" }],
+  });
+  const p1 = s.players[0]!;
+  p1.faith = fromInt(100);
+  p1.spawned = true;
+  const w = s.world;
+  const enemy = 12 * 24 + 12;
+  w.owner[enemy] = 2;
+  w.state[enemy] = TileState.Believer;
+  w.terrain[enemy] = Terrain.Citizen;
+  w.dissent[enemy] = 0;
+  step(
+    s,
+    { n: 0, intents: [{ t: IntentType.ABILITY, player: 1, ability: "radio_static", target: enemy }], seedSlice: 0 },
+    balance,
+  );
+  assert.ok(toFloat(w.dissent[enemy]!) > 0, `static should raise enemy dissent, got ${toFloat(w.dissent[enemy]!)}`);
+});

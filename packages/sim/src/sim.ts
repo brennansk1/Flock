@@ -111,7 +111,7 @@ export const KIT = {
   hostileAcquisition: { cost: 300_000, cooldown: 240 * TPS, maxTiles: 120 },
   // §11.4 Visitors' Fellowship
   cropCircle: { cost: 15_000, cooldown: 60 * TPS, durTicks: 60 * TPS },
-  radioStatic: { faithCost: 20, cooldown: 90 * TPS, radius: 12, durTicks: 20 * TPS },
+  radioStatic: { faithCost: 20, cooldown: 90 * TPS, radius: 8, dissent: 30 },
   saucerLanding: { cost: 25_000, cooldown: 150 * TPS, capBonus: 2_000 },
   agent: { cost: 6_000, maxAlive: 2 },
   van: { cost: 30_000 },
@@ -542,23 +542,32 @@ function applyAbility(s: SimState, p: PlayerState, b: Balance, intent: Intent): 
     }
 
     case "radio_static": {
-      // §11.4 Visitors active 2: enemy Broadcast Towers offline 20s.
+      // §11.4 Visitors active 2 (v3 retarget): JAM THE SIGNAL. The old effect
+      // knocked out Broadcast Towers, which no longer exist — so a burst of
+      // static now sows DISSENT through every enemy-held tile in range, loosening
+      // their grip so cohorts (or ambient creep) can pry the ground loose.
       if (p.archetype !== "visitors") return;
       if (onCooldown(p, "radio_static") || p.faith < fromInt(KIT.radioStatic.faithCost)) return;
       const t = intent.target ?? -1;
       if (t < 0 || t >= s.world.owner.length) return;
       p.faith = sub(p.faith, fromInt(KIT.radioStatic.faithCost));
-      const r2 = KIT.radioStatic.radius * KIT.radioStatic.radius;
       const w = s.world;
+      const r = KIT.radioStatic.radius;
+      const r2 = r * r;
       const tx = t % w.width;
       const ty = (t / w.width) | 0;
-      for (const bd of s.buildings) {
-        if (bd.player === p.id) continue;
-        if (bd.type !== "broadcast_tower") continue;
-        const bx = bd.tile % w.width;
-        const by = (bd.tile / w.width) | 0;
-        if ((bx - tx) * (bx - tx) + (by - ty) * (by - ty) <= r2) {
-          bd.disabledTicks = Math.max(bd.disabledTicks, KIT.radioStatic.durTicks);
+      const amt = fromInt(KIT.radioStatic.dissent);
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (dx * dx + dy * dy > r2) continue;
+          const x = tx + dx;
+          const y = ty + dy;
+          if (x < 0 || y < 0 || x >= w.width || y >= w.height) continue;
+          const tt = y * w.width + x;
+          const o = w.owner[tt]!;
+          if (o !== 0 && o !== p.id && w.state[tt] === TileState.Believer) {
+            w.dissent[tt] = min(add(w.dissent[tt]!, amt), HUNDRED);
+          }
         }
       }
       startCooldown(p, "radio_static", KIT.radioStatic.cooldown);

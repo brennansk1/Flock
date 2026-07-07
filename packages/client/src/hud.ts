@@ -142,7 +142,7 @@ const SCHEME: {
   armKey?: string;
   surrender?: boolean;
 }[] = [
-  { label: "PAMPHLET", key: "K", ic: "press", title: "Pamphlet Bomb — a propaganda strike on a tile (needs a Broadcast Tower). Click, then click the target.", arm: { mode: "strike", strike: "pamphlet_bomb" }, armKey: "strike:pamphlet_bomb" },
+  { label: "PAMPHLET", key: "K", ic: "press", title: "Pamphlet Bomb — a propaganda strike that seeds dissent on a tile. Click, then click the target.", arm: { mode: "strike", strike: "pamphlet_bomb" }, armKey: "strike:pamphlet_bomb" },
   { label: "EXPOSÉ", key: "K", ic: "antenna", title: "Prime-Time Exposé — wide propaganda strike. Click, then click the target.", arm: { mode: "strike", strike: "prime_time_expose" }, armKey: "strike:prime_time_expose" },
   { label: "MANIFESTO", key: "K", ic: "scroll", title: "Manifesto Drop — the big one. Click, then click the target.", arm: { mode: "strike", strike: "manifesto_drop" }, armKey: "strike:manifesto_drop" },
   { label: "DEPROGRAM", key: "A", ic: "eye", title: "Dispatch an Agent to deprogram a district (raid). Click, then click a district you're pressing.", arm: { mode: "agent", mission: "deprogram" }, armKey: "agent:deprogram" },
@@ -911,7 +911,7 @@ export class Hud {
     help.className = "fk-helpbtn";
     help.textContent = "?";
     help.title =
-      "Controls — 1/2/3 stance · D/F powers · G signature · B/T/C/Y/L build · N buy land · H dissent map · Esc cancel (click for the full sheet)";
+      "Controls — right-click: send a mission · 1/2/3 stance · R recruitment drive · D/F powers · G signature · N buy land · H dissent map · Esc cancel (click for the full sheet)";
     help.onclick = () => this.toggleHelp();
     this.root.appendChild(help);
   }
@@ -929,12 +929,12 @@ export class Hud {
       "position:absolute;inset:0;z-index:45;display:flex;align-items:center;justify-content:center;background:rgba(10,7,4,.82);pointer-events:auto";
     panel.innerHTML = `<div style="background:#1a130b;border:3px solid #6b563a;box-shadow:0 8px 0 #060403,inset 0 0 0 2px #36291a;padding:22px 28px;max-width:540px;line-height:1.8;font-size:14px;color:#d8c8a6">
       <div style="font-family:'Press Start 2P',monospace;font-size:13px;letter-spacing:1px;color:#efe3c6;margin-bottom:12px">HOW TO PLAY</div>
-      <b style="color:#e0a422">Goal</b> — convert the town. Watch the bar up top; reach the win % to dominate.<br/>
-      <b style="color:#e0a422">Map</b> — click a tile to open a front there · drag to pan · wheel to zoom · click the minimap to jump.<br/>
-      <b style="color:#e0a422">Stance</b> — 1 Tend (defend) · 2 Spread (grow) · 3 Crusade (push hard, +Heat).<br/>
+      <b style="color:#e0a422">Goal</b> — convert the most of the town. Watch the bar up top; reach the win % to dominate.<br/>
+      <b style="color:#e0a422">Missions</b> — RIGHT-CLICK the town to open the wheel: pick Spread/Tend/Crusade and how much flock to send. Left-click a glowing spot to found. Drag to pan · wheel to zoom · minimap to jump.<br/>
+      <b style="color:#e0a422">Stance</b> — 1 Tend (defend) · 2 Spread (grow) · 3 Crusade (push hard, +Heat). Sets your home posture; each mission also picks its own mode.<br/>
       <b style="color:#e0a422">Faith</b> — bank it with TEND missions, spend it on the DOCTRINE tree.<br/>
       <b style="color:#e0a422">Powers</b> — D / F archetype actives · G signature (your big play).<br/>
-      <b style="color:#e0a422">Build</b> — click a palette button then a tile, or press B/T/C/Y/L. N buys land · H toggles the dissent map. Greyed = can't afford.<br/>
+      <b style="color:#e0a422">Grow</b> — click COMMUNE to upgrade it (raises your flock cap) · press R for a Recruitment Drive (cash → flock) · N buys land · H toggles the dissent map. Greyed = can't afford.<br/>
       <b style="color:#e0a422">Scheme</b> — click a SCHEME button then a target (or hotkeys: A raid · X snoop · P scandal · K strike · V van · O/I alliances). Esc cancels.<br/>
       <div style="color:#8a7550;margin-top:10px;font-family:'VT323',monospace;font-size:16px">▸ click anywhere to close</div>
     </div>`;

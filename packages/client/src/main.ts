@@ -694,10 +694,10 @@ function maybeShowFtue(): void {
     return;
   }
   const steps = [
-    "① Click a glowing spot on the map to found your compound.",
-    "② Use 1 / 2 / 3 to set your stance — Spread grows, Crusade pushes hard.",
-    "③ Press B then click a tile to build a Compound (more followers).",
-    "④ Watch the bar up top — convert the town to win. Good luck, Shepherd.",
+    "① Click a glowing spot on the map to found your commune.",
+    "② RIGHT-CLICK the town to send a mission — pick SPREAD, TEND or CRUSADE and how much of your flock to commit.",
+    "③ Low on flock? Press R for a Recruitment Drive — turn cash into new followers.",
+    "④ Convert the most of the town to win. Watch the share bar up top. Good luck, Shepherd.",
   ];
   let i = 0;
   const tip = document.createElement("div");

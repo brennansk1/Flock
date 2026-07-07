@@ -270,7 +270,7 @@ const STEPS: TutStep[] = [
   },
   {
     title: "ADVANCED SCHEMES",
-    body: "Folded on the left rail is SCHEME — your late-game toolkit: propaganda STRIKES (need a Broadcast Tower), AGENT raids, publishing SCANDALS. Click the ▸ SCHEME header to peek inside, then click NEXT. Top-left you'll also find EXIT (leave anytime) and, in solo games, PAUSE.",
+    body: "Folded on the left rail is SCHEME — your late-game toolkit: propaganda STRIKES, AGENT raids, publishing SCANDALS. Click the ▸ SCHEME header to peek inside, then click NEXT. Top-left you'll also find EXIT (leave anytime) and, in solo games, PAUSE.",
     glow: ".fk-foldh",
   },
   {

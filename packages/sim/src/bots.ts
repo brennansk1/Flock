@@ -21,6 +21,10 @@ import { IntentType, type Intent } from "./intents.js";
 import { toInt } from "./fixed.js";
 import { nextRange, type RngState } from "./rng.js";
 import { Stance, Terrain, MAX_COHORTS, type PlayerId, type SimState, type PlayerState } from "./types.js";
+import { CIVIC_LOTS } from "./civics.js";
+
+/** Civic/key-building lot types churches like to siege (bonus-bearing tiles). */
+const KEY_LOTS = new Set<number>(CIVIC_LOTS);
 
 export type BotTier = "drifter" | "sect" | "church";
 
@@ -86,13 +90,16 @@ function sendMission(
 }
 
 /**
- * Find the strongest rival pressing on this bot's border: scan a sample of the
- * bot's tiles, tally which enemy owns the most adjacent tiles, return that id.
+ * Find the strongest rival pressing on this bot's border and a tile to press
+ * back at: scan a sample of the bot's tiles, tally which enemy owns the most
+ * adjacent tiles, and remember one of that rival's border tiles as the front to
+ * aim a cohort at. Returns { rival, front } (front = -1 if none catchable).
  */
-function borderRival(sim: SimState, playerId: PlayerId): PlayerId {
+function borderRival(sim: SimState, playerId: PlayerId): { rival: PlayerId; front: number } {
   const w = sim.world;
   const owner = w.owner;
   const tally = new Map<PlayerId, number>();
+  const frontOf = new Map<PlayerId, number>(); // rival → one of its border tiles
   const step = Math.max(1, (owner.length / 4000) | 0);
   for (let t = 0; t < owner.length; t += step) {
     if (owner[t] !== playerId) continue;
@@ -107,7 +114,11 @@ function borderRival(sim: SimState, playerId: PlayerId): PlayerId {
     for (const n of neigh) {
       if (n < 0) continue;
       const o = owner[n]!;
-      if (o !== 0 && o !== playerId) tally.set(o, (tally.get(o) ?? 0) + 1);
+      if (o !== 0 && o !== playerId) {
+        tally.set(o, (tally.get(o) ?? 0) + 1);
+        // prefer a convertible citizen tile as the press target
+        if (w.terrain[n] === Terrain.Citizen && !frontOf.has(o)) frontOf.set(o, n);
+      }
     }
   }
   let best: PlayerId = 0;
@@ -118,7 +129,7 @@ function borderRival(sim: SimState, playerId: PlayerId): PlayerId {
       best = pid;
     }
   }
-  return best;
+  return { rival: best, front: frontOf.get(best) ?? -1 };
 }
 
 /** A coherent doctrine build order (defensive sim ignores illegal/early picks). */
@@ -147,6 +158,25 @@ function nearestCitizen(w: SimState["world"], from: number, maxR: number): numbe
   return -1;
 }
 
+/** Nearest key-building tile we don't already hold — a siege target (§M4). */
+function nearestKeyBuilding(w: SimState["world"], from: number, playerId: PlayerId, maxR: number): number {
+  const cx = from % w.width;
+  const cy = (from / w.width) | 0;
+  for (let r = 1; r <= maxR; r++) {
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+        const x = cx + dx;
+        const y = cy + dy;
+        if (x < 0 || y < 0 || x >= w.width || y >= w.height) continue;
+        const t = y * w.width + x;
+        if (w.terrain[t] === Terrain.Citizen && KEY_LOTS.has(w.lot[t]!) && w.owner[t] !== playerId) return t;
+      }
+    }
+  }
+  return -1;
+}
+
 
 export function botTurn(sim: SimState, bot: BotState, rng: RngState): Intent[] {
   const out: Intent[] = [];
@@ -161,23 +191,24 @@ export function botTurn(sim: SimState, bot: BotState, rng: RngState): Intent[] {
     if (!compound) return out;
     origin = compound.tile;
   }
-  const ox = origin % w.width;
-  const oy = (origin / w.width) | 0;
-
-  // ---- expansion (all tiers expand; reach/discipline differ) -------------
-  if (p.ownedTiles === 0) {
-    // beachhead (v3): send the flock at the nearest citizen block
-    sendMission(out, sim, bot, p, nearestCitizen(w, origin, 12), Stance.Spread);
-  } else {
-    const dir = nextRange(rng, 4);
-    const reach = bot.tier === "drifter" ? 3 : 4;
-    const dx = dir === 0 ? reach : dir === 1 ? -reach : 0;
-    const dy = dir === 2 ? reach : dir === 3 ? -reach : 0;
-    const tx = ox + dx;
-    const ty = oy + dy;
-    const target = tx >= 0 && ty >= 0 && tx < w.width && ty < w.height ? ty * w.width + tx : -1;
-    sendMission(out, sim, bot, p, target, Stance.Spread);
+  // ---- expansion: frontier-seeking (v3) ----------------------------------
+  // Aim the flock at the nearest UNCONVERTED block so cohorts actually grow the
+  // territory, instead of poking a random compass direction into wilderness
+  // (the old behaviour — why bots crawled and never reached domination). Try a
+  // couple of owned tiles as origins until one has an unworked frontier nearby.
+  const reach = bot.tier === "drifter" ? 12 : 16;
+  let front = nearestCitizen(w, origin, reach);
+  for (let a = 0; a < 2 && front < 0; a++) {
+    const o = sampleOwned(sim, rng, bot.playerId);
+    if (o >= 0) front = nearestCitizen(w, o, reach);
   }
+  // churches periodically point the wave at a key building instead of a plain
+  // house — taking the school/sheriff/church swings a whole district (§M4).
+  if (bot.tier === "church" && nextRange(rng, 3) === 0) {
+    const kb = nearestKeyBuilding(w, origin, bot.playerId, 18);
+    if (kb >= 0) front = kb;
+  }
+  sendMission(out, sim, bot, p, front, Stance.Spread);
 
   // ---- stance discipline -------------------------------------------------
   if (bot.tier === "drifter") {
@@ -193,8 +224,11 @@ export function botTurn(sim: SimState, bot: BotState, rng: RngState): Intent[] {
   }
 
   // ---- economy script (Sect + Church) ------------------------------------
-  // v3 money→power: pour spare cash into commune stages (raises the flock cap)
-  if (usd(p) > 25_000 && nextRange(rng, 3) === 0) {
+  // v3 money→power: pour spare cash into commune stages (raises the flock cap,
+  // which raises cohort mass → more conversion). Invest whenever the bank is
+  // healthy — no RNG gate, so income archetypes actually cash in their edge (a
+  // stochastic gate was starving them and skewing botleague against economy).
+  if (usd(p) > 25_000) {
     out.push({ t: IntentType.UPGRADE_COMMUNE, player: bot.playerId });
   }
   // (v3 M3.3b: placeable buildings cut — bots grow via commune upgrades above)
@@ -235,14 +269,15 @@ export function botTurn(sim: SimState, bot: BotState, rng: RngState): Intent[] {
     }
   }
 
-  // 3) grudges: recompute the strongest border rival and lean on them
-  const rival = borderRival(sim, bot.playerId);
+  // 3) grudges: recompute the strongest border rival and lean on THEIR border
+  const { rival, front: rivalFront } = borderRival(sim, bot.playerId);
   bot.grudge = rival;
-  if (rival !== 0 && bot.aggression >= 1) {
-    // press the rival border: a cohort auto-spreads to the contested doors.
-    // Aggressive churches send it in as a Crusade.
-    const target = sampleOwned(sim, rng, bot.playerId);
-    sendMission(out, sim, bot, p, target, bot.aggression >= 2 ? Stance.Crusade : Stance.Spread);
+  if (rival !== 0 && bot.aggression >= 1 && rivalFront >= 0) {
+    // aim a cohort straight at the rival's contested doors (not our own turf).
+    // Crusade for the extra pressure — but only when Heat has headroom, since
+    // Crusade heats us up and high Heat invites the CPA.
+    const mode = bot.aggression >= 2 && heat < 55 ? Stance.Crusade : Stance.Spread;
+    sendMission(out, sim, bot, p, rivalFront, mode);
     // publish a scandal on the rival when feeling aggressive (sim gates on evidence)
     if (bot.aggression >= 2 && nextRange(rng, 8) === 0) {
       out.push({ t: IntentType.PUBLISH_SCANDAL, player: bot.playerId, target: rival });

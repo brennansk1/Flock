@@ -277,3 +277,38 @@ rebalance re-run AFTER M3.3, when the economic loop closes. Filed as B9.3.M3.4.
   (colour) and HOW FAR (width) — the whole town's siege state readable at a
   glance; 5px bars are unobtrusive (restraint); dark-track/colour-fill matches
   the pixel aesthetic. Build clean; hud.ts only. M4 (glow + sieges) COMPLETE.
+
+## PT-0016 — 2026-07-06 — M5 bot brain v3 + botleague re-baseline
+
+- **Nodes:** B9.5 M5 (three-verb mission bots; botleague re-baseline).
+- **Brain change (bots.ts):** frontier-seeking expansion (aim the flock at the
+  nearest UNCONVERTED block via nearestCitizen, not a random compass poke — the
+  old behaviour was why bots crawled); grudge now presses the RIVAL's border
+  tile (borderRival returns a press target) instead of a tile we already own;
+  heat-aware mode (no Crusade above 55 Heat); churches periodically siege the
+  nearest key building (nearestKeyBuilding); commune investment de-RNG'd.
+- **Determinism preserved** (pure sim-state + rng draws; 98/98 sim tests green).
+- **Re-baseline (church tier):**
+  - 6p 48² ×150: dawn 23.1 / radiant 18.7 / circle 10.2 / visitors 14.7 (norm to
+    ~25% each). Was, pre-brain: dawn 30 / radiant 7.5 / circle 15 / visitors 14.
+    → **radiant recovered 7.5→18.7** once bots actually press borders (retain 1.5
+    finally matters). decisive finishes ~1% (6-way FFA rarely yields a 70% winner).
+  - 2p 32² ×60: dawn 70 / radiant 57 / visitors 43 / circle 30; **82% decisive**
+    (bots can now close out a match — they couldn't before).
+- **Two structural findings for the definitive tune (M3.4, human-gated B7.9):**
+  1. **The money→commune loop is effectively dead.** Tithe income (~2-9 usd/s)
+     never accumulates to the 25k commune-upgrade cost in a normal match, and the
+     follower cap (base+compound ≈ 30k) never binds. So **circle's income 1.3 is
+     a dead stat** — that is *why* circle is bottom, not a small r0 gap. Fixing it
+     is a design decision (revive money, or re-identity circle on a conversion
+     stat), not a balance-number nudge.
+  2. **r0 snowballs.** Growth compounds under presence conversion, so the fastest
+     early grower (dawn) leads. A conservative r0 compression (dawn 1.05→1.02,
+     circle 0.95→0.98) was tested and **reverted** — its effect was entirely
+     within measurement noise (circle 10.8→10.2 at n=150), and botleague is
+     biased against economy archetypes anyway (bots bank no cash). balance.json
+     left at the last human-reviewed Depth-Review values.
+- **Verdict:** bot competence is a clear, verified win (radiant rescued, games
+  close out, borders contested, sieges exercised). The archetype *balance* fix is
+  correctly deferred to human playtests, which the re-baseline now de-risks by
+  giving competent opponents to measure against.

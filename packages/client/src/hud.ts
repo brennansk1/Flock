@@ -359,6 +359,17 @@ const HUD_CSS = `
 .fk-stance .ic{color:var(--st-col)}
 .fk-stance.on{background:var(--st-col);color:#19110a;box-shadow:inset 0 0 0 2px var(--st-col),0 3px 0 #060403}
 .fk-stance.on .ic,.fk-stance.on .k{color:#19110a}
+/* active missions list (v3) */
+.fk-missions{display:flex;flex-direction:column;gap:4px}
+.fk-nomissions{font-family:'VT323',monospace;font-size:13px;color:#8a7550;line-height:1.15;padding:2px 1px}
+.fk-mrow{display:flex;align-items:center;gap:6px;pointer-events:auto;cursor:pointer;background:#160f07;box-shadow:inset 0 0 0 1px #36291a;padding:5px 7px}
+.fk-mrow:hover{background:#20160c;box-shadow:inset 0 0 0 1px var(--fk-acc)}
+.fk-mrow.recalling{opacity:.55}
+.fk-mrow .mic{flex:none;display:flex}
+.fk-mrow .mnm{flex:1;font-family:'Pixelify Sans',ui-monospace,monospace;font-size:11px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fk-mrow .mms{font-family:'VT323',monospace;font-size:15px;color:#c4ad82;flex:none}
+.fk-mrow .mrecall{flex:none;pointer-events:auto;cursor:pointer;font-family:'VT323',monospace;font-size:15px;color:#e0894a;background:#0e0a05;box-shadow:inset 0 0 0 1px #4a3a26;width:20px;height:20px;line-height:1;padding:0}
+.fk-mrow .mrecall:hover{background:var(--fk-acc);color:#19110a}
 /* powers: D/F rows + G signature in the cult accent */
 .fk-pow .ic{color:var(--fk-acc2)}
 .fk-sig{background:var(--fk-acc);color:#19110a;font-weight:700;letter-spacing:.5px;padding:9px;box-shadow:inset 0 0 0 2px var(--fk-acc2),0 3px 0 #060403}
@@ -466,7 +477,7 @@ interface ElCache {
   heat_sub: HTMLElement;
   timer: HTMLElement;
   leader: HTMLElement;
-  stanceGroup: HTMLElement;
+  missions: HTMLElement;
   actD: HTMLElement;
   actF: HTMLElement;
   actG: HTMLElement;
@@ -709,15 +720,14 @@ export class Hud {
     const railStack = document.createElement("div");
     railStack.className = "fk-rail-stack";
 
-    const stanceG = this.group("STANCE");
-    for (const s of STANCES) {
-      const b = this.btn(s.label, s.key, () => this.send({ t: "SET_STANCE", stance: s.id }), { ic: s.ic, cls: "fk-stance" });
-      b.title = s.hint;
-      b.dataset.stance = s.id;
-      b.style.setProperty("--st-col", s.col);
-      stanceG.appendChild(b);
-    }
-    this.el.stanceGroup = stanceG;
+    // (v3: the global STANCE rail is gone — mode is chosen per-mission on the
+    //  right-click/left-click wheel. The MISSIONS panel takes its place.)
+    const missionsG = this.group("MISSIONS");
+    const missionsList = document.createElement("div");
+    missionsList.className = "fk-missions";
+    missionsList.innerHTML = `<div class="fk-nomissions">no missions out — click the town to send your flock</div>`;
+    missionsG.appendChild(missionsList);
+    this.el.missions = missionsList;
 
     const actG = this.group("POWERS");
     this.el.actD = this.btn("—", "D", () => this.fireActive("D"), { ic: "eye", cls: "fk-pow", cost: true });
@@ -761,7 +771,7 @@ export class Hud {
     schemeBody.appendChild(schemeGrid);
     this.el.scheme = schemeGrid;
 
-    railStack.append(stanceG, actG, schemeG);
+    railStack.append(missionsG, actG, schemeG);
     rail.append(railStack, this.collapse(railStack, "◄", "►"));
     this.root.appendChild(rail);
 
@@ -1166,10 +1176,8 @@ export class Hud {
     this.el.leader.textContent = `${leaderPct.toFixed(0)}%`;
     this.el.leader.title = leader ? `${this.g.players.find((p) => p.id === leader.id)?.name ?? "—"} leads` : "";
 
-    // stance highlight
-    this.el.stanceGroup.querySelectorAll<HTMLElement>("[data-stance]").forEach((b) => {
-      b.classList.toggle("on", b.dataset.stance === me.stance);
-    });
+    // active missions (v3): what your flock is doing right now
+    this.renderMissions(s, me);
 
     // powers: labels, live costs, affordability greying, cooldown countdowns —
     // the same treatment builds get (§27)
@@ -1416,6 +1424,47 @@ export class Hud {
           (v.h / w.height) * H,
         );
       }
+    }
+  }
+
+  /** Active-missions panel (v3): what each deployed cohort is doing, with recall. */
+  private renderMissions(s: SimState, me: SimState["players"][number]): void {
+    const cohorts = me.cohorts;
+    if (cohorts.length === 0) {
+      const empty = `<div class="fk-nomissions">no missions out — click the town to send your flock</div>`;
+      if (this.el.missions.dataset.h !== empty) {
+        this.el.missions.innerHTML = empty;
+        this.el.missions.dataset.h = empty;
+      }
+      return;
+    }
+    const modeOf = (m: string): (typeof STANCES)[number] => STANCES.find((x) => x.id === m) ?? STANCES[1]!;
+    let html = "";
+    cohorts.forEach((c, i) => {
+      const md = modeOf(c.mode);
+      const where = targetName(s, c.target);
+      const mass = Math.max(0, Math.round(toFloat(c.mass)));
+      html += `<div class="fk-mrow${c.recalling ? " recalling" : ""}" data-tile="${c.target}" title="${md.label} · ${mass} flock ${c.recalling ? "returning home" : `working ${esc(where)}`}">
+        <i class="mic" style="color:${md.col}">${icon(md.ic, "currentColor", 12)}</i>
+        <span class="mnm">${esc(where)}</span><span class="mms">${mass}</span>
+        ${c.recalling ? "" : `<button class="mrecall" data-slot="${i}" title="Recall this cohort home">⟲</button>`}</div>`;
+    });
+    if (this.el.missions.dataset.h !== html) {
+      this.el.missions.innerHTML = html;
+      this.el.missions.dataset.h = html;
+      this.el.missions.querySelectorAll<HTMLElement>(".fk-mrow").forEach((row) => {
+        row.onclick = (e) => {
+          if ((e.target as HTMLElement).closest(".mrecall")) return;
+          const t = Number(row.dataset.tile);
+          if (t >= 0) this.camera?.flashTile(t, performance.now());
+        };
+      });
+      this.el.missions.querySelectorAll<HTMLElement>(".mrecall").forEach((btn) => {
+        btn.onclick = (e) => {
+          e.stopPropagation();
+          this.send({ t: "MISSION_RECALL", slot: Number(btn.dataset.slot) } as never);
+        };
+      });
     }
   }
 

@@ -358,9 +358,10 @@ function wireInput(app: Application, map: MapRenderer, g: GameSession, hud: Hud)
       g.sendIntent({ t: IntentType.SPAWN, tile: center });
       return;
     }
-    // Left-click after founding = selection/inspection only. The SEND verb now
-    // lives on the right-click mission wheel (§6); a stray left-click no longer
-    // fires a cohort by accident.
+    // After founding, a plain click opens the MISSION WHEEL at that spot — the
+    // core SEND verb, discoverable without knowing to right-click. (Right-click
+    // opens it too.) Pick Spread/Tend/Crusade + how much flock on the wheel.
+    if (!wheel.isOpen) openWheel(center, ev.clientX, ev.clientY);
   });
 
   // Typing in any input (the chat box) must never trigger game keybinds.
@@ -391,11 +392,8 @@ function wireInput(app: Application, map: MapRenderer, g: GameSession, hud: Hud)
     const hoverOwner = hover >= 0 ? g.sim.world.owner[hover]! : 0;
 
     switch (ev.key) {
-      // stances (§5)
-      case "1": return g.sendIntent({ t: IntentType.SET_STANCE, stance: Stance.Tend });
-      case "2": return g.sendIntent({ t: IntentType.SET_STANCE, stance: Stance.Spread });
-      case "3": return g.sendIntent({ t: IntentType.SET_STANCE, stance: Stance.Crusade });
-      // (rituals cut in v3 — Q/W/E/R freed up; Faith now buys doctrine)
+      // (v3: 1/2/3 pick the mode INSIDE the mission wheel — see the wheel-open
+      //  guard above. With the wheel closed there's no global stance to set.)
       // archetype actives D/F + signature G (§27)
       case "d":
         return g.sendIntent({ t: IntentType.ABILITY, ability: ACTIVE_D[me.archetype]!, ...(hover >= 0 ? { target: hover } : {}) });

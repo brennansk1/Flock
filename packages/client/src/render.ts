@@ -226,6 +226,9 @@ export class MapRenderer {
       }
     };
     for (let t = 0; t < w.owner.length; t++) if (w.owner[t] === me) reveal(t, 6);
+    // your compound(s) light up the area you found in — even before you hold a
+    // single tile, so the map opens FROM your commune and spreads as you convert.
+    for (const bd of sim.buildings) if (bd.player === me) reveal(bd.tile, 8);
     for (const v of sim.vans) if (v.player === me) reveal(v.tile, 4);
     for (const a of sim.agents) if (a.player === me && a.phase !== "travel") reveal(a.tile, 4);
     for (const al of sim.alliances) {

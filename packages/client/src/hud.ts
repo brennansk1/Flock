@@ -43,12 +43,14 @@ import {
   propertyCost,
   propertyStats,
   computeCivicControl,
+  computeSiegeState,
   CIVIC_LOTS,
   CIVIC_EFFECTS,
   KIT,
   type SimState,
   type PlayerState,
   type BuildingType,
+  type SiegeBar,
 } from "@flock/sim";
 import type { GameSession, ClientIntent } from "./net.js";
 
@@ -345,7 +347,7 @@ const HUD_CSS = `
 .fk-right{position:absolute;right:16px;top:74px;display:flex;align-items:flex-start;gap:6px;z-index:6}
 .fk-right-stack{width:236px;display:flex;flex-direction:column;gap:11px;max-height:calc(100vh - 130px)}
 .fk-players{overflow:auto;max-height:230px}
-.fk-prow{display:flex;align-items:center;gap:7px;font-size:12px;padding:4px 5px}
+.fk-prow{display:flex;flex-wrap:wrap;align-items:center;gap:7px;font-size:12px;padding:4px 5px}
 .fk-prow.me{background:color-mix(in srgb,var(--fk-acc) 15%,transparent);box-shadow:inset 0 0 0 1px var(--fk-acc)}
 .fk-prow.dead{opacity:.45}
 .fk-prow .sw{width:13px;height:13px;flex:none;box-shadow:inset 0 0 0 1px rgba(0,0,0,.5)}
@@ -354,6 +356,9 @@ const HUD_CSS = `
 .fk-prow .tl{font-family:'VT323',monospace;font-size:17px;color:#c4ad82;min-width:34px;text-align:right}
 .fk-prow .hold{color:#a08a64;font-size:11px}
 .fk-prow .act{pointer-events:auto;cursor:pointer;font-size:10px;color:#a08a64;background:#0e0a05;box-shadow:inset 0 0 0 1px #4a3a26;padding:1px 5px;flex:none}
+.fk-prow .siege{flex-basis:100%;height:5px;background:#0e0a05;box-shadow:inset 0 0 0 1px #4a3a26;overflow:hidden}
+.fk-prow .siege .fill{height:100%;box-shadow:inset -1px 0 0 rgba(0,0,0,.4)}
+.fk-prow .siege.contested .fill{animation:fkBlink 1s step-start infinite}
 .fk-prow .act:hover{color:#efe3c6;box-shadow:inset 0 0 0 1px #6b563a}
 /* ---- drama feed ---- */
 .fk-feed{overflow:auto;flex:1;min-height:110px;font-size:12px;line-height:1.35;display:flex;flex-direction:column}
@@ -1364,6 +1369,7 @@ export class Hud {
   private renderCivics(s: SimState): void {
     const w = s.world;
     const control = computeCivicControl(s);
+    const siege = new Map<number, SiegeBar>(computeSiegeState(s).map((b) => [b.lot, b]));
     const NAMES: Record<number, string> = {
       [Lot.Sheriff]: "Police",
       [Lot.School]: "Elementary",
@@ -1391,9 +1397,15 @@ export class Hud {
         holder === 0
           ? `<span class="sw" style="background:#4a3a26"></span>`
           : `<span class="sw" style="background:${colorForPlayer(holder)}"></span>`;
+      const bar = siege.get(lot);
+      const leaderFill = bar?.leaderFill ?? 0;
+      const leaderColor = bar && bar.leader !== 0 ? colorForPlayer(bar.leader) : "#4a3a26";
+      const contested = bar?.contested ?? false;
+      const siegeBar = `<div class="siege${contested ? " contested" : ""}" data-fill="${leaderFill.toFixed(3)}" data-contested="${contested}">
+        <div class="fill" style="width:${(leaderFill * 100).toFixed(1)}%;background:${leaderColor}"></div></div>`;
       html += `<div class="fk-prow${mine ? " me" : ""}" data-civic="${lot}" style="cursor:pointer;pointer-events:auto" title="${esc(CIVIC_EFFECTS[lot] ?? "")}">
         ${sw}<span class="nm">${NAMES[lot] ?? "?"}</span>
-        <span class="hold">${holder === 0 ? "unclaimed" : holderName}</span></div>`;
+        <span class="hold">${holder === 0 ? "unclaimed" : holderName}</span>${siegeBar}</div>`;
     }
     if (this.el.civics.dataset.h !== html) {
       this.el.civics.innerHTML = html;

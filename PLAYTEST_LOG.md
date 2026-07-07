@@ -264,3 +264,16 @@ rebalance re-run AFTER M3.3, when the economic loop closes. Filed as B9.3.M3.4.
   house-by-house. Readability + restraint both PASS. Render-only
   (deterministic in tick); 97/97 sim + 14/14 server; 4-engine PASS.
   Artifacts: QA gallery/M4Glow/. Siege tug-of-war bars are the remaining M4 piece.
+
+## PT-0015 — 2026-07-06 — M4.2b siege capture bars (HUD) 🖼️ [delegated]
+
+- **Nodes:** B9.4 M4.2b (tug-of-war capture bars in the Key Buildings panel)
+- **Delegated** to a Sonnet agent against the computeSiegeState contract;
+  agent touched only hud.ts, reused the existing fkBlink keyframe, matched the
+  palette, encoded fill+contested in the diff-guard, and functionally verified
+  in a live match (0% neutral / 100% colored / contested-pulse via DOM).
+- **My vision-QA verdict: PASS.** Rendered the agent's exact CSS+markup with
+  varied fill states (0/40/62-contested/85/100%): each bar shows WHO leads
+  (colour) and HOW FAR (width) — the whole town's siege state readable at a
+  glance; 5px bars are unobtrusive (restraint); dark-track/colour-fill matches
+  the pixel aesthetic. Build clean; hud.ts only. M4 (glow + sieges) COMPLETE.

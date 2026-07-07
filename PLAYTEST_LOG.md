@@ -312,3 +312,30 @@ rebalance re-run AFTER M3.3, when the economic loop closes. Filed as B9.3.M3.4.
   close out, borders contested, sieges exercised). The archetype *balance* fix is
   correctly deferred to human playtests, which the re-baseline now de-risks by
   giving competent opponents to measure against.
+
+## PT-0017 — 2026-07-07 — Prime Directive POV review (live browser match)
+
+- Stood up the full stack (server+bots on 8787, client on 5173) and played as
+  the Prosperity Circle. **The v3 loop works end-to-end in a real browser
+  match:** found a commune → RIGHT-CLICK mission wheel reads the live street
+  name ("Gordon Road") and sends cohorts → RECRUIT drive (+N · $cost, R hotkey)
+  turns cash into flock → territory glow paints a growing owner-colour region
+  house-by-house → siege bars track key buildings (Grocery/Grain Elevator held).
+  Reached 21% leader as Circle. **Zero console errors.**
+- Comprehension audit (Total Discovery) — the onboarding taught the PRE-v3 game
+  and was fixed: FTUE coach ("press B to build a Compound" → now teaches the
+  right-click wheel + R drive), archetype cards (invented SPREAD numbers + a
+  fake ~50% WIN% that animated to 91/20 → now real SPREAD/DEFENSE/MONEY, so
+  Circle's income identity is legible), and every "FRONT"/"Broadcast Tower"/
+  "Economic victory"/"B/T/C/Y build"/"click to convert" reference across menu,
+  help sheet, and tutorial. (4881784)
+- Total Integration — found + fixed a dead ability: Visitors' Radio Static was
+  a no-op (scanned for cut Broadcast Towers). Retargeted to sow dissent through
+  enemy tiles in range; regression test added. (26820c2)
+- Pacing note: the "0% decisive at 6p" from PT-0016 is a botleague stress
+  config, NOT the play experience — SOLO/lobby default is 2-3 bots (3-4
+  players), which resolves 70-82% of the time. Matches close out fine at real
+  player counts.
+- Verdict: core loop + feel + onboarding now hang together. Remaining to true
+  10/10 are human-feel items (definitive archetype tune, Circle's ceiling in
+  human hands) that only real playtests can settle — the review de-risked them.

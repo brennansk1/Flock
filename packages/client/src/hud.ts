@@ -42,6 +42,7 @@ import {
   memberName,
   propertyCost,
   propertyStats,
+  followerCap,
   computeCivicControl,
   computeSiegeState,
   CIVIC_LOTS,
@@ -1245,9 +1246,13 @@ export class Hud {
       const btn = this.el.builds.querySelector<HTMLElement>("[data-recruit]");
       if (btn) {
         const econ = this.g.balance.economy;
-        const gained = Math.floor((toInt(me.followers) * econ.recruitDrivePermille) / 1000);
+        // mirror the sim: the batch is a ‰ of flock, clamped to the room under
+        // the follower cap, and you're charged only for what actually lands.
+        const room = toInt(followerCap(me, this.g.balance, s)) - toInt(me.followers);
+        let gained = Math.floor((toInt(me.followers) * econ.recruitDrivePermille) / 1000);
+        if (gained > room) gained = Math.max(0, room);
         const cost = gained * toInt(econ.recruitCostPer);
-        btn.classList.toggle("cant", usd < cost || gained <= 0);
+        btn.classList.toggle("cant", gained <= 0 || usd < cost);
         const costEl = btn.querySelector<HTMLElement>(".cost");
         if (costEl) costEl.textContent = gained > 0 ? `+${gained} · ${fmtMoney(cost)}` : "—";
       }

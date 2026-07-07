@@ -271,6 +271,7 @@ function wireInput(app: Application, map: MapRenderer, g: GameSession, hud: Hud)
   });
 
   app.canvas.addEventListener("pointerdown", (ev) => {
+    if (ev.button !== 0) return; // only the LEFT button pans — right-click opens the wheel
     dragging = true;
     dragMoved = false;
     lastX = ev.offsetX;
@@ -373,7 +374,7 @@ function wireInput(app: Application, map: MapRenderer, g: GameSession, hud: Hud)
       if (wheel.isOpen) wheel.close();
       else hud.arm(null);
     }
-    if (ev.key === "?") hud.toggleHelp();
+    if (ev.key === "?" && !wheel.isOpen) hud.toggleHelp();
   });
 
   window.addEventListener("keydown", (ev) => {

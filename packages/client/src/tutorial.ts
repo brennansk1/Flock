@@ -206,13 +206,13 @@ const STEPS: TutStep[] = [
   },
   {
     title: "SEND A MISSION",
-    body: "Your flock converts by walking into town. Once the founding window closes, click the MAP near the EDGE OF TOWN closest to your compound — your people march out to work that block, converting house by house.",
-    hint: "Click a town tile near your compound to send the flock. The founding window must close first (watch the top-center message).",
+    body: "Your flock converts by walking into town. Once the founding window closes, RIGHT-CLICK the MAP near the EDGE OF TOWN closest to your compound. A wheel opens — pick SPREAD ☘ (balanced), TEND ✚ (hold & heal), or CRUSADE ✦ (hard push), and drag the slider to set how much of your flock to commit. Your people march out and convert house by house.",
+    hint: "Right-click a town tile near your compound, then click a wheel arc (or press 1/2/3). The founding window must close first (watch the top-center message).",
     done: (g) => g.sim.foundingTicksLeft === 0 && (me(g)?.cohorts.length ?? 0) > 0,
   },
   {
     title: "SET YOUR TEMPO — CRUSADE",
-    body: "Press 3 or click CRUSADE — maximum conversion pressure. Watch Heat climb. Now press 2 to switch back to SPREAD before the next step (if Heat hits 60, the town retaliates). TEND (1) heals dissent and cools things down fastest.",
+    body: "Keys 1/2/3 set your HOMELAND posture — how the flock behaves at home. TEND (1) nurtures recruits and defends best; SPREAD (2) is balanced; CRUSADE (3) grows aggressively but runs hot, so watch Heat (if it hits 60, the town retaliates). Press 3 to feel Crusade, then 2 to settle back. (Inside the mission wheel those same keys pick a sortie's mode.)",
     glow: '[data-stance="crusade"]',
     done: (g) => me(g)?.stance === Stance.Crusade,
   },

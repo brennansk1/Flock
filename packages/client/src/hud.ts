@@ -180,8 +180,9 @@ const FEED_COL: Record<string, string> = {
   schism: "#7a3da8",
 };
 
-/** 8×8 pixel-art glyph bitmaps (design GLYPH). */
-const GLYPH: Record<string, readonly string[]> = {
+/** 8×8 pixel-art glyph bitmaps (design GLYPH). Exported so the mission wheel
+ *  (§6) can render the exact same candle/mega/flame icons as the stance rail. */
+export const GLYPH: Record<string, readonly string[]> = {
   people: ["01100110", "01100110", "00000000", "11111111", "11111111", "11111111", "10111101", "10111101"],
   coin: ["00111100", "01100110", "11011011", "11011011", "11011011", "11011011", "01100110", "00111100"],
   heart: ["01100110", "11111111", "11111111", "11111111", "01111110", "00111100", "00011000", "00000000"],
@@ -266,6 +267,29 @@ const TERRAIN_NAMES: Record<number, string> = {
   [Terrain.Orchard]: "an orchard",
   [Terrain.Pasture]: "pasture",
 };
+
+/**
+ * Short place label for a tile — the mission wheel's center readout (M6).
+ * Prefers a named landmark or civic lot, then a household, then the terrain.
+ * Kept in sync with the hover-chip vocabulary above so a right-click names
+ * the same place the pointer just did.
+ */
+export function targetName(sim: SimState, tile: number): string {
+  const w = sim.world;
+  if (tile < 0 || tile >= w.terrain.length) return "the map";
+  if (w.landmark[tile] !== 0) return LANDMARK_NAMES[w.landmark[tile]!] ?? "a landmark";
+  const terrain = w.terrain[tile]!;
+  if (terrain === Terrain.Citizen) {
+    const lot = w.lot[tile]!;
+    const pop = w.pop[tile]!;
+    if (lot !== 0) return LOT_NAMES[lot] ?? "a lot";
+    if (pop >= 3) return `the ${householdName(tile)} place`;
+    return "a quiet lot";
+  }
+  const street = streetAt(w.streets, w.width, tile);
+  if (street) return street;
+  return TERRAIN_NAMES[terrain] ?? "the edge of town";
+}
 
 /** Escape user-supplied text before it touches innerHTML (XSS guard). */
 function esc(s: string): string {

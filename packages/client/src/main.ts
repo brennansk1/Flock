@@ -18,13 +18,15 @@ import {
   Stance,
   MatchStatus,
   Terrain,
+  MAX_COHORTS,
   renderRecapCard,
   type Archetype,
 } from "@flock/sim";
 import { connect, type GameSession, type ClientIntent } from "./net.js";
 import { connectTutorial, startTutorial } from "./tutorial.js";
 import { MapRenderer } from "./render.js";
-import { Hud } from "./hud.js";
+import { Hud, targetName } from "./hud.js";
+import { MissionWheel } from "./wheel.js";
 import { showMenu } from "./menu.js";
 import { applySettings } from "./settings.js";
 
@@ -209,6 +211,43 @@ const ACTIVE_F: Record<string, string> = {
 
 function wireInput(app: Application, map: MapRenderer, g: GameSession, hud: Hud): void {
   let hover = -1;
+
+  // MISSION WHEEL (§6): the SEND verb. Right-click a tile/key building → radial
+  // Spread/Tend/Crusade + %-of-flock slider → MISSION_SEND. Left-click stays
+  // reserved for founding SPAWN and armed HUD placements.
+  const wheel = new MissionWheel(document.body, (tile, permille, mode) => {
+    g.sendIntent({ t: IntentType.MISSION_SEND, tile, permille, mode });
+  });
+  const openWheel = (tile: number, clientX: number, clientY: number): void => {
+    const me = g.sim.players.find((pl) => pl.id === g.playerId);
+    const cohorts = me?.cohorts.length ?? 0;
+    const flock = me ? toFloat(me.followers) : 0;
+    let canSend = true;
+    let reason = "";
+    if (cohorts >= MAX_COHORTS) {
+      canSend = false;
+      reason = "All cohorts are out";
+    } else if (flock < 1) {
+      canSend = false;
+      reason = "No flock to send";
+    }
+    wheel.open({ tile, screenX: clientX, screenY: clientY, label: targetName(g.sim, tile), canSend, reason });
+  };
+  app.canvas.addEventListener("contextmenu", (ev) => {
+    ev.preventDefault();
+    const me = g.sim.players.find((pl) => pl.id === g.playerId);
+    if (!me || !me.spawned) return; // still founding — left-click places your commune
+    const tile = map.tileAt(g.sim, ev.offsetX, ev.offsetY);
+    if (tile < 0) {
+      wheel.close();
+      return;
+    }
+    openWheel(tile, ev.clientX, ev.clientY);
+  });
+  // click-away dismiss (the wheel swallows pointerdowns landing on itself)
+  window.addEventListener("pointerdown", (ev) => {
+    if (wheel.isOpen && !(ev.target as HTMLElement).closest?.(".fk-wheel")) wheel.close();
+  });
   // drag-pan + wheel-zoom (zoom drives level-of-detail in the renderer)
   let dragging = false;
   let dragMoved = false;
@@ -318,24 +357,33 @@ function wireInput(app: Application, map: MapRenderer, g: GameSession, hud: Hud)
       g.sendIntent({ t: IntentType.SPAWN, tile: center });
       return;
     }
-    // v3 default verb: send a cohort to work the town around the click, in
-    // the current mode. (M6 adds the %-of-flock slider + explicit mode picker.)
-    g.sendIntent({ t: IntentType.MISSION_SEND, tile: center, permille: 400, mode: meNow?.stance ?? "spread" });
+    // Left-click after founding = selection/inspection only. The SEND verb now
+    // lives on the right-click mission wheel (§6); a stray left-click no longer
+    // fires a cohort by accident.
   });
 
   // Typing in any input (the chat box) must never trigger game keybinds.
   const typing = (ev: KeyboardEvent): boolean =>
     ev.target instanceof HTMLInputElement || ev.target instanceof HTMLTextAreaElement;
 
-  // Escape clears an armed placement.
+  // Escape dismisses the mission wheel first, else clears an armed placement.
   window.addEventListener("keydown", (ev) => {
     if (typing(ev)) return;
-    if (ev.key === "Escape") hud.arm(null);
+    if (ev.key === "Escape") {
+      if (wheel.isOpen) wheel.close();
+      else hud.arm(null);
+    }
     if (ev.key === "?") hud.toggleHelp();
   });
 
   window.addEventListener("keydown", (ev) => {
     if (typing(ev)) return;
+    // While the wheel is open it owns the number keys (1/2/3 pick a mode) and
+    // swallows the rest — it's modal over the map keybinds.
+    if (wheel.isOpen) {
+      wheel.pickByKey(ev.key);
+      return;
+    }
     const me = g.sim.players.find((pl) => pl.id === g.playerId);
     if (!me) return;
     const hoverDistrict = hover >= 0 ? g.sim.world.district[hover]! : 0;
@@ -356,19 +404,8 @@ function wireInput(app: Application, map: MapRenderer, g: GameSession, hud: Hud)
         if (me.archetype === "visitors" && hover >= 0)
           return g.sendIntent({ t: IntentType.ABILITY, ability: "saucer_landing", target: hover });
         return g.sendIntent({ t: IntentType.SIGNATURE });
-      // build palette (§6) at the hovered tile
-      case "b":
-        if (hover >= 0) g.sendIntent({ t: IntentType.BUILD, building: "compound", tile: hover });
-        return;
-      case "t":
-        if (hover >= 0) g.sendIntent({ t: IntentType.BUILD, building: "watchtower", tile: hover });
-        return;
-      case "c":
-        if (hover >= 0) g.sendIntent({ t: IntentType.BUILD, building: "collection_plate", tile: hover });
-        return;
-      case "y":
-        if (hover >= 0) g.sendIntent({ t: IntentType.BUILD, building: "broadcast_tower", tile: hover });
-        return;
+      // (v3: the old build palette b/t/c/y is gone — the commune is upgraded
+      // from the HUD, and watchtower/collection_plate/broadcast_tower were cut.)
       case "h":
         hud.toggleDissentOverlay();
         return;

@@ -409,7 +409,7 @@ B9  🔨 THE MISSION REWORK — core loop v3 (DESIGN_MISSIONS.md is the contract
 │   └── M3.4 ✔️ Archetype rebalance re-run post-M3.3 — PASS, holds in the
 │                1.55× band (dawn 31.9/vis 26.9/circle 20.6/radiant 20.6);
 │                final human-tune deferred to B7.9 (PT-0013, 4c0a06c)
-├── B9.4 🔨 M4 Glow + sieges
+├── B9.4 ✔️ M4 Glow + sieges
 │   ├── M4.1 ✔️🖼️ Territory glow — converted town paints itself in owner
 │   │            colour (outer-boundary edges, tick-shimmer); the map-
 │   │            painting dopamine. Vision-QA'd (05db354, QA gallery/M4Glow)
@@ -418,13 +418,17 @@ B9  🔨 THE MISSION REWORK — core loop v3 (DESIGN_MISSIONS.md is the contract
 │       │            computeSiegeState contract for the bars (5f73d67)
 │       └── M4.2b ✔️🖼️ HUD tug-of-war capture bars, colour=leader, width=fill,
 │                    blink=contested (delegated→Sonnet, vision-QA'd) c8f80c2
-├── B9.5 ⬜ M5 Bot brain v3 — three verbs (send/recall/upgrade); botleague +
-│            playtest campaigns re-baselined (gate: lead share < 0.90)
-├── B9.6 ⬜ M6 Client — RIGHT-CLICK MISSION WHEEL (Spread/Tend/Crusade arcs
-│            + %-of-flock slider, targets a map tile OR a key building),
-│            cohort chips w/ recall, right-rail building bars, glow
-│            outlines, victory threshold marker + path readout
-│            (domination only; Revelation ✂). Browser-verified.
+├── B9.5 ✔️ M5 Bot brain v3 — frontier-seeking send, rival-border grudge,
+│            heat-aware mode, key-building sieges, commune invest (a91756f).
+│            Re-baselined: radiant 7.5→19; 2p 82% decisive. Two structural
+│            findings (dead money loop, r0 snowball) → definitive tune stays
+│            human-gated (M3.4/B7.9). PT-0016.
+├── B9.6 ✔️🖼️ M6 Client — RIGHT-CLICK MISSION WHEEL (Spread/Tend/Crusade arcs
+│            + %-of-flock slider, session-remembered, targets a map tile OR a
+│            key building; grey-out when floored/capped; 1/2/3 fallback).
+│            Dressed to the HUD stance rail (colors/glyphs/fonts/shadow).
+│            Left-click reserved for founding+select; stale hotkeys cut.
+│            Browser vision-QA'd on the real component (c468850).
 ├── B9.7 ⬜ M7 Protocol/rooms/tutorial — wire intents, room defaults,
 │            tutorial rewritten around the three-verb loop
 └── B9.8 ⬜ M8 Audit — Phase-6 sweep: depth review vs §8 gates, QA renders,

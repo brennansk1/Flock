@@ -409,6 +409,9 @@ function wireInput(app: Application, map: MapRenderer, g: GameSession, hud: Hud)
       case "h":
         hud.toggleDissentOverlay();
         return;
+      // Prosperity Gospel (§2C): run a recruitment drive — cash → flock
+      case "r":
+        return g.sendIntent({ t: IntentType.BUY_RECRUITS });
       // agents & PvP (§13/§15)
       case "a":
         if (hoverDistrict > 0)

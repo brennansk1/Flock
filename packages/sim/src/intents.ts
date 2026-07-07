@@ -15,6 +15,7 @@ export const IntentType = {
   MISSION_RECALL: "MISSION_RECALL",
   BUILD: "BUILD",
   UPGRADE_COMMUNE: "UPGRADE_COMMUNE",
+  BUY_RECRUITS: "BUY_RECRUITS",
   BUY_PROPERTY: "BUY_PROPERTY",
   CANCEL_BUILD: "CANCEL_BUILD",
   ABILITY: "ABILITY",
@@ -58,6 +59,7 @@ export type Intent =
   /** v3 (DESIGN_MISSIONS.md §2): pay to raise the commune one stage (1→5),
    * lifting the flock cap. The commune is the only buildable. */
   | { t: typeof IntentType.UPGRADE_COMMUNE; player: PlayerId }
+  | { t: typeof IntentType.BUY_RECRUITS; player: PlayerId }
   | { t: typeof IntentType.BUY_PROPERTY; player: PlayerId; tile: TileId }
   | { t: typeof IntentType.CANCEL_BUILD; player: PlayerId; tile: TileId }
   | { t: typeof IntentType.ABILITY; player: PlayerId; ability: string; target?: TileId }

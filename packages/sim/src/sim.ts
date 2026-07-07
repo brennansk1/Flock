@@ -784,6 +784,30 @@ export function applyIntent(s: SimState, intent: Intent, b: Balance): void {
       break;
     }
 
+    case IntentType.BUY_RECRUITS: {
+      // Prosperity Gospel (§2C): a recruitment drive — cash buys flock. Adds a
+      // fixed ‰ of the CURRENT flock, so the batch stays relevant as you grow
+      // and its cost rises with you (a save-then-spike lever). The price is a
+      // flat usd/recruit however you slice it, so no compounding exploit.
+      // Universal, but Circle's income edge funds it hardest — this is what
+      // finally makes `income` a live stat. Its instant-burst cousin is the
+      // Circle-only seminar_blitz ability.
+      if (!p.spawned) break;
+      const cap = followerCap(p, b, s);
+      const room = sub(cap, p.followers);
+      if (room <= 0) break; // already at the cap
+      // batch = ‰ of current flock, but never past the cap — and you only pay
+      // for what you actually get (no charging for clamped-off recruits).
+      let gained = div(mul(p.followers, fromInt(b.economy.recruitDrivePermille)), fromInt(1000));
+      if (gained <= 0) break;
+      if (gained > room) gained = room;
+      const cost = mul(gained, b.economy.recruitCostPer);
+      if (p.usd < cost) break;
+      p.usd = sub(p.usd, cost);
+      p.followers = add(p.followers, gained);
+      break;
+    }
+
     case IntentType.CANCEL_BUILD: {
       // 50% refund while still under construction (§6).
       const idx = s.buildings.findIndex(

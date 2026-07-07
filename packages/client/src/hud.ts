@@ -803,6 +803,18 @@ export class Hud {
     );
     land.dataset.land = "1";
     builds.appendChild(land);
+    // RECRUITMENT DRIVE (§2C, Prosperity Gospel): spend cash for flock. The
+    // income cults' engine — buy a batch (a ‰ of your current flock), then
+    // send it out on the wheel. Cost + gain shown live below.
+    const drive = buildBtn(
+      "RECRUIT",
+      "R",
+      "people",
+      "Recruitment Drive — spend cash to add flock (a batch scaled to your size). Money → members → missions. The Inner Circle's engine.",
+      () => this.send({ t: "BUY_RECRUITS" } as never),
+    );
+    drive.dataset.recruit = "1";
+    builds.appendChild(drive);
     buildsWrap.appendChild(builds);
     this.el.builds = builds;
 
@@ -1225,6 +1237,19 @@ export class Hud {
         landBtn.classList.toggle("cant", usd < cost && !armed);
         const costEl = landBtn.querySelector<HTMLElement>(".cost");
         if (costEl) costEl.textContent = fmtMoney(cost);
+      }
+    }
+
+    // RECRUIT DRIVE: live batch size + escalating price + affordability
+    {
+      const btn = this.el.builds.querySelector<HTMLElement>("[data-recruit]");
+      if (btn) {
+        const econ = this.g.balance.economy;
+        const gained = Math.floor((toInt(me.followers) * econ.recruitDrivePermille) / 1000);
+        const cost = gained * toInt(econ.recruitCostPer);
+        btn.classList.toggle("cant", usd < cost || gained <= 0);
+        const costEl = btn.querySelector<HTMLElement>(".cost");
+        if (costEl) costEl.textContent = gained > 0 ? `+${gained} · ${fmtMoney(cost)}` : "—";
       }
     }
 

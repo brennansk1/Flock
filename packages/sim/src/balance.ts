@@ -26,6 +26,11 @@ export interface RawBalance {
     recruits_per_believer?: number;
     /** v3: a small floor so a young cult trickles recruits before it holds ground */
     base_recruits_per_s?: number;
+    /** Prosperity Gospel (§2C): a recruitment drive adds this ‰ of current
+     *  flock for cash — makes `income` a live stat (Circle's engine). */
+    recruit_drive_permille?: number;
+    /** usd per bought recruit; the drive's cost scales with the ‰ above. */
+    recruit_cost_per?: number;
   };
   conversion: {
     base_pressure: number;
@@ -118,6 +123,8 @@ export interface Balance {
     courierIntervalS: number;
     recruitsPerBeliever: Fixed;
     baseRecruitsPerS: Fixed;
+    recruitDrivePermille: number;
+    recruitCostPer: Fixed;
   };
   conversion: {
     basePressure: Fixed;
@@ -191,6 +198,8 @@ export function loadBalance(raw: RawBalance): Balance {
       capPerCompound: fromFloat(raw.economy.cap_per_compound),
       recruitsPerBeliever: fromFloat(raw.economy.recruits_per_believer ?? 0.005),
       baseRecruitsPerS: fromFloat(raw.economy.base_recruits_per_s ?? 1),
+      recruitDrivePermille: raw.economy.recruit_drive_permille ?? 200,
+      recruitCostPer: fromFloat(raw.economy.recruit_cost_per ?? 35),
       courierPerTile: fromFloat(raw.economy.courier_per_tile),
       courierCap: fromFloat(raw.economy.courier_cap),
       courierIntervalS: raw.economy.courier_interval_s,

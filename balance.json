@@ -5,7 +5,7 @@
     "hash_every_turns": 50
   },
   "economy": {
-    "tithe_per_follower": 0.018,
+    "tithe_per_follower": 0.04,
     "start_usd": 2000,
     "start_followers": 100,
     "follower_growth": 0.022,
@@ -15,7 +15,9 @@
     "courier_cap": 1200,
     "courier_interval_s": 20,
     "recruits_per_believer": 0.005,
-    "base_recruits_per_s": 1
+    "base_recruits_per_s": 1,
+    "recruit_drive_permille": 200,
+    "recruit_cost_per": 25
   },
   "conversion": {
     "base_pressure": 14.0,
@@ -74,7 +76,7 @@
       "heat": 0.7
     },
     "circle": {
-      "r0": 0.95,
+      "r0": 1.0,
       "retain": 0.9,
       "income": 1.3,
       "heat": 1.0

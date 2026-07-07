@@ -224,10 +224,15 @@ export function botTurn(sim: SimState, bot: BotState, rng: RngState): Intent[] {
   }
 
   // ---- economy script (Sect + Church) ------------------------------------
-  // v3 money→power: pour spare cash into commune stages (raises the flock cap,
-  // which raises cohort mass → more conversion). Invest whenever the bank is
-  // healthy — no RNG gate, so income archetypes actually cash in their edge (a
-  // stochastic gate was starving them and skewing botleague against economy).
+  // Prosperity Gospel (§2C): the primary money→power loop is now buying flock.
+  // Run a recruitment drive whenever the bank can plausibly cover one — cash
+  // becomes cohort mass becomes territory becomes more tithe. Income archetypes
+  // (Circle) fund this hardest, which is the whole point; the sim gates the
+  // exact cost, so an unaffordable attempt is a harmless no-op.
+  if (usd(p) > 1500) {
+    out.push({ t: IntentType.BUY_RECRUITS, player: bot.playerId });
+  }
+  // secondary: pour truly spare cash into commune stages (raises the flock cap).
   if (usd(p) > 25_000) {
     out.push({ t: IntentType.UPGRADE_COMMUNE, player: bot.playerId });
   }

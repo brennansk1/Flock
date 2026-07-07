@@ -786,7 +786,11 @@ export function applyIntent(s: SimState, intent: Intent, b: Balance): void {
       // lifting the flock cap via followerCap's per-stage term. No new
       // building — the single founding commune grows in place.
       if (!p.spawned || p.compounds >= COMMUNE_MAX_STAGE) break;
-      const cost = compoundCost(p);
+      let cost = compoundCost(p);
+      // Sawmill takeover (§13 rev., v3 retarget): the old "cheaper construction"
+      // applied to buildings that no longer exist — lumber-at-cost now discounts
+      // building UP the commune, the one thing you still construct.
+      if (controlsCivic(computeCivicControl(s), Lot.Sawmill, p.id)) cost = mul(cost, b.civics.sawmillBuildMult);
       if (p.usd < cost) break;
       p.usd = sub(p.usd, cost);
       p.compounds++;

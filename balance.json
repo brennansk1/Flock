@@ -123,6 +123,7 @@
     "anchor_tithe_mult": 1.1,
     "sawmill_build_mult": 0.88,
     "lighthouse_outreach_bonus": 2,
-    "siege_resist_mult": 3.5
+    "siege_resist_mult": 3.5,
+    "civic_momentum_per": 0.02
   }
 }

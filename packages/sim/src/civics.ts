@@ -48,7 +48,7 @@ export const CIVIC_EFFECTS: Record<number, string> = {
   [Lot.Church]: "the pulpit is yours — Faith climbs",
   [Lot.GrainElevator]: "the harvest money flows through you — richer tithe",
   [Lot.Cannery]: "the fish money flows through you — richer tithe",
-  [Lot.Sawmill]: "lumber at cost — cheaper construction",
+  [Lot.Sawmill]: "lumber at cost — cheaper commune upgrades",
   [Lot.Lighthouse]: "the beacon draws seekers — farther compound outreach",
 };
 

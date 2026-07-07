@@ -79,6 +79,8 @@ export interface RawBalance {
     lighthouse_outreach_bonus?: number;
     /** v3 §3: key buildings are sieges — resistance ×this (≈25–40 s to take) */
     siege_resist_mult?: number;
+    /** v3 §13: Civic Momentum — global conversion +this per key building held. */
+    civic_momentum_per?: number;
   };
   /** v3 missions (DESIGN_MISSIONS.md) — optional for older files. */
   missions?: {
@@ -162,6 +164,7 @@ export interface Balance {
     sawmillBuildMult: Fixed;
     lighthouseOutreachBonus: number;
     siegeResistMult: Fixed;
+    civicMomentumPer: Fixed;
   };
   missions: {
     innerCirclePermille: number;
@@ -254,6 +257,7 @@ export function loadBalance(raw: RawBalance): Balance {
       sawmillBuildMult: fromFloat(raw.civics?.sawmill_build_mult ?? 0.88),
       lighthouseOutreachBonus: raw.civics?.lighthouse_outreach_bonus ?? 2,
       siegeResistMult: fromFloat(raw.civics?.siege_resist_mult ?? 3.5),
+      civicMomentumPer: fromFloat(raw.civics?.civic_momentum_per ?? 0.03),
     },
     missions: {
       innerCirclePermille: raw.missions?.inner_circle_permille ?? 200,

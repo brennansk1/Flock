@@ -169,7 +169,12 @@ interface ContestedWork {
  * believers, r0 already compounds, so dawn's stacking passive made it a
  * runaway winner (48.8% → target ~25%). (Sermon buff is vestigial: rituals cut.)
  */
-function attackerGlobalMult(s: SimState, p: PlayerState): Fixed {
+function attackerGlobalMult(
+  s: SimState,
+  p: PlayerState,
+  civics: Map<number, PlayerId>,
+  b: Balance,
+): Fixed {
   let m = ONE;
   if (p.archetype === "dawn") {
     let cohorts = 0;
@@ -178,6 +183,13 @@ function attackerGlobalMult(s: SimState, p: PlayerState): Fixed {
     m = mul(m, add(ONE, div(fromInt(fearPct), HUNDRED)));
   }
   if (p.sermonBuffTicks > 0) m = mul(m, fp(1.05)); // vestigial (always 0)
+  // Civic Momentum (§13 rev.): every key building you control bends the town
+  // your way — a compounding global conversion bonus. Sieging one off a rival
+  // both gains you the edge and denies theirs, so the institutions are a real
+  // strategic prize, not just flavour.
+  let civicCount = 0;
+  for (const holder of civics.values()) if (holder === p.id) civicCount++;
+  if (civicCount > 0) m = mul(m, add(ONE, mul(fromInt(civicCount), b.civics.civicMomentumPer)));
   return m;
 }
 
@@ -349,7 +361,7 @@ export function resolveConversion(s: SimState, b: Balance): void {
     const p = wk.player;
     const co = coeffsOf(b, p);
     const atkFaith = faithCombatMod(p.faith);
-    const globalMult = attackerGlobalMult(s, p);
+    const globalMult = attackerGlobalMult(s, p, civics, b);
     for (const t of wk.tiles) {
       const dc = w.districtCoeffs[w.district[t]!] ?? { conv: ONE, retain: ONE, income: ONE };
       const owner = w.owner[t]!;

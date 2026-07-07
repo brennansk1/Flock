@@ -1438,7 +1438,15 @@ export class Hud {
     // §2A anchors only exist on their archetype's map — list what THIS town has
     const present = new Set<number>();
     for (let t = 0; t < w.lot.length; t++) if (w.lot[t] !== 0) present.add(w.lot[t]!);
+    // Civic Momentum summary (§13 rev.): how many of the town's institutions YOU
+    // hold, and the compounding conversion bonus it buys — the strategic stakes,
+    // legible at a glance.
+    const presentLots = CIVIC_LOTS.filter((lot) => present.has(lot));
+    const held = presentLots.filter((lot) => control.get(lot) === this.g.playerId).length;
+    const momentumPct = Math.round(held * toFloat(this.g.balance.civics.civicMomentumPer) * 100);
+    const momoColor = held > 0 ? "#9bbf6a" : "#8a7550";
     let html = `<h4>Key Buildings</h4>`;
+    html += `<div style="font-family:'VT323',monospace;font-size:14px;color:${momoColor};margin:-4px 0 7px;line-height:1.1">you hold ${held}/${presentLots.length} · <span style="color:#f3cf6a">+${momentumPct}%</span> conversion</div>`;
     for (const lot of CIVIC_LOTS) {
       if (!present.has(lot)) continue;
       const holder = control.get(lot) ?? 0;

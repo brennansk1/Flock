@@ -1788,7 +1788,9 @@ function drawTile(
   const lawnDistrict = district === 1 || district === 2 || district === 4 || district === 0;
   if (lawnDistrict) {
     if (currentSeason === "winter") {
-      lawnBase = hexToRgb("#ffffff"); // covered in snow!
+      // snow, but BLUE-GREY snow: pure white here made white winter roofs
+      // dissolve into the ground and buildings read as cut off
+      lawnBase = hexToRgb("#dfe7ee");
     } else if (currentSeason === "fall") {
       lawnBase = hexToRgb("#8a8b54"); // dry autumn lawn
     } else if (currentSeason === "spring") {

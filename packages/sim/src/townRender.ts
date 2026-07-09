@@ -244,7 +244,7 @@ const LOT_STYLE: Record<number, [RGB, RGB, RGB]> = {
   [Lot.Shop]: [hexToRgb("#cbb89a"), hexToRgb("#8c8c8c"), hexToRgb("#c8554a")],
   [Lot.Supermarket]: [hexToRgb("#d8d2c4"), hexToRgb("#b8b2a4"), hexToRgb("#3f7fbf")],
   [Lot.Diner]: [hexToRgb("#d7d7dc"), hexToRgb("#a9a9b4"), hexToRgb("#d23b3b")],
-  [Lot.School]: [hexToRgb("#b0563f"), hexToRgb("#8c4030"), hexToRgb("#f0e6d0")],
+  [Lot.School]: [hexToRgb("#b0563f"), hexToRgb("#5f4a40"), hexToRgb("#f0e6d0")],
   [Lot.Library]: [hexToRgb("#bcb4a2"), hexToRgb("#968e7c"), hexToRgb("#6a6256")],
   [Lot.Chapel]: [hexToRgb("#efe9da"), hexToRgb("#7d7468"), hexToRgb("#efe9da")],
   [Lot.GasStation]: [hexToRgb("#d8d2c4"), hexToRgb("#cc4444"), hexToRgb("#f2d23b")],
@@ -259,7 +259,7 @@ const LOT_STYLE: Record<number, [RGB, RGB, RGB]> = {
   [Lot.Factory]: [hexToRgb("#9a9088"), hexToRgb("#736a62"), hexToRgb("#5a5450")],
   [Lot.Motel]: [hexToRgb("#cabf9c"), hexToRgb("#7a6f58"), hexToRgb("#3fa0bf")],
   [Lot.Cinema]: [hexToRgb("#3a3f52"), hexToRgb("#2c3040"), hexToRgb("#ffd76a")],
-  [Lot.HighSchool]: [hexToRgb("#9a5a42"), hexToRgb("#7a4634"), hexToRgb("#f0e6d0")],
+  [Lot.HighSchool]: [hexToRgb("#9a5a42"), hexToRgb("#463e3a"), hexToRgb("#f0e6d0")],
   [Lot.Warehouse]: [hexToRgb("#aaa49a"), hexToRgb("#8a847a"), hexToRgb("#5f6670")],
   [Lot.GrainElevator]: [hexToRgb("#c8c2b4"), hexToRgb("#a8a294"), hexToRgb("#8a4a3a")],
   [Lot.Depot]: [hexToRgb("#9a5a42"), hexToRgb("#7a4634"), hexToRgb("#e8e4d8")],
@@ -1957,6 +1957,538 @@ function drawTile(
   }
 }
 
+// ------------------------------------------- special-building facades (§7 rev. 2)
+//
+// The civic/commercial anchors compose ONE front-facing building across their
+// whole contiguous footprint instead of repeating per-tile dressing — a 3×2
+// school is a single 24×16 facade (roof band, brick wall, window rhythm,
+// signed entrance, front lawn/walk), not six red slabs. Each tile draws only
+// its own 8×8 slice of the shared design (clipped), so draw order and
+// viewport clipping stay correct. All art stays at the fixed 8px/tile logical
+// resolution — this is composition, not extra pixel density. The outermost
+// 1px ring of the footprint is left untouched so the territory tint (the
+// conversion read) still rings the building.
+
+const FACADE_LOTS = new Set<number>([
+  Lot.School,
+  Lot.HighSchool,
+  Lot.Sheriff,
+  Lot.Supermarket,
+  Lot.Church,
+  Lot.Chapel,
+  Lot.FireStation,
+  Lot.GasStation,
+  Lot.Bank,
+  Lot.Library,
+  Lot.PostOffice,
+  Lot.Cinema,
+  Lot.Factory,
+  Lot.Office,
+  Lot.Warehouse,
+  Lot.Motel,
+]);
+
+/** Top-left anchor + extent of the contiguous same-lot rectangle (stamps are rects). */
+function lotRect(
+  w: World,
+  tx: number,
+  ty: number,
+  lot: number,
+): { ax: number; ay: number; fw: number; fh: number } {
+  let ax = tx;
+  while (ax > 0 && w.lot[ty * w.width + ax - 1] === lot) ax--;
+  let ay = ty;
+  while (ay > 0 && w.lot[(ay - 1) * w.width + tx] === lot) ay--;
+  let fw = 1;
+  while (ax + fw < w.width && w.lot[ay * w.width + ax + fw] === lot && fw < 4) fw++;
+  let fh = 1;
+  while (ay + fh < w.height && w.lot[(ay + fh) * w.width + ax] === lot && fh < 4) fh++;
+  return { ax, ay, fw, fh };
+}
+
+function drawFacade(
+  w: World,
+  lot: number,
+  ax: number,
+  ay: number,
+  fw: number,
+  fh: number,
+  clip: Put,
+): void {
+  const W = fw * TILE_PX;
+  const H = fh * TILE_PX;
+  const AX = ax * TILE_PX;
+  const AY = ay * TILE_PX;
+  const seed = ay * w.width + ax;
+  // local put in canvas coords; the outer ring stays ground (territory read)
+  const p = (x: number, y: number, c: RGB): void => {
+    if (x < 1 || y < 1 || x >= W - 1 || y >= H - 1) return;
+    clip(AX + x, AY + y, c);
+  };
+  const [body, roofC, accent] = LOT_STYLE[lot] ?? LOT_STYLE[Lot.Shop]!;
+
+  // ---- shared scaffold ------------------------------------------------
+  const apronH = fh >= 2 ? 3 : 2; // lawn/pavement strip in front of the wall
+  const bx0 = 1;
+  const bx1 = W - 2;
+  const by0 = 1;
+  const by1 = H - 1 - apronH; // last wall row; apron below
+  const wallW = bx1 - bx0 + 1;
+  const cx = (W >> 1) - 1; // door center-left px (doors are 2 wide)
+
+  /** ground apron: mown lawn or concrete/asphalt pad */
+  const apron = (kind: "lawn" | "pave"): void => {
+    for (let y = by1 + 1; y < H; y++) {
+      for (let x = 1; x < W - 1; x++) {
+        if (kind === "lawn") {
+          p(x, y, (x + y) % 2 === 0 ? C.meadowLight : C.meadow);
+        } else {
+          p(x, y, pixHash(AX + x, AY + y, 53) % 9 === 0 ? shade(C.asphalt, 1.1) : C.asphalt);
+        }
+      }
+    }
+  };
+  /** the front walk from the door down through the apron */
+  const walk = (): void => {
+    for (let y = by1 + 1; y < H; y++) {
+      p(cx, y, C.pathStone);
+      p(cx + 1, y, y % 2 === 0 ? C.pathStone : shade(C.pathStone, 0.92));
+    }
+  };
+  /** wall box with subtle texture, an east shade column, a south shadow */
+  const wallBox = (x0: number, y0: number, x1: number, y1: number, base: RGB): void => {
+    for (let y = y0; y <= y1; y++) {
+      for (let x = x0; x <= x1; x++) {
+        let c = pixHash(AX + x, AY + y, 71) % 11 === 0 ? shade(base, 0.93) : base;
+        if (x === x1) c = shade(c, 0.85); // sun from NW: shaded east face
+        p(x, y, c);
+      }
+    }
+    for (let x = x0 + 1; x <= x1 + 1; x++) p(x, y1 + 1, C.shadow); // cast shadow
+  };
+  /** flat roof band with a lit ridge and an eave shadow */
+  const roofBand = (x0: number, x1: number, y0: number, rows: number, c: RGB): void => {
+    for (let y = y0; y < y0 + rows; y++) {
+      for (let x = x0; x <= x1; x++) {
+        p(x, y, y === y0 ? shade(c, 1.12) : y === y0 + rows - 1 ? shade(c, 0.8) : c);
+      }
+    }
+  };
+  const win = (x: number, y: number, lit = false): void => {
+    p(x, y, lit ? C.windowLit : C.windowDark);
+  };
+  /** a rhythm of paired windows across the wall */
+  const winRow = (y: number, x0: number, x1: number, every = 4): void => {
+    for (let x = x0; x + 1 <= x1; x += every) {
+      const lit = pixHash(AX + x, AY + y, 19) % 3 === 0;
+      win(x, y, lit);
+      win(x + 1, y, lit);
+    }
+  };
+  const doorAt = (x: number, y: number, tall = 2): void => {
+    for (let i = 0; i < tall; i++) {
+      p(x, y - i, C.door);
+      p(x + 1, y - i, C.door);
+    }
+  };
+
+  switch (lot) {
+    case Lot.School:
+    case Lot.HighSchool: {
+      const isHigh = lot === Lot.HighSchool;
+      apron("lawn");
+      walk();
+      const roofRows = fh >= 2 ? 3 : 2;
+      roofBand(bx0, bx1, by0, roofRows, roofC);
+      wallBox(bx0, by0 + roofRows, bx1, by1, body);
+      p(cx, by0 + roofRows, accent); // trim over the entrance
+      p(cx + 1, by0 + roofRows, accent);
+      // window rhythm both sides of the door, a course every 3 rows
+      for (let wy = by0 + roofRows + 2; wy <= by1 - 1; wy += 3) {
+        winRow(wy, bx0 + 2, cx - 2);
+        winRow(wy, cx + 3, bx1 - 2);
+      }
+      doorAt(cx, by1, 2);
+      p(cx, by1 - 2, accent); // fanlight
+      p(cx + 1, by1 - 2, accent);
+      if (isHigh) {
+        // gym wing: the right third rises into a windowless brick block
+        const gx = bx1 - Math.max(4, wallW >> 2);
+        for (let y = by0; y <= by1; y++) {
+          for (let x = gx; x <= bx1; x++) {
+            p(x, y, x === bx1 ? shade(body, 0.65) : y <= by0 + 1 ? shade(body, 0.7) : shade(body, 0.82));
+          }
+        }
+        p(gx + 1, by1, C.door); // gym doors
+        p(gx + 2, by1, C.door);
+        // marquee sign board on the lawn
+        p(bx0 + 1, H - 2, C.iconDark);
+        p(bx0 + 1, H - 3, C.crosswalk);
+        p(bx0 + 2, H - 3, C.crosswalk);
+        p(bx0 + 3, H - 3, C.crosswalk);
+      } else {
+        // elementary: white belfry on the ridge + the flagpole by the walk
+        p(cx, by0, hexToRgb("#ffffff"));
+        p(cx + 1, by0, hexToRgb("#ffffff"));
+        p(cx, by0 + 1, C.windowDark);
+        const fx = cx - 3;
+        for (let y = H - 5; y < H - 1; y++) p(fx, y, C.iconDark);
+        p(fx + 1, H - 5, hexToRgb("#d23b3b")); // the flag
+      }
+      break;
+    }
+
+    case Lot.Supermarket: {
+      apron("pave");
+      // big-box: parapet + rooftop HVAC, sign band, full glass storefront
+      roofBand(bx0, bx1, by0, 2, roofC);
+      p(bx0 + 3, by0, C.rockShade); // HVAC units on the roof
+      p(bx0 + 4, by0, C.rock);
+      p(bx1 - 4, by0, C.rockShade);
+      p(bx1 - 3, by0, C.rock);
+      // tall sign band in the brand color with white "letters"
+      for (let y = by0 + 2; y <= by0 + 3; y++) {
+        for (let x = bx0; x <= bx1; x++) p(x, y, accent);
+      }
+      for (let x = bx0 + 2; x <= bx1 - 2; x += 3) p(x, by0 + 2, C.crosswalk);
+      wallBox(bx0, by0 + 4, bx1, by1, body);
+      // glass front: full width, dark panes behind pale frame ribs
+      for (let y = by1 - 1; y <= by1; y++) {
+        for (let x = bx0 + 1; x <= bx1 - 1; x++) {
+          p(x, y, x % 3 === 0 ? C.glassFrame : C.windowDark);
+        }
+      }
+      doorAt(cx, by1, 2);
+      // cart corral on the pad
+      p(bx1 - 2, H - 2, C.rock);
+      p(bx1 - 1, H - 2, C.rockShade);
+      break;
+    }
+
+    case Lot.Sheriff: {
+      apron("pave");
+      walk();
+      roofBand(bx0, bx1, by0, 2, roofC);
+      wallBox(bx0, by0 + 2, bx1, by1, body);
+      // navy department band with the gold star — the "SHERIFF" read
+      for (let x = bx0; x <= bx1; x++) p(x, by0 + 2, hexToRgb("#3a4a5e"));
+      p(cx, by0 + 2, accent);
+      p(cx + 1, by0 + 2, accent);
+      p(cx, by0 + 3, accent);
+      p(cx + 1, by0 + 3, accent);
+      // barred holding-cell window (right end)
+      p(bx1 - 2, by1 - 1, C.windowDark);
+      p(bx1 - 1, by1 - 1, C.iconDark);
+      winRow(by1 - 1, bx0 + 2, cx - 2);
+      doorAt(cx, by1, 2);
+      // comms mast off the west end of the roof
+      p(bx0 + 1, by0, C.iconDark);
+      p(bx0 + 1, Math.max(1, by0 - 1), C.iconDark);
+      break;
+    }
+
+    case Lot.Church:
+    case Lot.Chapel: {
+      apron("lawn");
+      const white = body;
+      if (W >= 16) {
+        // the classic small-town church: corner bell tower + gabled nave
+        const tx0 = bx0 + 1;
+        const tw = 3;
+        for (let y = by0 + 1; y <= by1; y++) {
+          for (let x = tx0; x < tx0 + tw; x++) {
+            p(x, y, x === tx0 + tw - 1 ? shade(white, 0.85) : white);
+          }
+        }
+        p(tx0 + 1, by0, C.landmarkGold); // the cross over the tower
+        p(tx0, by0 + 1, C.landmarkGold);
+        p(tx0 + 1, by0 + 1, C.landmarkGold);
+        p(tx0 + 2, by0 + 1, C.landmarkGold);
+        for (let x = tx0; x < tx0 + tw; x++) p(x, by0 + 2, roofC); // spire cap
+        p(tx0 + 1, by0 + 4, C.windowDark); // the bell
+        // the nave: pitched roof band + white wall
+        const nx0 = tx0 + tw;
+        roofBand(nx0, bx1, by0 + 3, 3, roofC);
+        wallBox(nx0, by0 + 6, bx1, by1, white);
+        // stained glass flanking the doors
+        p(nx0 + 1, by1 - 1, hexToRgb("#4477aa"));
+        p(nx0 + 1, by1 - 2, hexToRgb("#cc9933"));
+        p(bx1 - 1, by1 - 1, hexToRgb("#4477aa"));
+        p(bx1 - 1, by1 - 2, hexToRgb("#cc9933"));
+        // double doors under a gold fanlight, with their own front walk
+        const dx = nx0 + ((bx1 - nx0 - 1) >> 1);
+        doorAt(dx, by1, 2);
+        p(dx, by1 - 2, accent);
+        p(dx + 1, by1 - 2, accent);
+        for (let y = by1 + 1; y < H; y++) {
+          p(dx, y, C.pathStone);
+          p(dx + 1, y, y % 2 === 0 ? C.pathStone : shade(C.pathStone, 0.92));
+        }
+        break;
+      }
+      walk();
+      // steeple: spire + cross above, bell window below
+      const sx = cx;
+      const steepleH = Math.min(5, by1 - by0 - 2);
+      p(sx, by0, C.landmarkGold); // the cross
+      p(sx - 1, by0 + 1, C.landmarkGold);
+      p(sx, by0 + 1, C.landmarkGold);
+      p(sx + 1, by0 + 1, C.landmarkGold);
+      for (let y = by0 + 2; y < by0 + steepleH; y++) {
+        p(sx, y, white);
+        p(sx + 1, y, shade(white, 0.85));
+      }
+      p(sx, by0 + 2, C.windowDark); // the bell
+      // pitched roof over the nave
+      const roofY = by0 + steepleH;
+      roofBand(bx0, bx1, roofY, 2, roofC);
+      wallBox(bx0, roofY + 2, bx1, by1, white);
+      // arched stained glass flanking the doors (only when the nave wall is
+      // tall enough that they sit on wall, not roof — the 1×1 chapel skips)
+      if (bx1 - bx0 >= 5 && by1 - roofY >= 4) {
+        p(bx0 + 1, by1 - 1, hexToRgb("#4477aa"));
+        p(bx0 + 1, by1 - 2, hexToRgb("#cc9933"));
+        p(bx1 - 1, by1 - 1, hexToRgb("#4477aa"));
+        p(bx1 - 1, by1 - 2, hexToRgb("#cc9933"));
+      }
+      doorAt(cx, by1, 2);
+      p(cx, H - 1 - apronH + 1, shade(C.pathStone, 1.05)); // the steps
+      p(cx + 1, H - 1 - apronH + 1, shade(C.pathStone, 1.05));
+      break;
+    }
+
+    case Lot.FireStation: {
+      apron("pave");
+      roofBand(bx0, bx1, by0, 2, roofC);
+      // white sign band ("F D" dashes)
+      for (let x = bx0; x <= bx1; x++) p(x, by0 + 2, C.crosswalk);
+      p(cx, by0 + 2, hexToRgb("#b03a30"));
+      p(cx + 1, by0 + 2, hexToRgb("#b03a30"));
+      wallBox(bx0, by0 + 3, bx1, by1, body);
+      // two roll-up bays with panel lines — the engines live here
+      const bayW = Math.max(3, (wallW - 6) >> 1);
+      for (const bx of [bx0 + 2, bx1 - 1 - bayW]) {
+        for (let y = by1 - 3; y <= by1; y++) {
+          for (let x = bx; x < bx + bayW; x++) {
+            p(x, y, y % 2 === 0 ? C.crosswalk : shade(C.crosswalk, 0.88));
+          }
+        }
+      }
+      // hose tower on the west end
+      for (let y = by0; y <= by0 + 3; y++) {
+        p(bx0, y, shade(body, 0.8));
+        p(bx0 + 1, y, shade(body, 0.9));
+      }
+      p(bx0 + 1, by0, C.landmarkGold); // the bell
+      break;
+    }
+
+    case Lot.GasStation: {
+      apron("pave");
+      // pavement under everything — the whole lot is an apron
+      for (let y = 1; y < H - 1; y++) {
+        for (let x = 1; x < W - 1; x++) {
+          p(x, y, pixHash(AX + x, AY + y, 53) % 9 === 0 ? shade(C.asphalt, 1.1) : C.asphalt);
+        }
+      }
+      if (fw === 1) {
+        // roadside 1×1: just the canopy, pumps, and a price sign
+        for (let x = 1; x <= 6; x++) {
+          p(x, 2, hexToRgb("#ffffff"));
+          p(x, 3, accent);
+        }
+        p(1, 4, C.rockShade);
+        p(6, 4, C.rockShade);
+        p(3, 5, hexToRgb("#cc3333"));
+        p(4, 5, hexToRgb("#3f7fbf"));
+        p(1, H - 2, C.iconDark);
+        p(1, H - 3, accent);
+        break;
+      }
+      // the shop box at the back-east corner
+      const shopX = Math.max(bx0, bx1 - 5);
+      roofBand(shopX, bx1, by0, 1, hexToRgb("#cc4444"));
+      wallBox(shopX, by0 + 1, bx1, by0 + 3, body);
+      p(bx1 - 2, by0 + 3, C.door);
+      p(shopX + 1, by0 + 2, C.windowDark);
+      // the canopy over the pump island (west half)
+      const canX1 = Math.min(shopX - 2, bx0 + 6);
+      for (let x = bx0 + 1; x <= canX1; x++) {
+        p(x, by0 + 1, hexToRgb("#ffffff"));
+        p(x, by0 + 2, accent);
+      }
+      p(bx0 + 1, by0 + 3, C.rockShade); // posts
+      p(canX1, by0 + 3, C.rockShade);
+      // pumps on their island
+      const py = by0 + 4;
+      for (let x = bx0 + 1; x <= canX1; x++) p(x, py + 1, shade(C.asphalt, 1.15));
+      p(bx0 + 2, py, hexToRgb("#cc3333"));
+      p(bx0 + 4, py, hexToRgb("#3f7fbf"));
+      // price sign at the corner
+      p(bx0, H - 3, C.iconDark);
+      p(bx0, H - 4, accent);
+      break;
+    }
+
+    case Lot.Bank: {
+      apron("pave");
+      walk();
+      // temple front: pediment, columns, tall dark entrance
+      p(cx, by0, accent);
+      p(cx + 1, by0, accent);
+      for (let x = bx0 + 1; x <= bx1 - 1; x++) p(x, by0 + 1, accent);
+      wallBox(bx0, by0 + 2, bx1, by1, body);
+      for (let y = by0 + 2; y <= by1; y++) {
+        p(bx0 + 1, y, hexToRgb("#efe9da")); // the columns
+        p(bx1 - 1, y, hexToRgb("#efe9da"));
+      }
+      doorAt(cx, by1, 3);
+      break;
+    }
+
+    case Lot.Library: {
+      apron("lawn");
+      walk();
+      // flat cornice (vs the bank's pediment), round window, wide steps
+      roofBand(bx0, bx1, by0, 2, roofC);
+      wallBox(bx0, by0 + 2, bx1, by1, body);
+      p(cx, by0 + 3, C.windowLit); // the round reading-room window
+      p(cx + 1, by0 + 3, C.windowLit);
+      winRow(by1 - 1, bx0 + 1, cx - 2);
+      winRow(by1 - 1, cx + 3, bx1 - 1);
+      doorAt(cx, by1, 2);
+      for (let x = cx - 1; x <= cx + 2; x++) p(x, by1 + 1, shade(C.pathStone, 1.05));
+      break;
+    }
+
+    case Lot.PostOffice: {
+      apron("pave");
+      walk();
+      roofBand(bx0, bx1, by0, 2, roofC);
+      for (let x = bx0; x <= bx1; x++) p(x, by0 + 2, accent); // the eagle stripe
+      wallBox(bx0, by0 + 3, bx1, by1, body);
+      winRow(by1 - 1, bx0 + 1, cx - 2);
+      doorAt(cx, by1, 2);
+      p(bx1 - 1, by1, hexToRgb("#3f5e7a")); // the collection box
+      // the flag mast
+      p(bx0 + 1, by0, C.iconDark);
+      p(bx0 + 1, Math.max(1, by0 - 1), C.iconDark);
+      p(bx0 + 2, Math.max(1, by0 - 1), hexToRgb("#d23b3b"));
+      break;
+    }
+
+    case Lot.Cinema: {
+      apron("pave");
+      roofBand(bx0, bx1, by0, 2, roofC);
+      wallBox(bx0, by0 + 2, bx1, by1, body);
+      // the blade sign: a lit vertical strip at the west end
+      for (let y = by0; y <= by1 - 1; y++) {
+        p(bx0 + 1, y, y % 2 === 0 ? accent : shade(accent, 0.7));
+      }
+      // marquee canopy: lit gold strip over the entrance
+      for (let x = bx0 + 3; x <= bx1 - 1; x++) p(x, by1 - 2, accent);
+      doorAt(cx, by1, 2);
+      // poster bills flanking the doors
+      p(cx - 2, by1, C.crosswalk);
+      p(cx + 3, by1, C.crosswalk);
+      break;
+    }
+
+    case Lot.Factory: {
+      apron("pave");
+      // sawtooth roof: alternating lit/dark 2px teeth
+      for (let y = by0; y < by0 + 2; y++) {
+        for (let x = bx0; x <= bx1; x++) {
+          p(x, y, ((x - bx0) >> 1) % 2 === 0 ? shade(roofC, 1.1) : shade(roofC, 0.75));
+        }
+      }
+      wallBox(bx0, by0 + 2, bx1, by1, body);
+      // the smokestack rises off the east end
+      p(bx1 - 1, by0, C.iconDark);
+      p(bx1 - 1, Math.max(1, by0 - 1), C.iconDark);
+      p(bx1 - 2, by0, shade(C.iconDark, 1.6));
+      // big industrial window grids
+      for (let x = bx0 + 2; x <= bx1 - 4; x += 4) {
+        p(x, by0 + 3, C.windowDark);
+        p(x + 1, by0 + 3, C.glassFrame);
+        p(x, by0 + 4, C.glassFrame);
+        p(x + 1, by0 + 4, C.windowDark);
+      }
+      // loading dock: roll door + concrete slab
+      const dx = bx1 - 3;
+      for (let y = by1 - 2; y <= by1; y++) {
+        p(dx, y, C.iconDark);
+        p(dx + 1, y, shade(C.iconDark, 1.8));
+      }
+      for (let x = dx - 1; x <= dx + 2; x++) p(x, by1 + 1, C.rock);
+      doorAt(bx0 + 2, by1, 2);
+      break;
+    }
+
+    case Lot.Office: {
+      apron("pave");
+      walk();
+      roofBand(bx0, bx1, by0, 1, roofC);
+      wallBox(bx0, by0 + 1, bx1, by1, body);
+      // the curtain-wall window grid
+      for (let y = by0 + 2; y <= by1 - 1; y += 2) {
+        for (let x = bx0 + 1; x <= bx1 - 1; x += 2) {
+          p(x, y, pixHash(AX + x, AY + y, 23) % 3 === 0 ? C.windowLit : accent);
+        }
+      }
+      // glass entry
+      p(cx, by1, C.glass);
+      p(cx + 1, by1, C.glass);
+      p(cx, by1 - 1, C.glassFrame);
+      p(cx + 1, by1 - 1, C.glassFrame);
+      // planters by the door
+      p(cx - 2, H - 2, C.bush);
+      p(cx + 3, H - 2, C.bush);
+      break;
+    }
+
+    case Lot.Warehouse: {
+      apron("pave");
+      // ribbed steel shed: long roof with vertical rib lines
+      for (let y = by0; y < by0 + 3; y++) {
+        for (let x = bx0; x <= bx1; x++) {
+          p(x, y, (x - bx0) % 3 === 0 ? shade(roofC, 0.85) : roofC);
+        }
+      }
+      wallBox(bx0, by0 + 3, bx1, by1, body);
+      // two big roll doors + the dock slab
+      for (const dx of [bx0 + 2, bx1 - 3]) {
+        for (let y = by1 - 1; y <= by1; y++) {
+          p(dx, y, C.iconDark);
+          p(dx + 1, y, shade(C.iconDark, 1.8));
+        }
+      }
+      for (let x = bx0 + 1; x <= bx1 - 1; x++) p(x, by1 + 1, C.rock);
+      break;
+    }
+
+    case Lot.Motel: {
+      apron("pave");
+      // the long eave over a row of unit doors + windows
+      roofBand(bx0, bx1, by0, 2, roofC);
+      for (let x = bx0; x <= bx1; x++) p(x, by0 + 2, shade(roofC, 0.7)); // eave shadow line
+      wallBox(bx0, by0 + 2, bx1, by1, body);
+      for (let x = bx0 + 2; x + 1 <= bx1 - 1; x += 3) {
+        p(x, by1, C.door);
+        p(x + 1, by1 - 1, C.windowDark);
+      }
+      // the VACANCY pylon on the road end
+      p(bx0, H - 2, C.iconDark);
+      p(bx0, H - 3, accent);
+      p(bx0, H - 4, accent);
+      // the pool glints on the east end of the pad
+      p(bx1 - 2, H - 2, hexToRgb("#7fc4e8"));
+      p(bx1 - 1, H - 2, hexToRgb("#9fd4f0"));
+      break;
+    }
+  }
+}
+
 /**
  * Town institutions (Lot enum): flat-roofed civic/commercial boxes with
  * district variety. Multi-tile structures merge — shared edges drop their
@@ -1972,6 +2504,19 @@ function drawLotBuilding(
   lot: number,
   put: Put,
 ): void {
+  // the specials compose one front-facing building over their footprint
+  if (FACADE_LOTS.has(lot)) {
+    const { ax, ay, fw, fh } = lotRect(w, tx, ty, lot);
+    const clip: Put = (gx, gy, c) => {
+      if (gx >= x0 && gx < x0 + TILE_PX && gy >= y0 && gy < y0 + TILE_PX) put(gx, gy, c);
+    };
+    // castShadow on the footprint's south/east tiles keeps the drop shadow
+    const sameRight = tx < w.width - 1 && w.lot[t + 1] === lot;
+    const sameDown = ty < w.height - 1 && w.lot[t + w.width] === lot;
+    if (!sameDown || !sameRight) castShadow(x0, y0, put);
+    drawFacade(w, lot, ax, ay, fw, fh, clip);
+    return;
+  }
   if (lot === Lot.Playground) {
     // a mown play lot: swing frame, slide, sandbox
     for (let py = 0; py < TILE_PX; py++) {
@@ -2121,14 +2666,6 @@ function drawLotBuilding(
 
   // type-specific dressing
   switch (lot) {
-    case Lot.Chapel:
-      // white wooden chapel: steeple, arched window, door
-      put(x0 + 3, y0, accent); // belfry top
-      put(x0 + 3, y0 + 1, hexToRgb("#ffffff")); // belfry body
-      put(x0 + 3, y0 + 2, C.windowDark); // bell window
-      put(x0 + 5, y0 + 3, C.windowDark); // chapel window
-      put(x0 + 3, y0 + 5, C.door); // chapel entrance door
-      break;
     case Lot.Silo:
       // cylinder: round the corners, dome cap
       put(x0 + 2, y0, accent);
@@ -2149,38 +2686,6 @@ function drawLotBuilding(
         put(x0 + 7, y0 + 6, C.iconDark); // rear wheel
       }
       break;
-    case Lot.GasStation:
-      // Gas station canopy, pumps, posts
-      for (let px = 1; px <= 6; px++) {
-        put(x0 + px, y0 + 3, hexToRgb("#ffffff")); // white flat canopy roof
-        put(x0 + px, y0 + 4, accent); // brand color stripe
-      }
-      put(x0 + 1, y0 + 5, hexToRgb("#8c8c8c")); // support posts
-      put(x0 + 6, y0 + 5, hexToRgb("#8c8c8c"));
-      put(x0 + 3, y0 + 5, hexToRgb("#cc3333")); // gas pumps
-      put(x0 + 4, y0 + 5, hexToRgb("#3f7fbf"));
-      break;
-    case Lot.School:
-      if (!sameLeft && !sameUp) {
-        put(x0 + 1, y0, accent); // flagpole on the corner tile
-        put(x0 + 1, y0 + 1, accent);
-        // White bell belfry on schoolhouse roof
-        put(x0 + 4, y0, hexToRgb("#ffffff"));
-        put(x0 + 4, y0 + 1, C.windowDark);
-      }
-      if (!sameUp) {
-        put(x0 + 3, y0 + 3, C.windowDark);
-        put(x0 + 5, y0 + 3, C.windowDark);
-      }
-      // the school bus parked at the curb corner (§7)
-      if (!sameLeft && !sameDown) {
-        const bus = hexToRgb("#e8b820");
-        put(x0 + 4, y0 + 6, bus);
-        put(x0 + 5, y0 + 6, bus);
-        put(x0 + 6, y0 + 6, bus);
-        put(x0 + 6, y0 + 5, shade(bus, 0.8)); // cab end
-      }
-      break;
     case Lot.Diner:
       // Retro Diner: chrome panel walls, neon strip, large glass storefront
       for (let py = 3; py <= 5; py++) {
@@ -2192,140 +2697,6 @@ function drawLotBuilding(
       put(x0 + 2, y0 + 4, hexToRgb("#3f7fbf")); // big windows
       put(x0 + 5, y0 + 4, hexToRgb("#3f7fbf"));
       put(x0 + 3, y0 + 5, C.door);
-      break;
-    case Lot.Supermarket:
-      if (!sameLeft) {
-        put(x0 + 2, y0 + 1, accent);
-        put(x0 + 3, y0 + 1, accent);
-      }
-      put(x0 + 3, y0 + 5, C.windowDark);
-      put(x0 + 4, y0 + 5, C.windowDark);
-      break;
-    case Lot.Library:
-      // Classical Library: triangular pediment top, white columns, stairs
-      put(x0 + 3, y0 + 1, accent); // triangular pediment top
-      put(x0 + 4, y0 + 1, accent);
-      put(x0 + 2, y0 + 2, accent);
-      put(x0 + 5, y0 + 2, accent);
-      for (let py = 3; py <= 5; py++) {
-        put(x0 + 1, y0 + py, hexToRgb("#efe9da")); // columns
-        put(x0 + 6, y0 + py, hexToRgb("#efe9da"));
-      }
-      put(x0 + 3, y0 + 5, hexToRgb("#968e7c")); // grand entrance steps
-      put(x0 + 4, y0 + 5, hexToRgb("#968e7c"));
-      break;
-    case Lot.Sheriff:
-      put(x0 + 3, y0 + 1, accent); // the star
-      break;
-    case Lot.Church:
-      // steeple with a cross on the top (north) tile, arched window below
-      if (!sameUp) {
-        // Steeples rising
-        put(x0 + 3, y0 + 1, roof);
-        put(x0 + 4, y0 + 1, roof);
-        put(x0 + 3, y0 + 2, roof);
-        put(x0 + 4, y0 + 2, roof);
-        // Golden Cross on top
-        const gold = hexToRgb("#caa53a");
-        put(x0 + 3, y0, gold);
-        put(x0 + 2, y0, gold);
-        put(x0 + 4, y0, gold);
-        put(x0 + 3, y0 - 1 < 0 ? 0 : y0 - 1, gold);
-      } else {
-        // Sanctuary/nave stained glass
-        put(x0 + 3, y0 + 1, hexToRgb("#4477aa")); // Blue stained glass
-        put(x0 + 4, y0 + 1, hexToRgb("#4477aa"));
-        put(x0 + 3, y0 + 2, hexToRgb("#cc9933")); // Yellow stained glass
-        put(x0 + 4, y0 + 2, hexToRgb("#cc9933"));
-        // Double wooden doors
-        put(x0 + 3, y0 + 5, C.door);
-        put(x0 + 4, y0 + 5, C.door);
-      }
-      break;
-    case Lot.Bank:
-      // columned facade
-      put(x0 + 2, y0 + 2, accent);
-      put(x0 + 4, y0 + 2, accent);
-      put(x0 + 2, y0 + 3, accent);
-      put(x0 + 4, y0 + 3, accent);
-      put(x0 + 2, y0 + 4, accent);
-      put(x0 + 4, y0 + 4, accent);
-      break;
-    case Lot.PostOffice:
-      put(x0 + 2, y0 + 1, accent); // flag/sign stripe
-      put(x0 + 3, y0 + 1, accent);
-      put(x0 + 4, y0 + 5, C.windowDark);
-      break;
-    case Lot.FireStation:
-      // big garage bays
-      if (!sameLeft) {
-        put(x0 + 2, y0 + 4, accent);
-        put(x0 + 2, y0 + 5, accent);
-        put(x0 + 4, y0 + 4, accent);
-        put(x0 + 4, y0 + 5, accent);
-      }
-      break;
-    case Lot.Factory:
-      // smokestacks + sawtooth roof
-      if (!sameUp && !sameLeft) {
-        put(x0 + 1, y0, C.iconDark);
-        put(x0 + 1, y0 + 1, accent);
-      }
-      put(x0 + 2, y0 + 2, accent);
-      put(x0 + 4, y0 + 2, accent);
-      break;
-    case Lot.Motel:
-      // row of unit doors under a long eave
-      put(x0 + 2, y0 + 5, C.door);
-      put(x0 + 5, y0 + 5, C.door);
-      put(x0 + 2, y0 + 1, accent); // neon "VACANCY"
-      put(x0 + 3, y0 + 1, accent);
-      // the motel POOL (§7): a blue rectangle on the east end of the run
-      if (!sameRight) {
-        put(x0 + 5, y0 + 2, hexToRgb("#7fc4e8"));
-        put(x0 + 6, y0 + 2, hexToRgb("#9fd4f0"));
-        put(x0 + 5, y0 + 3, hexToRgb("#9fd4f0"));
-        put(x0 + 6, y0 + 3, hexToRgb("#7fc4e8"));
-      }
-      break;
-    case Lot.Office:
-      for (let wy = 2; wy <= 5; wy += 2) {
-        for (let wx = 2; wx <= 5; wx += 2) {
-          put(x0 + wx, y0 + wy, pixHash(t, wx + wy) % 2 ? accent : C.windowDark);
-        }
-      }
-      break;
-    case Lot.Cinema:
-      // the marquee: a lit strip over the entrance with a star bill
-      if (!sameLeft) {
-        put(x0 + 1, y0 + 2, accent);
-        put(x0 + 2, y0 + 2, accent);
-        put(x0 + 3, y0 + 2, accent);
-        put(x0 + 4, y0 + 2, accent);
-        put(x0 + 5, y0 + 2, accent);
-        put(x0 + 2, y0 + 3, C.crosswalk); // the poster bill
-        put(x0 + 3, y0 + 5, C.door);
-        put(x0 + 4, y0 + 5, C.door);
-      } else {
-        put(x0 + 2, y0 + 2, accent);
-        put(x0 + 4, y0 + 2, accent);
-        put(x0 + 3, y0 + 4, C.windowDark);
-      }
-      break;
-    case Lot.HighSchool:
-      // brick block with a gym wing stripe + the school sign
-      if (!sameLeft && !sameUp) {
-        put(x0 + 1, y0, accent); // flagpole
-        put(x0 + 1, y0 + 1, accent);
-      }
-      if (!sameUp) {
-        put(x0 + 3, y0 + 4, C.windowDark);
-        put(x0 + 5, y0 + 4, C.windowDark);
-      }
-      if (sameUp) {
-        put(x0 + 2, y0 + 3, accent); // the gym doors
-        put(x0 + 3, y0 + 3, accent);
-      }
       break;
     case Lot.GrainElevator: {
       const lightSteel = hexToRgb("#dce2e6");
@@ -2392,18 +2763,6 @@ function drawLotBuilding(
       put(x0 + 6, y0 + 5, bench);
       break;
     }
-    case Lot.Warehouse:
-      // long shed: roll-up bay doors + a loading dock strip
-      put(x0 + 2, y0 + 4, C.iconDark);
-      put(x0 + 2, y0 + 5, C.iconDark);
-      put(x0 + 5, y0 + 4, C.iconDark);
-      put(x0 + 5, y0 + 5, C.iconDark);
-      if (!sameDown) {
-        put(x0 + 2, y0 + 6, C.asphalt);
-        put(x0 + 3, y0 + 6, C.asphalt);
-        put(x0 + 4, y0 + 6, C.asphalt);
-      }
-      break;
     case Lot.Greenhouse:
       // glass panes with frame ribs + a sun glint
       for (let gy2 = 2; gy2 <= 5; gy2++) {

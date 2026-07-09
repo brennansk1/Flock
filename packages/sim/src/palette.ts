@@ -39,7 +39,7 @@ export const NEUTRAL_BY_DISTRICT: readonly string[] = [
   "#2e6319", // 4: Old Town — dark sage green lawn
   "#bba577", // 5: Trailer — dry dirt lot
   "#c0b7ab", // 6: Commercial — concrete commercial tint
-  "#cbd0d4", // 7: Industrial — gravel gray
+  "#7d7871", // 7: Industrial — worn asphalt yard
   "#bcae8c", // 8: ResHigh — warm paver ring
 ];
 

@@ -451,9 +451,14 @@ export function renderTown(sim: SimState, opts: RenderOpts = {}): RenderedFrame 
   const applyLighting = (rgb: RGB): RGB => {
     if (timeOfDay === "day") return rgb;
 
-    // Check if color is a glowing light source that bypasses lighting masks
+    // Check if color is a glowing light source that bypasses lighting masks.
+    // At night windowDark is remapped to a warm gold — without bypassing it
+    // too, the "glowing" windows were being multiplied down to mud (the
+    // houses-don't-glow bug).
     const isLit = (
       (rgb[0] === C.windowLit[0] && rgb[1] === C.windowLit[1] && rgb[2] === C.windowLit[2]) ||
+      (timeOfDay === "night" &&
+        rgb[0] === C.windowDark[0] && rgb[1] === C.windowDark[1] && rgb[2] === C.windowDark[2]) ||
       (rgb[0] === C.iconAccent[0] && rgb[1] === C.iconAccent[1] && rgb[2] === C.iconAccent[2]) ||
       (rgb[0] === 255 && rgb[1] === 255 && rgb[2] === 255) || // white headlight
       (rgb[0] === 255 && rgb[1] === 51 && rgb[2] === 51)      // red taillight

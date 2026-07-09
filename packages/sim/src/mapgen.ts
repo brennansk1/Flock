@@ -543,7 +543,55 @@ function enforceRoadFrontage(w: World): void {
 function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
   const width = w.width;
 
-  /** stamp a wLots×hLots building if every covered tile is a citizen lot in `district` */
+  /** is the wLots×hLots footprint at (x,y) all-citizen, in-district, lot-free? */
+  const fits = (x: number, y: number, wLots: number, hLots: number, district: number): boolean => {
+    for (let dy = 0; dy < hLots; dy++) {
+      for (let dx = 0; dx < wLots; dx++) {
+        const xx = x + dx;
+        const yy = y + dy;
+        if (xx < 1 || yy < 1 || xx >= width - 1 || yy >= w.height - 1) return false;
+        const t = yy * width + xx;
+        if (w.terrain[t] !== Terrain.Citizen || w.district[t] !== district || w.lot[t] !== 0)
+          return false;
+      }
+    }
+    return true;
+  };
+
+  /** commercial frontage: the footprint touches a road on ANY side */
+  const fronted = (x: number, y: number, wLots: number, hLots: number): boolean => {
+    for (let dx = 0; dx < wLots; dx++) {
+      const below = (y + hLots) * width + x + dx;
+      const above = (y - 1) * width + x + dx;
+      if (y + hLots < w.height && w.terrain[below] === Terrain.Road) return true;
+      if (y - 1 >= 0 && w.terrain[above] === Terrain.Road) return true;
+    }
+    for (let dy = 0; dy < hLots; dy++) {
+      const left = (y + dy) * width + x - 1;
+      const right = (y + dy) * width + x + wLots;
+      if (x - 1 >= 0 && w.terrain[left] === Terrain.Road) return true;
+      if (x + wLots < width && w.terrain[right] === Terrain.Road) return true;
+    }
+    return false;
+  };
+
+  const claim = (x: number, y: number, wLots: number, hLots: number, lotKind: number, workers: number): void => {
+    for (let dy = 0; dy < hLots; dy++) {
+      for (let dx = 0; dx < wLots; dx++) {
+        const t = (y + dy) * width + x + dx;
+        w.lot[t] = lotKind;
+        w.pop[t] = Math.min(15, Math.max(2, Math.floor(workers / (wLots * hLots))));
+      }
+    }
+  };
+
+  /**
+   * Stamp a wLots×hLots building on a road-fronting, in-district footprint.
+   * `scan=true` (keystones/anchors) enumerates EVERY valid placement and
+   * rng-picks one — random throws almost never hit the couple of legal
+   * anchor spots in a 25-tile downtown, which quietly shrank every civic
+   * anchor to 1×1. Flavor lots keep cheap random sampling.
+   */
   const stamp = (
     lotKind: number,
     wLots: number,
@@ -551,50 +599,25 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
     district: number,
     workers: number,
     tries = 60,
+    scan = false,
   ): boolean => {
+    if (scan) {
+      const spots: Array<[number, number]> = [];
+      for (let y = 1; y < w.height - 1; y++) {
+        for (let x = 1; x < width - 1; x++) {
+          if (fits(x, y, wLots, hLots, district) && fronted(x, y, wLots, hLots)) spots.push([x, y]);
+        }
+      }
+      if (spots.length === 0) return false;
+      const [x, y] = spots[nextRange(rng, spots.length)]!;
+      claim(x, y, wLots, hLots, lotKind, workers);
+      return true;
+    }
     for (let attempt = 0; attempt < tries; attempt++) {
       const x = town.cx - town.r + nextRange(rng, town.r * 2);
       const y = town.cy - town.r + nextRange(rng, town.r * 2);
-      let ok = true;
-      for (let dy = 0; dy < hLots && ok; dy++) {
-        for (let dx = 0; dx < wLots && ok; dx++) {
-          const xx = x + dx;
-          const yy = y + dy;
-          if (xx < 0 || yy < 0 || xx >= width || yy >= w.height) ok = false;
-          else {
-            const t = yy * width + xx;
-            if (w.terrain[t] !== Terrain.Citizen || w.district[t] !== district || w.lot[t] !== 0)
-              ok = false;
-          }
-        }
-      }
-      // commercial frontage: must touch a road on ANY side (the old check
-      // only looked north/south, silently rejecting every lot that fronted
-      // a vertical street — half the addressable frontage in a small plat)
-      if (ok) {
-        let frontage = false;
-        for (let dx = 0; dx < wLots && !frontage; dx++) {
-          const below = (y + hLots) * width + x + dx;
-          const above = (y - 1) * width + x + dx;
-          if (y + hLots < w.height && w.terrain[below] === Terrain.Road) frontage = true;
-          if (y - 1 >= 0 && w.terrain[above] === Terrain.Road) frontage = true;
-        }
-        for (let dy = 0; dy < hLots && !frontage; dy++) {
-          const left = (y + dy) * width + x - 1;
-          const right = (y + dy) * width + x + wLots;
-          if (x - 1 >= 0 && w.terrain[left] === Terrain.Road) frontage = true;
-          if (x + wLots < width && w.terrain[right] === Terrain.Road) frontage = true;
-        }
-        if (!frontage) ok = false;
-      }
-      if (!ok) continue;
-      for (let dy = 0; dy < hLots; dy++) {
-        for (let dx = 0; dx < wLots; dx++) {
-          const t = (y + dy) * width + x + dx;
-          w.lot[t] = lotKind;
-          w.pop[t] = Math.min(15, Math.max(2, Math.floor(workers / (wLots * hLots))));
-        }
-      }
+      if (!fits(x, y, wLots, hLots, district) || !fronted(x, y, wLots, hLots)) continue;
+      claim(x, y, wLots, hLots, lotKind, workers);
       return true;
     }
     return false;
@@ -613,7 +636,6 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
     hLots: number,
     district: number,
     workers: number,
-    tries = 90,
   ): boolean => {
     // sides in preference order: S (facade faces the viewer), E, W, N
     const SIDES: Array<[number, number]> = [
@@ -622,62 +644,50 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
       [-1, 0],
       [0, -1],
     ];
-    for (let attempt = 0; attempt < tries; attempt++) {
-      const x = town.cx - town.r + nextRange(rng, town.r * 2);
-      const y = town.cy - town.r + nextRange(rng, town.r * 2);
-      let ok = true;
-      for (let dy = 0; dy < hLots && ok; dy++) {
-        for (let dx = 0; dx < wLots && ok; dx++) {
-          const xx = x + dx;
-          const yy = y + dy;
-          if (xx < 1 || yy < 1 || xx >= width - 1 || yy >= w.height - 1) ok = false;
-          else {
-            const t = yy * width + xx;
-            if (w.terrain[t] !== Terrain.Citizen || w.district[t] !== district || w.lot[t] !== 0)
-              ok = false;
+    /** valid strip for footprint (x,y) on side s, or null */
+    const stripFor = (x: number, y: number, sdx: number, sdy: number): number[] | null => {
+      const span = sdy !== 0 ? wLots : hLots;
+      const strip: number[] = [];
+      let roadTouch = 0;
+      for (let i = 0; i < span; i++) {
+        const sx = sdy !== 0 ? x + i : sdx > 0 ? x + wLots : x - 1;
+        const sy = sdx !== 0 ? y + i : sdy > 0 ? y + hLots : y - 1;
+        if (sx < 1 || sy < 1 || sx >= width - 1 || sy >= w.height - 1) return null;
+        const st = sy * width + sx;
+        if (w.terrain[st] !== Terrain.Citizen || w.lot[st] !== 0) return null;
+        strip.push(st);
+        const beyond = (sy + sdy) * width + (sx + sdx);
+        if (beyond >= 0 && beyond < w.terrain.length && w.terrain[beyond] === Terrain.Road)
+          roadTouch++;
+      }
+      // jittered plats fray corners: a majority of the strip on asphalt is
+      // a real curb cut; zero road contact is a parking lot to nowhere
+      return roadTouch >= (span + 1) >> 1 ? strip : null;
+    };
+    // full scan (random throws can't find the couple of legal spots in a
+    // small district); candidates grouped by side so south frontage wins
+    const tiers: Array<Array<{ x: number; y: number; strip: number[] }>> = [[], [], [], []];
+    for (let y = 1; y < w.height - 1; y++) {
+      for (let x = 1; x < width - 1; x++) {
+        if (!fits(x, y, wLots, hLots, district)) continue;
+        for (let si = 0; si < SIDES.length; si++) {
+          const strip = stripFor(x, y, SIDES[si]![0], SIDES[si]![1]);
+          if (strip) {
+            tiers[si]!.push({ x, y, strip });
+            break;
           }
         }
       }
-      if (!ok) continue;
-      for (const [sdx, sdy] of SIDES) {
-        // the strip: the row/col hugging the footprint on this side
-        const span = sdy !== 0 ? wLots : hLots;
-        const strip: number[] = [];
-        let stripOk = true;
-        let roadTouch = 0;
-        for (let i = 0; i < span && stripOk; i++) {
-          const sx = sdy !== 0 ? x + i : sdx > 0 ? x + wLots : x - 1;
-          const sy = sdx !== 0 ? y + i : sdy > 0 ? y + hLots : y - 1;
-          if (sx < 1 || sy < 1 || sx >= width - 1 || sy >= w.height - 1) {
-            stripOk = false;
-            break;
-          }
-          const st = sy * width + sx;
-          if (w.terrain[st] !== Terrain.Citizen || w.lot[st] !== 0) {
-            stripOk = false;
-            break;
-          }
-          strip.push(st);
-          const beyond = (sy + sdy) * width + (sx + sdx);
-          if (beyond >= 0 && beyond < w.terrain.length && w.terrain[beyond] === Terrain.Road)
-            roadTouch++;
-        }
-        // jittered plats fray corners: a majority of the strip on asphalt is
-        // a real curb cut; zero road contact is a parking lot to nowhere
-        if (!stripOk || roadTouch < (span + 1) >> 1) continue;
-        for (let dy = 0; dy < hLots; dy++) {
-          for (let dx = 0; dx < wLots; dx++) {
-            const t = (y + dy) * width + x + dx;
-            w.lot[t] = lotKind;
-            w.pop[t] = Math.min(15, Math.max(2, Math.floor(workers / (wLots * hLots))));
-          }
-        }
-        for (const st of strip) {
-          w.lot[st] = Lot.Parking;
-          w.pop[st] = 0;
-        }
-        return true;
+    }
+    for (const tier of tiers) {
+      if (tier.length === 0) continue;
+      const pick = tier[nextRange(rng, tier.length)]!;
+      claim(pick.x, pick.y, wLots, hLots, lotKind, workers);
+      for (const st of pick.strip) {
+        w.lot[st] = Lot.Parking;
+        w.pop[st] = 0;
       }
+      return true;
     }
     return false;
   };
@@ -707,18 +717,27 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
     districts: number[],
     workers: number,
   ): void => {
+    // shrink gracefully: full size, then 2×2 / 2×1 — a smaller anchor with a
+    // real footprint beats collapsing straight to a 1×1 nobody can read
+    const sizes: Array<[number, number]> = [[wLots, hLots]];
+    if (wLots * hLots > 4) sizes.push([2, 2]);
+    if (wLots * hLots > 2) sizes.push([2, 1]);
     // front-lot anchors try the setback-with-frontage-parking placement first
     if (FRONT_LOT.has(lotKind)) {
-      for (const d of districts) {
-        if (stampFront(lotKind, wLots, hLots, d, workers)) return;
+      for (const [sw, sh] of sizes) {
+        for (const d of districts) {
+          if (stampFront(lotKind, sw, sh, d, workers)) return;
+        }
       }
     }
-    for (const d of districts) {
-      if (stamp(lotKind, wLots, hLots, d, workers)) return;
+    for (const [sw, sh] of sizes) {
+      for (const d of districts) {
+        if (stamp(lotKind, sw, sh, d, workers, 60, true)) return;
+      }
     }
     // shrink to 1×1 and try again before brute force
     for (const d of districts) {
-      if (stamp(lotKind, 1, 1, d, workers)) return;
+      if (stamp(lotKind, 1, 1, d, workers, 60, true)) return;
     }
     // force-place: NEAREST road-fronting, lot-free citizen tile to the town
     // center (the old raster scan started at the map corner, so a grocery
@@ -768,7 +787,7 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
     }
     for (const [aw, ah] of sizes) {
       for (const d of districts) {
-        if (stamp(lotKind, aw, ah, d, workers)) return;
+        if (stamp(lotKind, aw, ah, d, workers, 60, true)) return;
       }
     }
     // deterministic last resort: random throws rarely hit the few free
@@ -803,10 +822,10 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
   // KEYSTONES first — they claim ground before the flavor lots do, and they
   // are BIG: the civic anchors read at map scale (§2 rev. 3).
   keystone(Lot.Supermarket, 3, 2, [D.Commercial, D.Downtown], 12); // the grocery
-  keystone(Lot.Sheriff, 2, 1, [D.Downtown, D.Commercial], 6); // the police station
+  keystone(Lot.Sheriff, 2, 2, [D.Downtown, D.Commercial], 6); // the police station
   keystone(Lot.School, 3, 2, [D.College, D.Suburbs, D.ResHigh], 16); // elementary
   keystone(Lot.HighSchool, 3, 2, [D.College, D.Suburbs, D.ResHigh], 20);
-  keystone(Lot.Church, 1, 2, [D.OldTown, D.Suburbs, D.Downtown], 6);
+  keystone(Lot.Church, 2, 2, [D.OldTown, D.Suburbs, D.Downtown], 6);
   keystone(Lot.FireStation, 2, 2, [D.Downtown, D.Commercial], 8);
   keystone(Lot.GasStation, 2, 1, [D.Commercial, D.Trailer], 4);
 
@@ -814,8 +833,8 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
   // bank, post office — ANCHORED with size + district fallbacks so they
   // actually exist (pre-sweep they missed more seeds than they hit)
   anchor(Lot.Office, [[2, 2], [2, 1], [1, 1]], [D.Downtown, D.Commercial], 16);
-  anchor(Lot.Bank, [[1, 1]], [D.Downtown, D.Commercial], 6);
-  anchor(Lot.PostOffice, [[1, 1]], [D.Downtown, D.Commercial, D.OldTown], 5);
+  anchor(Lot.Bank, [[2, 1], [1, 1]], [D.Downtown, D.Commercial], 6);
+  anchor(Lot.PostOffice, [[2, 1], [1, 1]], [D.Downtown, D.Commercial, D.OldTown], 5);
   anchor(Lot.Diner, [[1, 1]], [D.Downtown, D.Commercial, D.OldTown], 6);
   for (let i = 0; i < 3; i++) stamp(Lot.Shop, 1, 1, D.Downtown, 4 + nextRange(rng, 3));
   // the town green: a civic square in the heart of downtown
@@ -834,7 +853,7 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
   stamp(Lot.GasStation, 1, 1, D.Industrial, 3);
   stamp(Lot.Substation, 1, 1, D.Industrial, 1);
   // College quarter
-  anchor(Lot.Library, [[1, 1]], [D.College, D.Downtown, D.Suburbs], 5);
+  anchor(Lot.Library, [[2, 1], [1, 1]], [D.College, D.Downtown, D.Suburbs], 5);
   stamp(Lot.Shop, 1, 1, D.College, 4);
   stamp(Lot.BallField, 2, 2, D.College, 1, 70); // the school ballpark
   // Old Town: chapel + diner + the old churchyard
@@ -843,7 +862,7 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
   stamp(Lot.Cemetery, 2, 2, D.OldTown, 1, 70);
   // Suburbs (low-density): corner shops, a second church, parks, playground
   stamp(Lot.Shop, 1, 1, D.Suburbs, 4);
-  stamp(Lot.Church, 1, 2, D.Suburbs, 5);
+  stamp(Lot.Church, 2, 2, D.Suburbs, 5);
   stamp(Lot.Park, 2, 2, D.Suburbs, 1, 80);
   stamp(Lot.Playground, 1, 1, D.Suburbs, 1, 70);
   stamp(Lot.Playground, 1, 1, D.ResHigh, 1, 70);
@@ -935,6 +954,19 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
       }
     }
   }
+  // a parking apron is only real if cars can reach it: the paved tile must
+  // itself touch a road orthogonally. Front (south) neighbors are tried
+  // first so the lot lands where the player is looking.
+  const touchesRoad = (n: number): boolean => {
+    const nx = n % width;
+    const ny = (n / width) | 0;
+    return (
+      (nx > 0 && w.terrain[n - 1] === Terrain.Road) ||
+      (nx < width - 1 && w.terrain[n + 1] === Terrain.Road) ||
+      (ny > 0 && w.terrain[n - width] === Terrain.Road) ||
+      (ny < w.height - 1 && w.terrain[n + width] === Terrain.Road)
+    );
+  };
   for (let t = 0; t < w.terrain.length; t++) {
     const lot = w.lot[t]!;
     if (!wantsParking.has(lot)) continue;
@@ -952,7 +984,7 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
     ] as [number, number][]) {
       if (nx < 0 || ny < 0 || nx >= width || ny >= w.height) continue;
       const n = ny * width + nx;
-      if (w.terrain[n] === Terrain.Citizen && w.lot[n] === 0) {
+      if (w.terrain[n] === Terrain.Citizen && w.lot[n] === 0 && touchesRoad(n)) {
         w.lot[n] = Lot.Parking;
         w.pop[n] = 0;
         parkCount.set(key, (parkCount.get(key) ?? 0) + 1);
@@ -977,24 +1009,33 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
       }
     }
     if (has || anchor < 0) continue;
-    const ax = anchor % width;
-    const ay = (anchor / width) | 0;
-    for (const [nx, ny] of [
-      [ax, ay + 1],
-      [ax + 1, ay],
-      [ax, ay - 1],
-      [ax - 1, ay],
-    ] as [number, number][]) {
-      if (nx < 1 || ny < 1 || nx >= width - 1 || ny >= w.height - 1) continue;
-      const n = ny * width + nx;
-      const tr = w.terrain[n];
-      if ((tr === Terrain.Citizen && w.lot[n] === 0) || tr === Terrain.Grass) {
-        w.terrain[n] = Terrain.Citizen;
-        if (w.district[n] === 0) w.district[n] = w.district[anchor]!;
-        w.lot[n] = Lot.Parking;
-        w.pop[n] = 0;
-        break;
+    // scan the WHOLE footprint's neighbors (south sides first across all
+    // tiles), and only pave ground that itself touches a road
+    const candidates: number[] = [];
+    for (let t = anchor; t < w.lot.length; t++) {
+      if (w.lot[t] !== lotKind) continue;
+      const ax = t % width;
+      const ay = (t / width) | 0;
+      for (const [nx, ny] of [
+        [ax, ay + 1],
+        [ax + 1, ay],
+        [ax, ay - 1],
+        [ax - 1, ay],
+      ] as [number, number][]) {
+        if (nx < 1 || ny < 1 || nx >= width - 1 || ny >= w.height - 1) continue;
+        const n = ny * width + nx;
+        const tr = w.terrain[n];
+        if (((tr === Terrain.Citizen && w.lot[n] === 0) || tr === Terrain.Grass) && touchesRoad(n)) {
+          candidates.push(n);
+        }
       }
+    }
+    const pick = candidates[0];
+    if (pick !== undefined) {
+      w.terrain[pick] = Terrain.Citizen;
+      if (w.district[pick] === 0) w.district[pick] = w.district[anchor]!;
+      w.lot[pick] = Lot.Parking;
+      w.pop[pick] = 0;
     }
   }
 

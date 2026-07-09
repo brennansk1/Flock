@@ -290,11 +290,14 @@ const DISTRICT_WALLS: Record<number, RGB[]> = {
     hexToRgb("#ddd2bd"), // warm beige
     hexToRgb("#e8e0d0"), // cream
     hexToRgb("#d6cdc0"), // grey-beige
+    hexToRgb("#c9d2c2"), // sage siding
+    hexToRgb("#d9c9b0"), // butter tan
   ],
   2: [ // College
     hexToRgb("#cbbca8"), // warm tan
     hexToRgb("#b0a490"), // brown tan
     hexToRgb("#dcd3c5"), // light tan
+    hexToRgb("#c2b49e"), // oat
   ],
   3: [ // Downtown
     hexToRgb("#ddd2bd"),
@@ -305,16 +308,20 @@ const DISTRICT_WALLS: Record<number, RGB[]> = {
     hexToRgb("#c8cbb4"), // sage/grey
     hexToRgb("#bca89a"), // weathered wood
     hexToRgb("#efe9da"), // clean white
+    hexToRgb("#c4b4c2"), // faded lilac (painted lady)
+    hexToRgb("#b2bcc0"), // slate blue-grey
   ],
   5: [ // Trailer
     hexToRgb("#cbd6c8"), // pale green
     hexToRgb("#c8cbd6"), // pale blue
     hexToRgb("#d6cac8"), // pale pinkish
+    hexToRgb("#d8d4c4"), // sun-bleached cream
   ],
   8: [ // ResHigh
     hexToRgb("#c8b0a0"), // reddish brick
     hexToRgb("#b8ab90"), // warm stone
     hexToRgb("#dcd2be"), // warm beige
+    hexToRgb("#b5a493"), // brownstone
   ]
 };
 
@@ -1861,6 +1868,16 @@ function drawTile(
         put(x0 + 1, y0 + 1, C.iconDark); // lamp post
         put(x0 + 1, y0, C.windowLit); // warm head
       }
+      // downtown street furniture on the off-lamp rhythm: a bench, then a
+      // planter — main-street dressing without adding new hues
+      if (lit && tx % 4 === 3) {
+        put(x0 + 4, y0 + 1, C.plank); // bench
+        put(x0 + 5, y0 + 1, C.plankDark);
+      }
+      if (lit && tx % 8 === 6) {
+        put(x0 + 2, y0 + 1, C.rockShade); // planter pot
+        put(x0 + 2, y0, C.bush); // its shrub
+      }
     }
     if (ty < w.height - 1 && roadSide(t + w.width)) {
       for (let px = 0; px < TILE_PX; px++) {
@@ -1954,6 +1971,42 @@ function drawTile(
       n >= 0 && n < w.terrain.length && w.terrain[n] === Terrain.Citizen && w.lot[n] === 0 && w.pop[n]! > 0 && w.pop[n]! < 3;
     if (tx > 0 && yard(t - 1)) for (let fy = 1; fy < TILE_PX; fy += 2) put(x0, y0 + fy, C.fence);
     if (ty > 0 && yard(t - w.width)) for (let fx = 1; fx < TILE_PX; fx += 2) put(x0 + fx, y0, C.fence);
+  } else {
+    // EMPTY YARD (pop 0): still somebody's back lot, never a bare hole —
+    // mown stripes, and a shade tree or a bit of clutter on most of them
+    const roll = pixHash(t, 5, 97) % 10;
+    for (let py = 1; py < TILE_PX; py += 3) {
+      for (let px = 0; px < TILE_PX; px++) {
+        if ((px + py) % 2 === 0) put(x0 + px, y0 + py, shade(C.meadow, 0.97));
+      }
+    }
+    if (roll < 4) {
+      // back-lot shade tree
+      const hx = 2 + (pixHash(t, 6, 97) % 4);
+      const hy = 2 + (pixHash(t, 7, 97) % 4);
+      put(x0 + hx, y0 + hy, C.canopy);
+      put(x0 + hx + 1, y0 + hy, C.canopyLight);
+      put(x0 + hx, y0 + hy + 1, C.canopyDark);
+      put(x0 + hx + 1, y0 + hy + 1, C.canopy);
+      put(x0 + hx + 2, y0 + hy + 2, C.shadow);
+    } else if (roll < 6) {
+      // clothesline between two posts
+      put(x0 + 2, y0 + 3, C.trunk);
+      put(x0 + 6, y0 + 3, C.trunk);
+      put(x0 + 3, y0 + 3, C.crosswalk);
+      put(x0 + 4, y0 + 3, hexToRgb("#9fd4f0"));
+      put(x0 + 5, y0 + 3, C.crosswalk);
+    } else if (roll < 8) {
+      // wildflower corner
+      put(x0 + 2 + (pixHash(t, 8, 97) % 3), y0 + 2, C.flowerW);
+      put(x0 + 3, y0 + 5, C.flowerY);
+      put(x0 + 5, y0 + 4, C.bush);
+    }
+    // fences against neighboring yards keep the parcel read
+    const yard0 = (n: number): boolean =>
+      n >= 0 && n < w.terrain.length && w.terrain[n] === Terrain.Citizen && w.lot[n] === 0 && w.pop[n]! < 3;
+    if (tx > 0 && yard0(t - 1)) for (let fy = 1; fy < TILE_PX; fy += 2) put(x0, y0 + fy, C.fence);
+    if (ty > 0 && yard0(t - w.width)) for (let fx = 1; fx < TILE_PX; fx += 2) put(x0 + fx, y0, C.fence);
   }
 }
 
@@ -3103,10 +3156,12 @@ function drawHouse(
   castShadow(x0, y0, put);
   const houseLit = currentTimeOfDay === "night" && pixHash(t, 42) % 10 < 6;
   const houseWindow = houseLit ? C.windowLit : C.windowDark;
+  // per-house roof tone variance — sun-faded and re-shingled roofs mixed in
+  const roofVar = [0.92, 1, 1.07][pixHash(t, 35) % 3]!;
   const roof =
     currentSeason === "winter" ? hexToRgb("#ffffff")
     : adobe ? [hexToRgb("#b08252"), hexToRgb("#9a6e44")][pixHash(t, 40) % 2]!
-    : ROOFS[district % ROOFS.length]!;
+    : shade(ROOFS[district % ROOFS.length]!, roofVar);
   const flip = pixHash(t, 1) & 1; // left/right flip
 
   const ADOBE_WALLS = [hexToRgb("#d8b88a"), hexToRgb("#c9a877"), hexToRgb("#e2cba0")];
@@ -3286,6 +3341,24 @@ function drawHouse(
       put(gxr + (flip ? 1 : 0), y0 + 5, garage);
       put(gxr, y0 + 6, shade(garage, 0.75)); // the bay door
       put(gxr + (flip ? 1 : 0), y0 + 6, shade(garage, 0.75));
+      // driveway basketball hoop on half the garages
+      if (pixHash(t, 9, 53) % 2 === 0) {
+        put(gxr, y0 + 4, C.crosswalk); // backboard
+        put(gxr, y0 + 5, hexToRgb("#e08a2a")); // the rim
+      }
+    }
+    // DORMER: a lit attic window punched through some roofs
+    if (pixHash(t, 11, 53) % 4 === 0) {
+      put(x0 + (flip ? 2 : 4), y0 + 1, houseWindow);
+    }
+    // FRONT PORCH deck under some doors; a flower bed for the rest
+    if (pixHash(t, 12, 53) % 3 === 0) {
+      put(x0 + doorX - 1, y0 + 6, C.plank);
+      put(x0 + doorX, y0 + 6, C.plank);
+      put(x0 + doorX + 1, y0 + 6, C.plankDark);
+    } else if (pixHash(t, 13, 53) % 3 === 0) {
+      put(x0 + 2, y0 + 6, C.flowerY);
+      put(x0 + 3, y0 + 6, C.bush);
     }
     const winX = flip ? 4 : 2;
     put(x0 + winX, y0 + 5, houseWindow);

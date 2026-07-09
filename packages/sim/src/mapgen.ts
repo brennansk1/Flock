@@ -347,6 +347,7 @@ export function generateWorld(seed: number, width: number, height: number, opts:
     connectRoadComponents(w); // stitch orphan road islands into the main grid
     pruneRoadStubs(w); // erase whatever still leads nowhere
     pruneAllDeadEnds(w); // …including dirt lanes and orphaned spurs
+    carveBlockAlleys(w); // dirt service alleys thread the deep block interiors
     rollLots(w, rng);
     enforceRoadFrontage(w); // houses FRONT the street; interiors are yards
     infillToFloor(w, rng); // yards become modest homes until the pop floor holds
@@ -2480,6 +2481,86 @@ function placeNature(
         if (((n * 2654435761) >>> 0) % 3 === 0) w.terrain[n] = Terrain.Woods;
       }
     }
+  }
+}
+
+/**
+ * BLOCK ALLEYS (§2 rev. 6): the widened blocks left interiors that read as
+ * holes. A real small town threads them with dirt service alleys — any
+ * corridor of non-fronting yard tiles that connects two streets becomes an
+ * alley, and the yards on either side become alley-served (garages, sheds,
+ * homes can front them via enforceRoadFrontage's Dirt clause). Corridors
+ * next to an existing road or alley are skipped so alleys never run
+ * double-wide.
+ */
+function carveBlockAlleys(w: World): void {
+  const { width, height } = w;
+  const road = (t: number): boolean =>
+    w.terrain[t] === Terrain.Road || w.terrain[t] === Terrain.Dirt;
+  const interior = (t: number): boolean => {
+    if (w.terrain[t] !== Terrain.Citizen || w.lot[t] !== 0) return false;
+    const x = t % width;
+    const y = (t / width) | 0;
+    // not already street-served on any side
+    if (x > 0 && road(t - 1)) return false;
+    if (x < width - 1 && road(t + 1)) return false;
+    if (y > 0 && road(t - width)) return false;
+    if (y < height - 1 && road(t + width)) return false;
+    return true;
+  };
+  const carved = new Set<number>();
+  // horizontal corridors first (blocks are wider than tall), then vertical
+  for (const axis of [0, 1] as const) {
+    for (let b = 2; b < (axis === 0 ? height : width) - 2; b++) {
+      for (let a = 2; a < (axis === 0 ? width : height) - 2; a++) {
+        const at = (ax: number): number => (axis === 0 ? b * width + ax : ax * width + b);
+        if (!interior(at(a))) continue;
+        // walk the corridor to its ends
+        let lo = a;
+        while (lo - 1 >= 1 && interior(at(lo - 1))) lo--;
+        let hi = a;
+        while (hi + 1 < (axis === 0 ? width : height) - 1 && interior(at(hi + 1))) hi++;
+        const len = hi - lo + 1;
+        // both ends must open onto a street (through the non-interior tile)
+        const before = at(lo - 1);
+        const after = at(hi + 1);
+        const opens = (t: number): boolean =>
+          road(t) || (w.terrain[t] === Terrain.Citizen && w.lot[t] === 0);
+        if (len >= 2 && len <= 12 && opens(before) && opens(after)) {
+          for (let i = lo; i <= hi; i++) {
+            w.terrain[at(i)] = Terrain.Dirt;
+            carved.add(at(i));
+          }
+          // punch the throat tiles too when they're yards, so the alley
+          // actually meets the pavement instead of stopping one short
+          for (const throat of [before, after]) {
+            if (w.terrain[throat] === Terrain.Citizen && w.lot[throat] === 0 && w.pop[throat] === 0) {
+              w.terrain[throat] = Terrain.Dirt;
+              carved.add(throat);
+            }
+          }
+        }
+        a = hi; // skip past this corridor
+      }
+    }
+  }
+  // eat back alley stubs that ended on a yard instead of pavement — only
+  // tiles THIS pass carved (never pre-existing farm/landmark lanes)
+  for (let pass = 0; pass < 8; pass++) {
+    let removed = 0;
+    for (const t of carved) {
+      if (w.terrain[t] !== Terrain.Dirt) continue;
+      let deg = 0;
+      for (const n of [t - 1, t + 1, t - width, t + width]) {
+        if (n >= 0 && n < w.terrain.length && road(n)) deg++;
+      }
+      if (deg <= 1) {
+        w.terrain[t] = Terrain.Citizen;
+        carved.delete(t);
+        removed++;
+      }
+    }
+    if (removed === 0) break;
   }
 }
 

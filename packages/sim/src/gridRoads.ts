@@ -164,6 +164,28 @@ export function traceGridRoads(w: World, rng: RngState, town: GridTownShape): St
     }
   }
 
+  // ---- MID-BLOCK LANES: some wide blocks get a narrow residential lane ----
+  // §2 rev. 6 widened the blocks; a real plat subdivides the deep ones so
+  // more houses fit. About half the block gaps ≥7 rows earn a named Lane
+  // through the middle, clipped to the town like any avenue.
+  const laneRows = [...avenueSpans.map((a) => a.at), town.highwayY, town.highwayY + 1].sort(
+    (a, b) => a - b,
+  );
+  for (let i = 0; i + 1 < laneRows.length; i++) {
+    const a = laneRows[i]!;
+    const b = laneRows[i + 1]!;
+    if (b - a < 7 || nextRange(rng, 2) === 0) continue;
+    const y = (a + b) >> 1;
+    const ext = rowExtent(town, w, y);
+    if (!ext) continue;
+    const from = ext[0] + 1 + nextRange(rng, 4);
+    const to = ext[1] - 1 - nextRange(rng, 4);
+    if (to - from < 5) continue;
+    paintRun(w, 0, y, from, to);
+    streets.push({ name: freshLabel(rng, used, "lane"), axis: 0, at: y, from, to });
+    avenueSpans.push({ at: y, from, to });
+  }
+
   // ---- CUL-DE-SACS: dead-end courts poking into residential blocks --------
   // A stub street runs 2–3 tiles off an avenue into the block interior and
   // ends in a bulb (a plus of road) that homes will ring once zoning runs.

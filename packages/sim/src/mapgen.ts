@@ -830,6 +830,33 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
   keystone(Lot.FireStation, 2, 2, [D.Downtown, D.Commercial], 8);
   keystone(Lot.GasStation, 2, 1, [D.Commercial, D.Trailer], 4);
 
+  // COMPANION TILES: some anchors keep a sidekick lot (§7 note 3). The
+  // elementary school gets its playground on an adjacent free lot; the
+  // high school prefers a ballfield.
+  const companion = (hostKind: number, mateKind: number, mateWorkers: number): void => {
+    for (let t = 0; t < w.lot.length; t++) {
+      if (w.lot[t] !== hostKind) continue;
+      const x = t % width;
+      const y = (t / width) | 0;
+      for (const [nx, ny] of [
+        [x + 1, y],
+        [x - 1, y],
+        [x, y - 1],
+        [x, y + 1],
+      ] as [number, number][]) {
+        if (nx < 1 || ny < 1 || nx >= width - 1 || ny >= w.height - 1) continue;
+        const n = ny * width + nx;
+        if (w.terrain[n] === Terrain.Citizen && w.lot[n] === 0) {
+          w.lot[n] = mateKind;
+          w.pop[n] = mateWorkers;
+          return;
+        }
+      }
+    }
+  };
+  companion(Lot.School, Lot.Playground, 1);
+  companion(Lot.HighSchool, Lot.BallField, 1);
+
   // Downtown: civic core. Every real Main Street has a town hall (landmark),
   // bank, post office — ANCHORED with size + district fallbacks so they
   // actually exist (pre-sweep they missed more seeds than they hit)

@@ -2059,6 +2059,72 @@ function lotRect(
   return { ax, ay, fw, fh };
 }
 
+/**
+ * A real parking lot composed over the whole Parking strip: asphalt with
+ * wear, a concrete curb along the building side, painted bays facing the
+ * building, a clear aisle, open on the road side. Bays stay empty — cars
+ * are a moving system (they drive in and park), never static dressing.
+ */
+function drawParkingLot(
+  w: World,
+  ax: number,
+  ay: number,
+  fw: number,
+  fh: number,
+  clip: Put,
+): void {
+  const W = fw * TILE_PX;
+  const H = fh * TILE_PX;
+  const AX = ax * TILE_PX;
+  const AY = ay * TILE_PX;
+  const p = (x: number, y: number, c: RGB): void => clip(AX + x, AY + y, c);
+  // which side has the street? bays face the OTHER way (the building)
+  const counts = [0, 0, 0, 0]; // S, N, E, W
+  for (let dx = 0; dx < fw; dx++) {
+    if (ay + fh < w.height && w.terrain[(ay + fh) * w.width + ax + dx] === Terrain.Road) counts[0]!++;
+    if (ay - 1 >= 0 && w.terrain[(ay - 1) * w.width + ax + dx] === Terrain.Road) counts[1]!++;
+  }
+  for (let dy = 0; dy < fh; dy++) {
+    if (ax + fw < w.width && w.terrain[(ay + dy) * w.width + ax + fw] === Terrain.Road) counts[2]!++;
+    if (ax - 1 >= 0 && w.terrain[(ay + dy) * w.width + ax - 1] === Terrain.Road) counts[3]!++;
+  }
+  let side = 0;
+  for (let i = 1; i < 4; i++) if (counts[i]! > counts[side]!) side = i;
+  const vert = side <= 1; // depth runs along y
+  const DEPTH = vert ? H : W;
+  const LAT = vert ? W : H;
+  // (l, d) → canvas px, with d=0 on the building side and d=DEPTH-1 at the road
+  const at = (l: number, d: number): [number, number] =>
+    vert ? [l, side === 0 ? d : DEPTH - 1 - d] : [side === 2 ? d : DEPTH - 1 - d, l];
+  // asphalt base with wear
+  for (let l = 0; l < LAT; l++) {
+    for (let d = 0; d < DEPTH; d++) {
+      const [x, y] = at(l, d);
+      p(x, y, pixHash(AX + x, AY + y, 53) % 11 === 0 ? shade(C.asphalt, 1.08) : C.asphalt);
+    }
+  }
+  // concrete curb along the building side
+  for (let l = 0; l < LAT; l++) {
+    const [x, y] = at(l, 0);
+    p(x, y, shade(C.sidewalk, 0.95));
+  }
+  // painted bays (3px pitch) — kept EMPTY: cars are a moving system (they
+  // drive in and park), never static dressing
+  for (let l = 1; l + 2 < LAT; l += 3) {
+    for (let d = 1; d <= 3 && d < DEPTH - 2; d++) {
+      const [x, y] = at(l, d);
+      p(x, y, C.asphaltDash); // bay stripe
+    }
+  }
+  // final stripe closing the last bay
+  if ((LAT - 1) % 3 !== 0) {
+    for (let d = 1; d <= 3 && d < DEPTH - 2; d++) {
+      const [x, y] = at(LAT - 1, d);
+      p(x, y, C.asphaltDash);
+    }
+  }
+}
+
 function drawFacade(
   w: World,
   lot: number,
@@ -2089,12 +2155,28 @@ function drawFacade(
   const wallW = bx1 - bx0 + 1;
   const cx = (W >> 1) - 1; // door center-left px (doors are 2 wide)
 
-  /** ground apron: mown lawn or concrete/asphalt pad */
+  /** ground apron: the DISTRICT'S own built ground (drawTile's formula), so
+   * the lawn around walks/steps meets the neighboring lots without a seam */
+  const district = w.district[seed]!;
+  let lawnBase = hexToRgb(NEUTRAL_BY_DISTRICT[district % NEUTRAL_BY_DISTRICT.length]!);
+  const lawnDistrict = district === 1 || district === 2 || district === 4 || district === 0;
+  if (lawnDistrict) {
+    if (currentSeason === "winter") lawnBase = hexToRgb("#ffffff");
+    else if (currentSeason === "fall") lawnBase = hexToRgb("#8a8b54");
+    else if (currentSeason === "spring") lawnBase = hexToRgb("#4c9c28");
+  }
+  const groundAt = (x: number, y: number): RGB => {
+    const gx = AX + x;
+    const gy = AY + y;
+    if (lawnDistrict)
+      return ((gx >> 1) + (gy >> 1)) % 2 === 0 ? lawnBase : shade(lawnBase, 1.07);
+    return pixHash(gx, gy, 33) % 9 === 0 ? shade(lawnBase, 0.92) : lawnBase;
+  };
   const apron = (kind: "lawn" | "pave"): void => {
     for (let y = by1 + 1; y < H; y++) {
       for (let x = 1; x < W - 1; x++) {
         if (kind === "lawn") {
-          p(x, y, (x + y) % 2 === 0 ? C.meadowLight : C.meadow);
+          p(x, y, groundAt(x, y));
         } else {
           p(x, y, pixHash(AX + x, AY + y, 53) % 9 === 0 ? shade(C.asphalt, 1.1) : C.asphalt);
         }
@@ -2621,20 +2703,13 @@ function drawLotBuilding(
     return;
   }
   if (lot === Lot.Parking) {
-    // asphalt apron with painted bays + a parked car or two
-    for (let py = 0; py < TILE_PX; py++) {
-      for (let px = 0; px < TILE_PX; px++) {
-        let c: RGB = C.asphalt;
-        if (px % 3 === 1 && py >= 2 && py <= 6) c = C.asphaltDash; // bay stripes
-        put(x0 + px, y0 + py, c);
-      }
-    }
-    if (pixHash(t, 1, 44) % 2 === 0) {
-      const cc = pixHash(t, 2, 44) % 3;
-      const car = cc === 0 ? hexToRgb("#7088b0") : cc === 1 ? hexToRgb("#b06a60") : hexToRgb("#d8d2c4");
-      put(x0 + 2, y0 + 3, car);
-      put(x0 + 2, y0 + 4, shade(car, 0.85));
-    }
+    // one composed lot across the whole strip: curb on the building side,
+    // a row of painted bays, an aisle, and an open curb cut on the road side
+    const { ax, ay, fw, fh } = lotRect(w, tx, ty, lot);
+    const clip: Put = (gx, gy, c) => {
+      if (gx >= x0 && gx < x0 + TILE_PX && gy >= y0 && gy < y0 + TILE_PX) put(gx, gy, c);
+    };
+    drawParkingLot(w, ax, ay, fw, fh, clip);
     return;
   }
   if (lot === Lot.Park) {
@@ -4166,32 +4241,65 @@ function drawUnits(sim: SimState, viewer: number, fog: Uint8Array | null, put: P
 }
 
 function drawIndustrialShed(x0: number, y0: number, t: number, put: Put, detail: Detail | null): void {
+  void detail;
   castShadow(x0, y0, put);
-  const metal = hexToRgb("#8a9399");
-  const metalDark = hexToRgb("#737c82");
-  const roof = hexToRgb("#5a6266");
-  
-  // Flat roof
-  for (let px = 1; px <= 6; px++) {
-    put(x0 + px, y0 + 2, roof);
-  }
-  // Walls
-  for (let py = 3; py <= 6; py++) {
-    for (let px = 1; px <= 6; px++) {
-      put(x0 + px, y0 + py, px % 2 === 0 ? metal : metalDark);
+  const variant = pixHash(t, 3, 87) % 3;
+  if (variant === 0) {
+    // corrugated steel shed with a roll-up door and pallet stack
+    const metal = hexToRgb("#8a9399");
+    const metalDark = hexToRgb("#737c82");
+    const roof = hexToRgb("#5a6266");
+    for (let px = 1; px <= 6; px++) put(x0 + px, y0 + 2, roof);
+    for (let py = 3; py <= 6; py++) {
+      for (let px = 1; px <= 6; px++) {
+        put(x0 + px, y0 + py, px % 2 === 0 ? metal : metalDark);
+      }
     }
-  }
-  // Roll-up door
-  const rollUp = hexToRgb("#cbd0d4");
-  for (let py = 4; py <= 6; py++) {
-    put(x0 + 2, y0 + py, rollUp);
-    put(x0 + 3, y0 + py, rollUp);
-    put(x0 + 4, y0 + py, rollUp);
-  }
-  // Stacked pallets on the side
-  if (detail) {
-    put(x0 + 6, y0 + 5, hexToRgb("#bfa26b"));
+    const rollUp = hexToRgb("#cbd0d4");
+    for (let py = 4; py <= 6; py++) {
+      put(x0 + 2, y0 + py, rollUp);
+      put(x0 + 3, y0 + py, rollUp);
+      put(x0 + 4, y0 + py, rollUp);
+    }
+    put(x0 + 6, y0 + 5, hexToRgb("#bfa26b")); // pallets
     put(x0 + 6, y0 + 6, hexToRgb("#967e54"));
+  } else if (variant === 1) {
+    // taller tan metal workshop: office window, side door, oil drums
+    const tan = hexToRgb("#b3a58c");
+    const tanDark = shade(tan, 0.85);
+    for (let px = 1; px <= 6; px++) {
+      put(x0 + px, y0 + 1, shade(tanDark, 0.9)); // parapet
+      put(x0 + px, y0 + 2, tanDark);
+    }
+    for (let py = 3; py <= 6; py++) {
+      for (let px = 1; px <= 6; px++) {
+        put(x0 + px, y0 + py, px === 6 ? tanDark : tan);
+      }
+    }
+    put(x0 + 2, y0 + 4, C.windowDark); // office window
+    put(x0 + 3, y0 + 4, C.windowDark);
+    put(x0 + 5, y0 + 5, C.door); // crew door
+    put(x0 + 5, y0 + 6, C.door);
+    put(x0 + 1, y0 + 6, hexToRgb("#8a4a3a")); // rusted drums
+    put(x0 + 2, y0 + 6, hexToRgb("#5a6a52"));
+  } else {
+    // low brick works: skylight, thin stack pipe, crate out front
+    const brick = hexToRgb("#a25b42");
+    const brickDark = hexToRgb("#7d402b");
+    for (let px = 1; px <= 6; px++) put(x0 + px, y0 + 3, shade(brickDark, 0.85));
+    put(x0 + 3, y0 + 3, C.glass); // skylight glint
+    for (let py = 4; py <= 6; py++) {
+      for (let px = 1; px <= 6; px++) {
+        put(x0 + px, y0 + py, px % 2 === 0 ? brick : brickDark);
+      }
+    }
+    put(x0 + 6, y0 + 2, C.iconDark); // stack pipe
+    put(x0 + 6, y0 + 1, C.iconDark);
+    put(x0 + 3, y0 + 5, C.iconDark); // roll door
+    put(x0 + 4, y0 + 5, shade(C.iconDark, 1.8));
+    put(x0 + 3, y0 + 6, C.iconDark);
+    put(x0 + 4, y0 + 6, shade(C.iconDark, 1.8));
+    put(x0 + 1, y0 + 6, hexToRgb("#bfa26b")); // crate
   }
 }
 

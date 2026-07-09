@@ -1104,8 +1104,11 @@ function drawTile(
         put(x0 + 4, y0 + 5, hexToRgb("#3f6272"));
       }
       if (pixHash(t, 8, 27) % 3 !== 2) {
-        const hx = x0 + 2 + (pixHash(t, 9, 27) % 4);
-        const hy = y0 + 2 + (pixHash(t, 10, 27) % 3);
+        // livestock GRAZE — a slow tick-driven drift around the pen, so the
+        // herd reads alive instead of statuary
+        const amble = (frameTick >> 5) + (t & 7);
+        const hx = x0 + 2 + ((pixHash(t, 9, 27) + amble) % 4);
+        const hy = y0 + 2 + ((pixHash(t, 10, 27) + (amble >> 1)) % 3);
         // a HORSE on some pastures (§9): darker chestnut with a black mane
         if (pixHash(t, 14, 27) % 5 === 0) {
           const chest = hexToRgb("#7a4a2a");
@@ -3913,9 +3916,19 @@ function routeLen(legs: Leg[]): number {
 
 /**
  * A person: 2×2 high-contrast figure — bright head, body, soft shadow — so
- * dots read against asphalt, lawn, and sand alike.
+ * dots read against asphalt, lawn, and sand alike. `vivid` marks CULT
+ * members: a white beacon head (which also glows through the night mask)
+ * and a boosted body, so every believer and their car is instantly
+ * spottable — the conversion read is gameplay, not decoration.
  */
-function putPerson(px: number, py: number, color: RGB, put: Put): void {
+function putPerson(px: number, py: number, color: RGB, put: Put, vivid = false): void {
+  if (vivid) {
+    put(px, py - 1, hexToRgb("#ffffff")); // beacon head
+    put(px, py, shade(color, 1.3));
+    put(px + 1, py, color);
+    put(px + 1, py + 1, C.shadow);
+    return;
+  }
   put(px, py - 1, shade(color, 1.35)); // head catches the light
   put(px, py, color); // body
   put(px + 1, py, shade(color, 0.72)); // shaded side
@@ -3935,27 +3948,43 @@ const CAR_COLORS: RGB[] = [
 ];
 
 /**
- * A commuting car with a FACE: the windshield glass sits on the leading end
- * and the body form turns with the travel axis, so northbound and eastbound
- * cars read differently at a glance.
+ * A commuting car with a FACE: a compact body block with dark wheel corners,
+ * a lit roof stripe, and a windshield band on the leading end — the form
+ * turns with the travel axis so heading reads at a glance, parked or moving.
  */
-function putCar(px: number, py: number, color: RGB, dx: number, dy: number, put: Put): void {
+function putCar(
+  px: number,
+  py: number,
+  color: RGB,
+  dx: number,
+  dy: number,
+  put: Put,
+  vivid = false,
+): void {
+  const wheel = shade(color, 0.55);
+  const roof = shade(color, vivid ? 1.55 : 1.18); // cult cars run hot roofs
   if (dy === 0) {
-    // east/west: 3×2, glass on the leading end, wheels under both ends
+    // east/west: 3 long × 2 tall — rear wheels dark, roof stripe, glass front
     const east = dx >= 0;
-    put(px - 1, py, east ? shade(color, 0.8) : C.unitGlass);
-    put(px, py, color);
-    put(px + 1, py, east ? C.unitGlass : shade(color, 0.8));
-    put(px - 1, py + 1, C.iconDark);
-    put(px + 1, py + 1, C.iconDark);
+    const fx = east ? px + 1 : px - 1; // front column
+    const rx = east ? px - 1 : px + 1; // rear column
+    put(rx, py, wheel);
+    put(px, py, roof);
+    put(fx, py, C.unitGlass);
+    put(rx, py + 1, wheel);
+    put(px, py + 1, color);
+    put(fx, py + 1, shade(color, 0.85));
   } else {
-    // north/south: 1×3 body with side wheels, glass toward travel
+    // north/south: 2 wide × 3 long — windshield band leads, wheels trail
     const south = dy >= 0;
-    put(px, py - 1, south ? shade(color, 0.8) : C.unitGlass);
-    put(px, py, color);
-    put(px, py + 1, south ? C.unitGlass : shade(color, 0.8));
-    put(px - 1, py, C.iconDark);
-    put(px + 1, py, C.iconDark);
+    const fy = south ? py + 1 : py - 1;
+    const ry = south ? py - 1 : py + 1;
+    put(px, fy, C.unitGlass);
+    put(px + 1, fy, shade(C.unitGlass, 1.15));
+    put(px, py, roof);
+    put(px + 1, py, color);
+    put(px, ry, wheel);
+    put(px + 1, ry, wheel);
   }
 }
 
@@ -4043,7 +4072,7 @@ function drawResidents(sim: SimState, tick: number, fog: Uint8Array | null, put:
       const homeCar = (): void => {
         if (i === 0 && ownsCar) {
           const dv = drivewayPoint(w, t, homeX, homeY);
-          putCar(dv.px, dv.py, carColor, dv.dx, dv.dy, put);
+          putCar(dv.px, dv.py, carColor, dv.dx, dv.dy, put, owner !== NEUTRAL);
         }
       };
       const errandT = pickSpot(errandSpots, w.width, hx, hy, 0, seed >> 3, 20);
@@ -4069,7 +4098,7 @@ function drawResidents(sim: SimState, tick: number, fog: Uint8Array | null, put:
         if (day < legStart) {
           // hasn't left yet: on the porch, keys in hand, car still parked
           homeCar();
-          putPerson(homeX, homeY, color, put);
+          putPerson(homeX, homeY, color, put, owner !== NEUTRAL);
           continue;
         }
       } else if (day < T_LUNCH0 && workT >= 0) {
@@ -4153,12 +4182,12 @@ function drawResidents(sim: SimState, tick: number, fog: Uint8Array | null, put:
             : ((dest / w.width) | 0) * TILE_PX + 2 + ((seed >> 7) % 2) * 3;
           const dv = drivewayPoint(w, originT, originX, originY);
           if (phase === "stay") {
-            putCar(bayX, bayY, carColor, 0, -1, put); // nose-in at its bay
+            putCar(bayX, bayY, carColor, 0, -1, put, owner !== NEUTRAL); // nose-in at its bay
             const lot = w.lot[dest]!;
             if (!(OUTDOOR_LOTS.has(lot) || w.landmark[dest] !== 0)) continue;
             px = destX + (((tick >> 3) + i) % 3) - 1;
             py = destY - (((tick >> 4) + i) % 3);
-            putPerson(px, py, color, put);
+            putPerson(px, py, color, put, owner !== NEUTRAL);
             continue;
           }
           const carLegs = buildRoute(w, originT, anchorT, dv.px, dv.py, bayX, bayY);
@@ -4171,7 +4200,7 @@ function drawResidents(sim: SimState, tick: number, fog: Uint8Array | null, put:
           const et = phase === "out" ? elapsed : Math.max(0, tDrive + tWalk - elapsed);
           if (et <= 0) {
             // back home: the car returns to the driveway
-            putCar(dv.px, dv.py, carColor, dv.dx, dv.dy, put);
+            putCar(dv.px, dv.py, carColor, dv.dx, dv.dy, put, owner !== NEUTRAL);
           } else if (et <= tDrive) {
             const d0 = et * CAR_SPEED;
             const pt = routePoint(carLegs, d0, true);
@@ -4184,16 +4213,16 @@ function drawResidents(sim: SimState, tick: number, fog: Uint8Array | null, put:
               hdy = -hdy;
             }
             if (hdx === 0 && hdy === 0) hdx = 1;
-            putCar(pt.px, pt.py, carColor, hdx, hdy, put);
+            putCar(pt.px, pt.py, carColor, hdx, hdy, put, owner !== NEUTRAL);
           } else if (et < tDrive + tWalk) {
             const pt = routePoint(walkLegs, (et - tDrive) * WALK_SPEED, false);
-            putPerson(pt.px, pt.py, color, put);
+            putPerson(pt.px, pt.py, color, put, owner !== NEUTRAL);
           } else {
             // arrived: car in its bay; the person only if the lot is outdoor
-            putCar(bayX, bayY, carColor, 0, -1, put);
+            putCar(bayX, bayY, carColor, 0, -1, put, owner !== NEUTRAL);
             const lot = w.lot[dest]!;
             if (OUTDOOR_LOTS.has(lot) || w.landmark[dest] !== 0) {
-              putPerson(destX, destY, color, put);
+              putPerson(destX, destY, color, put, owner !== NEUTRAL);
             }
           }
           continue;
@@ -4228,7 +4257,7 @@ function drawResidents(sim: SimState, tick: number, fog: Uint8Array | null, put:
         }
       }
 
-      putPerson(px, py, color, put);
+      putPerson(px, py, color, put, owner !== NEUTRAL);
       if (downline) put(px, py - 2, hexToRgb("#ffd700")); // tithe gold
     }
   }
@@ -4291,7 +4320,7 @@ function drawCohorts(
         const head = total * frac;
         for (let k = 0; k < 3; k++) {
           const pt = routePoint(legs, Math.max(0, head - k * 3), false);
-          putPerson(pt.px, pt.py, color, put);
+          putPerson(pt.px, pt.py, color, put, true);
         }
       } else {
         // on the ground: the column works its block
@@ -4299,7 +4328,7 @@ function drawCohorts(
           const h = pixHash(c.target, k + ci * 7, 99);
           const px2 = dstX + ((h + (tick >> 4)) % 5) - 2;
           const py2 = dstY - ((h >> 4) % 3);
-          putPerson(px2, py2, color, put);
+          putPerson(px2, py2, color, put, true);
         }
       }
     }

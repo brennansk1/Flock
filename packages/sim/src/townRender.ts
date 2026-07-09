@@ -972,34 +972,9 @@ function drawTile(
         put(x0 + 6, y0 + 1, hexToRgb("#c8352a"));
         put(x0 + 6, y0 + 2, C.iconDark);
       }
-      // TRAFFIC: cars run the roads — a pure (position, tick) hash, so every
-      // client sees the same cars. Highways carry more; two directions ride
-      // the two sides of the roadway.
-      {
-        const carC = [hexToRgb("#7088b0"), hexToRgb("#b06a60"), hexToRgb("#d8d2c4"), hexToRgb("#5a7340")];
-        const tick2 = frameTick >> 1;
-        const drawCar = (cx2: number, cy2: number, horiz2: boolean, col: RGB): void => {
-          put(cx2, cy2, col);
-          put(horiz2 ? cx2 + 1 : cx2, horiz2 ? cy2 : cy2 + 1, shade(col, 0.8));
-        };
-        const spacing = highway ? 22 : 44;
-        if (roadE || roadW) {
-          // eastbound on the lower half, westbound on the upper
-          const posE = (tx * TILE_PX + tick2) % (spacing * TILE_PX);
-          if (posE < TILE_PX && pixHash(ty, 1, 83) % 3 !== 0) {
-            drawCar(x0 + posE, y0 + 5, true, carC[pixHash(ty, posE >> 3, 84) % 4]!);
-          }
-          const posW = (tx * TILE_PX - tick2 + spacing * TILE_PX * 8) % (spacing * TILE_PX);
-          if (posW < TILE_PX && pixHash(ty, 2, 83) % 3 === 0) {
-            drawCar(x0 + posW, y0 + 2, true, carC[pixHash(ty, posW >> 3, 85) % 4]!);
-          }
-        } else if (roadN || roadS) {
-          const posS = (ty * TILE_PX + tick2) % (spacing * TILE_PX);
-          if (posS < TILE_PX && pixHash(tx, 3, 83) % 3 === 0) {
-            drawCar(x0 + 5, y0 + posS, false, carC[pixHash(tx, posS >> 3, 86) % 4]!);
-          }
-        }
-      }
+      // (No hash traffic here: every car on the road is a RESIDENT'S car —
+      // drawResidents routes them driveway → streets → parking bay and back,
+      // so what you see driving is somebody actually going somewhere.)
       return;
     }
     case Terrain.Rail: {
@@ -3762,7 +3737,9 @@ function buildRoute(
   const hry = ((hr / w.width) | 0) * TILE_PX + 4;
   const drx = (dr % w.width) * TILE_PX + 4;
   const dry = ((dr / w.width) | 0) * TILE_PX + 4;
-  push(homePx, homePy, hrx, hry, false); // door → street
+  // door → street, axis-at-a-time (nobody cuts diagonally across a yard)
+  push(homePx, homePy, homePx, hry, false);
+  push(homePx, hry, hrx, hry, false);
   const path = roadPath(w, hr, dr);
   if (path && path.length > 1) {
     // follow the REAL street network, compressed into straight legs —
@@ -3796,8 +3773,68 @@ function buildRoute(
     push(hrx, hry, drx, hry, true);
     push(drx, hry, drx, dry, true);
   }
-  push(drx, dry, destPx, destPy, false); // street → door
+  // street → door, axis-at-a-time
+  push(drx, dry, destPx, dry, false);
+  push(destPx, dry, destPx, destPy, false);
   return legs;
+}
+
+/** A plain axis-at-a-time walking path between two pixels. */
+function lPath(x0: number, y0: number, x1: number, y1: number): Leg[] {
+  const legs: Leg[] = [];
+  if (x1 !== x0) legs.push({ x0, y0, x1, y1: y0, len: Math.abs(x1 - x0), onRoad: false });
+  if (y1 !== y0) legs.push({ x0: x1, y0, x1, y1, len: Math.abs(y1 - y0), onRoad: false });
+  return legs;
+}
+
+/** Where this lot's car sits: the edge of the parcel facing its street. */
+function drivewayPoint(
+  w: World,
+  t: number,
+  fallbackX: number,
+  fallbackY: number,
+): { px: number; py: number } {
+  const x = t % w.width;
+  const y = (t / w.width) | 0;
+  const bx = x * TILE_PX;
+  const by = y * TILE_PX;
+  const road = (n: number): boolean =>
+    n >= 0 && n < w.terrain.length && (w.terrain[n] === Terrain.Road || w.terrain[n] === Terrain.Dirt);
+  if (y < w.height - 1 && road(t + w.width)) return { px: bx + 5, py: by + 6 };
+  if (x < w.width - 1 && road(t + 1)) return { px: bx + 6, py: by + 5 };
+  if (x > 0 && road(t - 1)) return { px: bx + 1, py: by + 5 };
+  if (y > 0 && road(t - w.width)) return { px: bx + 5, py: by + 1 };
+  return { px: fallbackX, py: fallbackY };
+}
+
+/**
+ * A parking bay near dest: candidates spread across EVERY parking tile in
+ * range (so a full lot fills in neat rows instead of stacking one tile),
+ * slotted on the painted 3px stripe pitch.
+ */
+function parkingBay(
+  parking: number[],
+  width: number,
+  dest: number,
+  r: number,
+  seed: number,
+): { tile: number; px: number; py: number } | null {
+  const dx0 = dest % width;
+  const dy0 = (dest / width) | 0;
+  const near: number[] = [];
+  for (const pt of parking) {
+    const dx = (pt % width) - dx0;
+    const dy = ((pt / width) | 0) - dy0;
+    if (dx * dx + dy * dy <= r * r) near.push(pt);
+  }
+  if (near.length === 0) return null;
+  const tile = near[(seed >>> 3) % near.length]!;
+  const slot = (seed >>> 9) % 2;
+  return {
+    tile,
+    px: (tile % width) * TILE_PX + 2 + slot * 3,
+    py: ((tile / width) | 0) * TILE_PX + 2 + ((seed >>> 11) % 2) * 3,
+  };
 }
 
 /**
@@ -3872,9 +3909,11 @@ function drawResidents(sim: SimState, tick: number, fog: Uint8Array | null, put:
   const jobSpots: Spot[] = [];
   const errandSpots: Spot[] = [];
   const leisureSpots: Spot[] = [];
+  const parkingSpots: number[] = [];
   for (let t = 0; t < w.lot.length; t++) {
     const lot = w.lot[t]!;
     if (lot !== 0) {
+      if (lot === Lot.Parking) parkingSpots.push(t);
       if (JOB_LOTS.has(lot)) jobSpots.push({ tile: t, owner: 0, lot });
       if (ERRAND_LOTS.has(lot)) errandSpots.push({ tile: t, owner: 0, lot });
       if (LEISURE_LOTS.has(lot)) leisureSpots.push({ tile: t, owner: 0, lot });
@@ -3929,6 +3968,21 @@ function drawResidents(sim: SimState, tick: number, fog: Uint8Array | null, put:
         }
         if (workT < 0) workT = pickSpot(jobSpots, w.width, hx, hy, 0, seed, 30);
       }
+      // the household car: dot 0's commute decides whether one exists, and
+      // it's VISIBLE whenever it isn't on the road — in the driveway at home,
+      // in a parking bay at work. Cars are never hash dressing.
+      const commuteTiles =
+        workT >= 0
+          ? Math.abs((workT % w.width) - hx) + Math.abs(((workT / w.width) | 0) - hy)
+          : 0;
+      const ownsCar = workT >= 0 && commuteTiles > CAR_TRIP && seed % 3 !== 0;
+      const carColor = owner === NEUTRAL ? hexToRgb("#c8c4bc") : color;
+      const homeCar = (): void => {
+        if (i === 0 && ownsCar) {
+          const dv = drivewayPoint(w, t, homeX, homeY);
+          putCar(dv.px, dv.py, carColor, put);
+        }
+      };
       const errandT = pickSpot(errandSpots, w.width, hx, hy, 0, seed >> 3, 20);
       const leisureT = pickSpot(leisureSpots, w.width, hx, hy, 0, seed >> 6, 16);
       const doesLunch = errandT >= 0 && seed % 4 === 0;
@@ -3942,6 +3996,7 @@ function drawResidents(sim: SimState, tick: number, fog: Uint8Array | null, put:
       if (day < T_MORNING) {
         phase = "home"; // night — indoors (a rare night owl on the porch;
         // 3 a.m. streets should read DEAD, not lively)
+        homeCar(); // the car sleeps in the driveway
         if (seed % 17 !== 0) continue;
       } else if (day < T_WORK && workT >= 0) {
         phase = "out";
@@ -3949,7 +4004,8 @@ function drawResidents(sim: SimState, tick: number, fog: Uint8Array | null, put:
         // departures spread across the window — the rush reads as a wave
         legStart = T_MORNING + ((seed >> 4) % 280);
         if (day < legStart) {
-          // hasn't left yet: on the porch, keys in hand
+          // hasn't left yet: on the porch, keys in hand, car still parked
+          homeCar();
           putPerson(homeX, homeY, color, put);
           continue;
         }
@@ -3997,7 +4053,8 @@ function drawResidents(sim: SimState, tick: number, fog: Uint8Array | null, put:
       let asCar = false;
 
       if (phase === "home" || dest < 0) {
-        // idling in the yard / on the porch
+        // idling in the yard / on the porch; the car back in its driveway
+        homeCar();
         px = homeX + (((tick >> 4) + i) % 3) - 1;
         py = homeY;
       } else {
@@ -4019,9 +4076,57 @@ function drawResidents(sim: SimState, tick: number, fog: Uint8Array | null, put:
         asCar = tripTiles > CAR_TRIP && seed % 3 !== 0; // most long trips drive
         const destX = (dest % w.width) * TILE_PX + 2 + ((seed >> 12) % 4);
         const destY = ((dest / w.width) | 0) * TILE_PX + TILE_PX - 1; // the door
+
+        if (asCar) {
+          // BY CAR: back out of the driveway, drive the streets in lane,
+          // park in the destination's lot (or at its curb), and WALK the
+          // last leg like a real errand. The car stays visible in its bay
+          // for the whole visit — cars are agents' cars, never dressing.
+          const bay = parkingBay(parkingSpots, w.width, dest, 8, seed);
+          const anchorT = bay ? bay.tile : dest;
+          const bayX = bay ? bay.px : (dest % w.width) * TILE_PX + 2 + ((seed >> 5) % 2) * 3;
+          const bayY = bay
+            ? bay.py
+            : ((dest / w.width) | 0) * TILE_PX + 2 + ((seed >> 7) % 2) * 3;
+          const dv = drivewayPoint(w, originT, originX, originY);
+          if (phase === "stay") {
+            putCar(bayX, bayY, carColor, put); // waiting in its bay
+            const lot = w.lot[dest]!;
+            if (!(OUTDOOR_LOTS.has(lot) || w.landmark[dest] !== 0)) continue;
+            px = destX + (((tick >> 3) + i) % 3) - 1;
+            py = destY - (((tick >> 4) + i) % 3);
+            putPerson(px, py, color, put);
+            continue;
+          }
+          const carLegs = buildRoute(w, originT, anchorT, dv.px, dv.py, bayX, bayY);
+          const walkLegs = lPath(bayX, bayY, destX, destY);
+          const tDrive = routeLen(carLegs) / CAR_SPEED;
+          const tWalk = routeLen(walkLegs) / WALK_SPEED;
+          const elapsed = Math.max(0, day - legStart);
+          // progress measured along the OUTWARD direction for both phases
+          const et = phase === "out" ? elapsed : Math.max(0, tDrive + tWalk - elapsed);
+          if (et <= 0) {
+            // back home: the car returns to the driveway
+            putCar(dv.px, dv.py, carColor, put);
+          } else if (et <= tDrive) {
+            const pt = routePoint(carLegs, et * CAR_SPEED, true);
+            putCar(pt.px, pt.py, carColor, put);
+          } else if (et < tDrive + tWalk) {
+            const pt = routePoint(walkLegs, (et - tDrive) * WALK_SPEED, false);
+            putPerson(pt.px, pt.py, color, put);
+          } else {
+            // arrived: car in its bay; the person only if the lot is outdoor
+            putCar(bayX, bayY, carColor, put);
+            const lot = w.lot[dest]!;
+            if (OUTDOOR_LOTS.has(lot) || w.landmark[dest] !== 0) {
+              putPerson(destX, destY, color, put);
+            }
+          }
+          continue;
+        }
+
         const legs = buildRoute(w, originT, dest, originX, originY, destX, destY);
         const total = routeLen(legs);
-        const speed = asCar ? CAR_SPEED : WALK_SPEED;
         if (phase === "stay") {
           // INSIDE the building — visible only at outdoor lots, or briefly
           // at the door on arrival
@@ -4032,9 +4137,9 @@ function drawResidents(sim: SimState, tick: number, fog: Uint8Array | null, put:
           py = destY - (((tick >> 4) + i) % 3);
         } else {
           const elapsed = Math.max(0, day - legStart);
-          const dist = Math.min(total, elapsed * speed);
+          const dist = Math.min(total, elapsed * WALK_SPEED);
           const along = phase === "out" ? dist : Math.max(0, total - dist);
-          const pt = routePoint(legs, along, asCar);
+          const pt = routePoint(legs, along, false);
           px = pt.px;
           py = pt.py;
           // already arrived (short trip): they're indoors until the phase turns
@@ -4049,12 +4154,8 @@ function drawResidents(sim: SimState, tick: number, fog: Uint8Array | null, put:
         }
       }
 
-      if (asCar && phase !== "stay") {
-        putCar(px, py, owner === NEUTRAL ? hexToRgb("#c8c4bc") : color, put);
-      } else {
-        putPerson(px, py, color, put);
-        if (downline) put(px, py - 2, hexToRgb("#ffd700")); // tithe gold
-      }
+      putPerson(px, py, color, put);
+      if (downline) put(px, py - 2, hexToRgb("#ffd700")); // tithe gold
     }
   }
 }

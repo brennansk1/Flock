@@ -241,6 +241,11 @@ export class MapRenderer {
 
   draw(sim: SimState): void {
     if (sim.tick === this.lastDrawnTick) return; // redraw at sim rate (10 Hz)
+    // fully zoomed OUT the renderer paints the whole map (the most expensive
+    // frame by far — measured ~160ms on 96²) while everything on it is a
+    // 2px speck; a ~3Hz cadence there is imperceptible and keeps the main
+    // thread inside the 100ms tick budget. Zoomed views stay at 10Hz.
+    if (this.zoom <= 1.01 && this.lastDrawnTick >= 0 && sim.tick % 3 !== 0) return;
     this.lastDrawnTick = sim.tick;
     this.updateFog(sim);
 

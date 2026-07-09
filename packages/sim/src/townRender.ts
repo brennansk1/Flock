@@ -335,22 +335,33 @@ function pixHash(x: number, y: number, z = 0): number {
   return (h ^ (h >>> 16)) >>> 0;
 }
 
-/** Smooth 0..1 value noise over a coarse lattice (cosine-interpolated). */
+// Quantized cosine-ease table: valueNoise is the single hottest function in
+// a full-map render (49% of CPU in profile, two Math.cos per pixel); a 1024-
+// step lookup is visually identical and ~5× cheaper.
+const EASE_N = 1024;
+const EASE: Float64Array = (() => {
+  const t = new Float64Array(EASE_N + 1);
+  for (let i = 0; i <= EASE_N; i++) t[i] = (1 - Math.cos((i / EASE_N) * Math.PI)) / 2;
+  return t;
+})();
+
+/** Smooth 0..1 value noise over a coarse lattice (cosine-eased via table).
+ * (A lattice-corner Map memo was tried and measured SLOWER than recomputing:
+ * pixHash is three imuls; Map traffic on 4 corners/call lost to it.) */
 function valueNoise(x: number, y: number, cell: number, z = 0): number {
   const gx = x / cell;
   const gy = y / cell;
   const x0 = Math.floor(gx);
   const y0 = Math.floor(gy);
-  const fx = (1 - Math.cos((gx - x0) * Math.PI)) / 2;
-  const fy = (1 - Math.cos((gy - y0) * Math.PI)) / 2;
-  const at = (ix: number, iy: number): number => (pixHash(ix, iy, z) % 1000) / 1000;
-  const a = at(x0, y0);
-  const b = at(x0 + 1, y0);
-  const c = at(x0, y0 + 1);
-  const d = at(x0 + 1, y0 + 1);
-  const top = a * (1 - fx) + b * fx;
-  const bot = c * (1 - fx) + d * fx;
-  return top * (1 - fy) + bot * fy;
+  const fx = EASE[((gx - x0) * EASE_N) | 0]!;
+  const fy = EASE[((gy - y0) * EASE_N) | 0]!;
+  const a = (pixHash(x0, y0, z) % 1000) / 1000;
+  const b = (pixHash(x0 + 1, y0, z) % 1000) / 1000;
+  const c = (pixHash(x0, y0 + 1, z) % 1000) / 1000;
+  const d = (pixHash(x0 + 1, y0 + 1, z) % 1000) / 1000;
+  const top = a + (b - a) * fx;
+  const bot = c + (d - c) * fx;
+  return top + (bot - top) * fy;
 }
 
 export interface RenderOpts {

@@ -83,10 +83,12 @@ async function boot(): Promise<void> {
       mountMatchControls(g);
 
       // Center status prompt (founding / prophecy / CPA / elimination) —
-      // pixel-panel idiom per the design tokens.
+      // pixel-panel idiom per the design tokens. z-index sits ABOVE the
+      // tutorial card (28): the founding countdown was fully hidden behind
+      // it during the tutorial's Step 2 (playtest fix 2026-07-09).
       const prompt = document.createElement("div");
       prompt.style.cssText =
-        "position:absolute;top:152px;left:50%;transform:translateX(-50%);z-index:21;pointer-events:none;" +
+        "position:absolute;top:152px;left:50%;transform:translateX(-50%);z-index:29;pointer-events:none;" +
         "font-family:'Press Start 2P',monospace;font-size:10px;letter-spacing:1px;line-height:1.7;color:#f0b53e;" +
         "text-align:center;max-width:70vw;background:#1a130b;border:3px solid #4a3a26;" +
         "box-shadow:0 4px 0 #060403,inset 0 0 0 1px #6b563a;padding:11px 20px;display:none";

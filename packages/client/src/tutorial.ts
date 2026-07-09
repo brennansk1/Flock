@@ -27,7 +27,7 @@ import rawBalance from "../../../balance.json";
 /** One world for every player, forever: the tutorial town. */
 const TUTORIAL_SEED = 42;
 const WORLD = 64;
-const FOUNDING_TICKS = 120; // ~12s window — gives new players time to read Step 2
+const FOUNDING_TICKS = 240; // ~24s window — a first-timer reads Step 2 AND finds a ring
 const TPS_MS = 100;
 
 const RIVAL_ID = 2;
@@ -196,7 +196,7 @@ const STEPS: TutStep[] = [
   {
     title: "FOUND YOUR COMPOUND",
     body: "Click one of the GLOWING RINGS on the open land near town. Your cult buys the parcel, the First Compound rises, and your congregation is bused in. Check the top bar once you're in: FLOCK size, TREASURY, FAITH, HEAT, and the share strip at the very top — grow your slice to win.",
-    hint: "The rings pulse on OPEN LAND just outside the streets — not inside town, not on water. You have ~12 seconds.",
+    hint: "The rings pulse on OPEN LAND just outside the streets — not inside town, not on water. You have ~24 seconds.",
     done: (g) => !!me(g)?.spawned,
   },
   {
@@ -211,10 +211,13 @@ const STEPS: TutStep[] = [
     done: (g) => g.sim.foundingTicksLeft === 0 && (me(g)?.cohorts.length ?? 0) > 0,
   },
   {
+    // v3: tempo is PER-MISSION (the wheel's three arcs) — there is no global
+    // stance rail any more. Playtest 2026-07-09 found the old copy softlocked
+    // here: it asked for keys that no longer send anything.
     title: "SET YOUR TEMPO — CRUSADE",
-    body: "Keys 1/2/3 set your HOMELAND posture — how the flock behaves at home. TEND (1) nurtures recruits and defends best; SPREAD (2) is balanced; CRUSADE (3) grows aggressively but runs hot, so watch Heat (if it hits 60, the town retaliates). Press 3 to feel Crusade, then 2 to settle back. (Inside the mission wheel those same keys pick a sortie's mode.)",
-    glow: '[data-stance="crusade"]',
-    done: (g) => me(g)?.stance === Stance.Crusade,
+    body: "Every mission has a TEMPO. RIGHT-CLICK the map near your territory and pick CRUSADE ✦ from the wheel (or press 3 while it's open) — a Crusade sortie converts hard and fast, but runs HOT: watch the ⚠ Heat gauge (at 60 the town retaliates). Send one Crusade mission now.",
+    hint: "Right-click a town tile near your color to open the wheel, then click the ✦ CRUSADE arc (or press 3). Drag the slider if you want to commit more flock.",
+    done: (g) => (me(g)?.cohorts ?? []).some((c) => c.mode === Stance.Crusade),
   },
   {
     title: "UNLEASH YOUR POWER",
@@ -275,9 +278,9 @@ const STEPS: TutStep[] = [
   },
   {
     title: "MANAGE DISSENT & HEAT",
-    body: "Pushing fronts costs followers (ATTRITION) and builds DISSENT in captured districts — too much and a chunk of your cult SPLITS AWAY (a Schism). Meanwhile CRUSADE and strikes raise global HEAT; past 60, the Concerned Parents show up to picket you. (Both are switched off in this practice town so you can learn safely.) Switch to TEND stance (1) now — it heals dissent and cools Heat fastest.",
-    glow: '[data-stance="tend"]',
-    done: (g) => me(g)?.stance === Stance.Tend,
+    body: "Pushing hard costs followers (ATTRITION) and builds DISSENT in captured districts — too much and a chunk of your cult SPLITS AWAY (a Schism). CRUSADE missions and strikes raise global HEAT; past 60, the Concerned Parents show up to picket you. (Both are switched off in this practice town.) The cure: send a TEND ✚ mission now — Tend cohorts hold ground, heal dissent, and bank Faith.",
+    hint: "Right-click one of YOUR OWN converted blocks and pick the ✚ TEND arc from the wheel (or press 1 while it's open).",
+    done: (g) => (me(g)?.cohorts ?? []).some((c) => c.mode === Stance.Tend),
   },
   {
     title: "DISSENT OVERLAY",
@@ -288,6 +291,7 @@ const STEPS: TutStep[] = [
     title: "WRITE THE DOCTRINE",
     body: "FAITH buys DOCTRINE. Tutorial gift: a full Faith bar. Open the DOCTRINE panel and choose any node — each spends Faith and permanently upgrades your cult. The four tracks (Behavior, Information, Thought, Emotion) shape your long-term strategy. Picks are forever. (In a real match you bank Faith by playing TEND missions.)",
     glow: ".fk-doc",
+    hint: "Open the DOCTRINE panel on the left rail, then click any glowing node in the B.I.T.E. grid to buy it.",
     enter: (g) => faith(g, 90),
     done: (g) => (me(g)?.doctrine.length ?? 0) >= 1,
   },
@@ -351,7 +355,8 @@ export function startTutorial(g: GameSession): void {
       <div class="done" id="fk-tut-done">✓ nicely done</div>
       <div id="fk-tut-hint" style="display:none;padding:0 15px 12px;font-family:'VT323',monospace;font-size:17px;line-height:1.3;color:#e0a422"></div>
       <div class="ft">
-        <button class="ghost" id="fk-tut-skip">${last ? "" : "SKIP"}</button>
+        <button class="ghost" id="fk-tut-skip">${last ? "" : "EXIT"}</button>
+        ${gated && !last ? `<button class="ghost" id="fk-tut-stepskip" title="Skip just this step">SKIP STEP</button>` : ""}
         ${gated ? "" : `<button id="fk-tut-next">${last ? "FINISH" : "NEXT"}</button>`}
       </div>
       <div id="fk-tut-skip-confirm" style="display:none;padding:0 15px 12px;font-size:13px;color:#efe3c6">
@@ -370,6 +375,10 @@ export function startTutorial(g: GameSession): void {
     if (skipNo) skipNo.onclick = () => { const conf = card.querySelector<HTMLElement>("#fk-tut-skip-confirm"); if (conf) conf.style.display = "none"; };
     const next = card.querySelector<HTMLButtonElement>("#fk-tut-next");
     if (next) next.onclick = () => (last ? (location.search = "") : advance());
+    // per-step skip (playtest fix): one dead gate must never cost the whole
+    // tutorial — SKIP STEP advances past just this card
+    const stepSkip = card.querySelector<HTMLButtonElement>("#fk-tut-stepskip");
+    if (stepSkip) stepSkip.onclick = () => advance();
     setGlow(s.glow);
     s.enter?.(g);
     stepStartedAt = Date.now();

@@ -119,12 +119,12 @@ export function traceGridRoads(w: World, rng: RngState, town: GridTownShape): St
   streets.push({ name: freshLabel(rng, used, "road"), axis: 1, at: mainX, from: 0, to: w.height - 1 });
 
   // ---- AVENUES: horizontal town streets stepping out from the highway -----
-  // Block sizes: 4–5 lots downtown, 5–6 at the fringe. Paired with the
-  // 3-tile street-access zoning radius, every block interior fills with
-  // parcels while streets stay a realistic share of the town's land.
+  // Block sizes: 5–6 lots downtown, 6–8 at the fringe (§2 rev. 6: blocks got
+  // one lot wider so front lawns, walks, and parking aprons have room to
+  // read — wall-to-wall infill was crushing the space between buildings).
   const denseR = town.r * 0.45;
   const gap = (dist: number): number =>
-    dist < denseR ? 4 + nextRange(rng, 2) : 5 + nextRange(rng, 2);
+    dist < denseR ? 5 + nextRange(rng, 2) : 6 + nextRange(rng, 3);
   const avenueSpans: { at: number; from: number; to: number }[] = [];
   for (const dir of [-1, 1]) {
     // the highway occupies hy..hy+1; step from its outer edge

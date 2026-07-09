@@ -601,6 +601,100 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
   };
 
   /**
+   * FRONT-LOT STAMP (§2 rev. 6): the big civic anchors park IN FRONT — the
+   * building sets back one row and a Parking strip spans its whole frontage,
+   * touching the street, exactly like a real school/grocery/firehall. Tries
+   * placements where the footprint sits one row off a road with the strip
+   * between them; prefers a south frontage (the drawn facade faces south).
+   */
+  const stampFront = (
+    lotKind: number,
+    wLots: number,
+    hLots: number,
+    district: number,
+    workers: number,
+    tries = 90,
+  ): boolean => {
+    // sides in preference order: S (facade faces the viewer), E, W, N
+    const SIDES: Array<[number, number]> = [
+      [0, 1],
+      [1, 0],
+      [-1, 0],
+      [0, -1],
+    ];
+    for (let attempt = 0; attempt < tries; attempt++) {
+      const x = town.cx - town.r + nextRange(rng, town.r * 2);
+      const y = town.cy - town.r + nextRange(rng, town.r * 2);
+      let ok = true;
+      for (let dy = 0; dy < hLots && ok; dy++) {
+        for (let dx = 0; dx < wLots && ok; dx++) {
+          const xx = x + dx;
+          const yy = y + dy;
+          if (xx < 1 || yy < 1 || xx >= width - 1 || yy >= w.height - 1) ok = false;
+          else {
+            const t = yy * width + xx;
+            if (w.terrain[t] !== Terrain.Citizen || w.district[t] !== district || w.lot[t] !== 0)
+              ok = false;
+          }
+        }
+      }
+      if (!ok) continue;
+      for (const [sdx, sdy] of SIDES) {
+        // the strip: the row/col hugging the footprint on this side
+        const span = sdy !== 0 ? wLots : hLots;
+        const strip: number[] = [];
+        let stripOk = true;
+        let roadTouch = 0;
+        for (let i = 0; i < span && stripOk; i++) {
+          const sx = sdy !== 0 ? x + i : sdx > 0 ? x + wLots : x - 1;
+          const sy = sdx !== 0 ? y + i : sdy > 0 ? y + hLots : y - 1;
+          if (sx < 1 || sy < 1 || sx >= width - 1 || sy >= w.height - 1) {
+            stripOk = false;
+            break;
+          }
+          const st = sy * width + sx;
+          if (w.terrain[st] !== Terrain.Citizen || w.lot[st] !== 0) {
+            stripOk = false;
+            break;
+          }
+          strip.push(st);
+          const beyond = (sy + sdy) * width + (sx + sdx);
+          if (beyond >= 0 && beyond < w.terrain.length && w.terrain[beyond] === Terrain.Road)
+            roadTouch++;
+        }
+        // jittered plats fray corners: a majority of the strip on asphalt is
+        // a real curb cut; zero road contact is a parking lot to nowhere
+        if (!stripOk || roadTouch < (span + 1) >> 1) continue;
+        for (let dy = 0; dy < hLots; dy++) {
+          for (let dx = 0; dx < wLots; dx++) {
+            const t = (y + dy) * width + x + dx;
+            w.lot[t] = lotKind;
+            w.pop[t] = Math.min(15, Math.max(2, Math.floor(workers / (wLots * hLots))));
+          }
+        }
+        for (const st of strip) {
+          w.lot[st] = Lot.Parking;
+          w.pop[st] = 0;
+        }
+        return true;
+      }
+    }
+    return false;
+  };
+
+  /** The anchors whose parking belongs on their frontage, not beside them. */
+  const FRONT_LOT = new Set<number>([
+    Lot.Supermarket,
+    Lot.School,
+    Lot.HighSchool,
+    Lot.Sheriff,
+    Lot.FireStation,
+    Lot.Cinema,
+    Lot.Factory,
+    Lot.Office,
+  ]);
+
+  /**
    * KEYSTONE GUARANTEE: some civic anchors exist in every real town — and the
    * civics engine (§13 rev.) depends on them being present. Try the preferred
    * district first, then fall back through others, then force-place on any
@@ -613,6 +707,12 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
     districts: number[],
     workers: number,
   ): void => {
+    // front-lot anchors try the setback-with-frontage-parking placement first
+    if (FRONT_LOT.has(lotKind)) {
+      for (const d of districts) {
+        if (stampFront(lotKind, wLots, hLots, d, workers)) return;
+      }
+    }
     for (const d of districts) {
       if (stamp(lotKind, wLots, hLots, d, workers)) return;
     }
@@ -659,6 +759,13 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
     districts: number[],
     workers: number,
   ): void => {
+    if (FRONT_LOT.has(lotKind)) {
+      for (const [aw, ah] of sizes) {
+        for (const d of districts) {
+          if (stampFront(lotKind, aw, ah, d, workers)) return;
+        }
+      }
+    }
     for (const [aw, ah] of sizes) {
       for (const d of districts) {
         if (stamp(lotKind, aw, ah, d, workers)) return;
@@ -816,6 +923,18 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
     Lot.Depot,
   ]);
   const parkCount = new Map<number, number>();
+  // front-lot strips already placed by stampFront satisfy the budget — a
+  // school with frontage parking doesn't also need a side apron
+  for (let t = 0; t < w.terrain.length; t++) {
+    const lot = w.lot[t]!;
+    if (!wantsParking.has(lot)) continue;
+    for (const n of [t - 1, t + 1, t - width, t + width]) {
+      if (n >= 0 && n < w.lot.length && w.lot[n] === Lot.Parking) {
+        parkCount.set(lot + (w.district[t]! << 8), 99);
+        break;
+      }
+    }
+  }
   for (let t = 0; t < w.terrain.length; t++) {
     const lot = w.lot[t]!;
     if (!wantsParking.has(lot)) continue;

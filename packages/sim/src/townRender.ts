@@ -46,15 +46,17 @@ export const TILE_PX = 8;
 
 /** 8×8 icon bitmaps: '.'=ground, '#'=dark outline, 'o'=owner color, '*'=accent. */
 const ICONS: Record<Building["type"], string[]> = {
+  // the meeting hall: gold cross on the ridge, gabled roof, lit windows
+  // flanking a dark double door — a BUILDING first, a symbol second
   compound: [
-    "...##...",
-    "...##...",
+    "...*....",
+    "..***...",
+    "...*....",
     ".######.",
-    "...##...",
-    ".######.",
-    ".#o##o#.",
-    ".#o##o#.",
-    ".######.",
+    "#oooooo#",
+    "#o#oo#o#",
+    "#o.##.o#",
+    "########",
   ],
   collection_plate: [
     "........",
@@ -66,24 +68,26 @@ const ICONS: Record<Building["type"], string[]> = {
     "..####..",
     "........",
   ],
+  // legged tower with a cabin and a searchlight sweeping off the corner
   watchtower: [
-    ".######.",
-    ".#o##o#.",
+    "*.####..",
+    ".*#oo#*.",
     ".######.",
     "..#oo#..",
-    "..#oo#..",
-    "..#oo#..",
-    ".######.",
-    ".######.",
+    "...##...",
+    "...##...",
+    "..#..#..",
+    ".##..##.",
   ],
+  // guyed mast radiating over its equipment shed
   broadcast_tower: [
     "*..##..*",
     ".*.##.*.",
-    "..###...",
+    "..#..#..",
     "...##...",
-    "...##...",
-    "..####..",
-    ".##oo##.",
+    "..#..#..",
+    ".######.",
+    ".#o##o#.",
     ".######.",
   ],
   supplement_lab: [
@@ -371,6 +375,12 @@ export interface RenderOpts {
   timeOfDay?: "dawn" | "day" | "dusk" | "night";
   /** Overlay per-district dissent heatmap. */
   showDissent?: boolean;
+  /**
+   * March pace for rendering mission cohorts (balance.missions
+   * .marchTicksPerTile). Defaults to the shipped balance value so headless
+   * renders match; pass the live value when balance is hot-patched.
+   */
+  marchTicksPerTile?: number;
 }
 
 export interface RenderedFrame {
@@ -706,6 +716,7 @@ export function renderTown(sim: SimState, opts: RenderOpts = {}): RenderedFrame 
 
   // ---- pass 3: the people ----
   drawResidents(sim, tick, fog, put);
+  drawCohorts(sim, tick, fog, put, opts.marchTicksPerTile ?? 2);
   drawUnits(sim, opts.viewer ?? 0, fog, put);
 
   // ---- pass 3.5: TERRITORY BORDERS (v3 M4 glow) — your converted town
@@ -1849,7 +1860,7 @@ function drawTile(
         put(x0 + 1, y0, C.windowLit); // warm head
       }
       // downtown street furniture on the off-lamp rhythm: a bench, then a
-      // planter — main-street dressing without adding new hues
+      // planter, a bus shelter, a trash can — main-street dressing
       if (lit && tx % 4 === 3) {
         put(x0 + 4, y0 + 1, C.plank); // bench
         put(x0 + 5, y0 + 1, C.plankDark);
@@ -1857,6 +1868,16 @@ function drawTile(
       if (lit && tx % 8 === 6) {
         put(x0 + 2, y0 + 1, C.rockShade); // planter pot
         put(x0 + 2, y0, C.bush); // its shrub
+      }
+      if (lit && tx % 16 === 2) {
+        put(x0 + 4, y0, C.glassFrame); // bus shelter roof
+        put(x0 + 5, y0, C.glassFrame);
+        put(x0 + 6, y0, C.glassFrame);
+        put(x0 + 4, y0 + 1, C.glass); // glass walls
+        put(x0 + 6, y0 + 1, C.glass);
+      }
+      if (lit && tx % 8 === 4) {
+        put(x0 + 6, y0 + 1, hexToRgb("#4a6a42")); // trash can
       }
     }
     if (ty < w.height - 1 && roadSide(t + w.width)) {
@@ -1960,11 +1981,23 @@ function drawTile(
         if ((px + py) % 2 === 0) put(x0 + px, y0 + py, shade(C.meadow, 0.97));
       }
     }
-    if (roll < 4) {
+    if (currentSeason === "winter" && roll < 3) {
+      // a snowman holds the yard all winter
+      put(x0 + 3, y0 + 3, hexToRgb("#ffffff"));
+      put(x0 + 3, y0 + 4, hexToRgb("#f0f0f4"));
+      put(x0 + 3, y0 + 2, C.iconDark); // the hat
+      put(x0 + 4, y0 + 3, hexToRgb("#d23b3b")); // scarf tail
+    } else if (currentSeason === "fall" && roll < 3) {
+      // raked leaf piles
+      put(x0 + 2, y0 + 4, hexToRgb("#b06f33"));
+      put(x0 + 3, y0 + 4, hexToRgb("#96473a"));
+      put(x0 + 3, y0 + 5, hexToRgb("#c0a052"));
+      put(x0 + 5, y0 + 2, hexToRgb("#b06f33"));
+    } else if (roll < 4) {
       // back-lot shade tree
       const hx = 2 + (pixHash(t, 6, 97) % 4);
       const hy = 2 + (pixHash(t, 7, 97) % 4);
-      put(x0 + hx, y0 + hy, C.canopy);
+      put(x0 + hx, y0 + hy, currentSeason === "spring" ? hexToRgb("#e8b8c8") : C.canopy);
       put(x0 + hx + 1, y0 + hy, C.canopyLight);
       put(x0 + hx, y0 + hy + 1, C.canopyDark);
       put(x0 + hx + 1, y0 + hy + 1, C.canopy);
@@ -3787,24 +3820,24 @@ function lPath(x0: number, y0: number, x1: number, y1: number): Leg[] {
   return legs;
 }
 
-/** Where this lot's car sits: the edge of the parcel facing its street. */
+/** Where this lot's car sits: the parcel edge facing its street, nose out. */
 function drivewayPoint(
   w: World,
   t: number,
   fallbackX: number,
   fallbackY: number,
-): { px: number; py: number } {
+): { px: number; py: number; dx: number; dy: number } {
   const x = t % w.width;
   const y = (t / w.width) | 0;
   const bx = x * TILE_PX;
   const by = y * TILE_PX;
   const road = (n: number): boolean =>
     n >= 0 && n < w.terrain.length && (w.terrain[n] === Terrain.Road || w.terrain[n] === Terrain.Dirt);
-  if (y < w.height - 1 && road(t + w.width)) return { px: bx + 5, py: by + 6 };
-  if (x < w.width - 1 && road(t + 1)) return { px: bx + 6, py: by + 5 };
-  if (x > 0 && road(t - 1)) return { px: bx + 1, py: by + 5 };
-  if (y > 0 && road(t - w.width)) return { px: bx + 5, py: by + 1 };
-  return { px: fallbackX, py: fallbackY };
+  if (y < w.height - 1 && road(t + w.width)) return { px: bx + 5, py: by + 6, dx: 0, dy: 1 };
+  if (x < w.width - 1 && road(t + 1)) return { px: bx + 6, py: by + 5, dx: 1, dy: 0 };
+  if (x > 0 && road(t - 1)) return { px: bx + 1, py: by + 5, dx: -1, dy: 0 };
+  if (y > 0 && road(t - w.width)) return { px: bx + 5, py: by + 1, dx: 0, dy: -1 };
+  return { px: fallbackX, py: fallbackY, dx: 0, dy: 1 };
 }
 
 /**
@@ -3856,13 +3889,14 @@ function routePoint(legs: Leg[], d: number, driving: boolean): { px: number; py:
       const horiz = Math.abs(leg.x1 - leg.x0) >= Math.abs(leg.y1 - leg.y0);
       if (horiz) {
         const east = leg.x1 > leg.x0;
-        // snap to the road row's walk/lane
+        // cars ride the center lanes; walkers hug the CURB rows so their
+        // 2px bodies overlap the sidewalk strip, never the roadway
         const rowTop = ((leg.y0 / TILE_PX) | 0) * TILE_PX;
-        py = driving ? rowTop + (east ? 4 : 3) : rowTop + (east ? 6 : 1);
+        py = driving ? rowTop + (east ? 4 : 3) : rowTop + (east ? 7 : 0);
       } else {
         const south = leg.y1 > leg.y0;
         const colLeft = ((leg.x0 / TILE_PX) | 0) * TILE_PX;
-        px = driving ? colLeft + (south ? 3 : 4) : colLeft + (south ? 1 : 6);
+        px = driving ? colLeft + (south ? 3 : 4) : colLeft + (south ? 0 : 7);
       }
     }
     return { px, py };
@@ -3888,13 +3922,41 @@ function putPerson(px: number, py: number, color: RGB, put: Put): void {
   put(px + 1, py + 1, C.shadow); // cast shadow
 }
 
-/** Draw a commuting car: 3×2 body in the travel direction's lane. */
-function putCar(px: number, py: number, color: RGB, put: Put): void {
-  put(px - 1, py, shade(color, 0.85));
-  put(px, py, color);
-  put(px + 1, py, color);
-  put(px - 1, py + 1, C.iconDark); // wheels
-  put(px + 1, py + 1, C.iconDark);
+/** Real-world car paint for neutral households (cult cars wear cult colors). */
+const CAR_COLORS: RGB[] = [
+  hexToRgb("#c8c4bc"), // silver
+  hexToRgb("#e8e4dc"), // white
+  hexToRgb("#2e2e32"), // black
+  hexToRgb("#a03028"), // red
+  hexToRgb("#3a5a8c"), // blue
+  hexToRgb("#4a6a42"), // green
+  hexToRgb("#b09a6a"), // tan
+  hexToRgb("#6a3038"), // maroon
+];
+
+/**
+ * A commuting car with a FACE: the windshield glass sits on the leading end
+ * and the body form turns with the travel axis, so northbound and eastbound
+ * cars read differently at a glance.
+ */
+function putCar(px: number, py: number, color: RGB, dx: number, dy: number, put: Put): void {
+  if (dy === 0) {
+    // east/west: 3×2, glass on the leading end, wheels under both ends
+    const east = dx >= 0;
+    put(px - 1, py, east ? shade(color, 0.8) : C.unitGlass);
+    put(px, py, color);
+    put(px + 1, py, east ? C.unitGlass : shade(color, 0.8));
+    put(px - 1, py + 1, C.iconDark);
+    put(px + 1, py + 1, C.iconDark);
+  } else {
+    // north/south: 1×3 body with side wheels, glass toward travel
+    const south = dy >= 0;
+    put(px, py - 1, south ? shade(color, 0.8) : C.unitGlass);
+    put(px, py, color);
+    put(px, py + 1, south ? C.unitGlass : shade(color, 0.8));
+    put(px - 1, py, C.iconDark);
+    put(px + 1, py, C.iconDark);
+  }
 }
 
 function drawResidents(sim: SimState, tick: number, fog: Uint8Array | null, put: Put): void {
@@ -3976,11 +4038,12 @@ function drawResidents(sim: SimState, tick: number, fog: Uint8Array | null, put:
           ? Math.abs((workT % w.width) - hx) + Math.abs(((workT / w.width) | 0) - hy)
           : 0;
       const ownsCar = workT >= 0 && commuteTiles > CAR_TRIP && seed % 3 !== 0;
-      const carColor = owner === NEUTRAL ? hexToRgb("#c8c4bc") : color;
+      // neutral households drive real-world paint; converts fly the colors
+      const carColor = owner === NEUTRAL ? CAR_COLORS[(seed >>> 13) % CAR_COLORS.length]! : color;
       const homeCar = (): void => {
         if (i === 0 && ownsCar) {
           const dv = drivewayPoint(w, t, homeX, homeY);
-          putCar(dv.px, dv.py, carColor, put);
+          putCar(dv.px, dv.py, carColor, dv.dx, dv.dy, put);
         }
       };
       const errandT = pickSpot(errandSpots, w.width, hx, hy, 0, seed >> 3, 20);
@@ -4090,7 +4153,7 @@ function drawResidents(sim: SimState, tick: number, fog: Uint8Array | null, put:
             : ((dest / w.width) | 0) * TILE_PX + 2 + ((seed >> 7) % 2) * 3;
           const dv = drivewayPoint(w, originT, originX, originY);
           if (phase === "stay") {
-            putCar(bayX, bayY, carColor, put); // waiting in its bay
+            putCar(bayX, bayY, carColor, 0, -1, put); // nose-in at its bay
             const lot = w.lot[dest]!;
             if (!(OUTDOOR_LOTS.has(lot) || w.landmark[dest] !== 0)) continue;
             px = destX + (((tick >> 3) + i) % 3) - 1;
@@ -4100,23 +4163,34 @@ function drawResidents(sim: SimState, tick: number, fog: Uint8Array | null, put:
           }
           const carLegs = buildRoute(w, originT, anchorT, dv.px, dv.py, bayX, bayY);
           const walkLegs = lPath(bayX, bayY, destX, destY);
-          const tDrive = routeLen(carLegs) / CAR_SPEED;
+          const carPxLen = routeLen(carLegs);
+          const tDrive = carPxLen / CAR_SPEED;
           const tWalk = routeLen(walkLegs) / WALK_SPEED;
           const elapsed = Math.max(0, day - legStart);
           // progress measured along the OUTWARD direction for both phases
           const et = phase === "out" ? elapsed : Math.max(0, tDrive + tWalk - elapsed);
           if (et <= 0) {
             // back home: the car returns to the driveway
-            putCar(dv.px, dv.py, carColor, put);
+            putCar(dv.px, dv.py, carColor, dv.dx, dv.dy, put);
           } else if (et <= tDrive) {
-            const pt = routePoint(carLegs, et * CAR_SPEED, true);
-            putCar(pt.px, pt.py, carColor, put);
+            const d0 = et * CAR_SPEED;
+            const pt = routePoint(carLegs, d0, true);
+            // heading: sample a touch ahead (reversed for the homeward run)
+            const ahead = routePoint(carLegs, Math.min(carPxLen, d0 + 2), true);
+            let hdx = Math.sign(ahead.px - pt.px);
+            let hdy = Math.sign(ahead.py - pt.py);
+            if (phase === "back") {
+              hdx = -hdx;
+              hdy = -hdy;
+            }
+            if (hdx === 0 && hdy === 0) hdx = 1;
+            putCar(pt.px, pt.py, carColor, hdx, hdy, put);
           } else if (et < tDrive + tWalk) {
             const pt = routePoint(walkLegs, (et - tDrive) * WALK_SPEED, false);
             putPerson(pt.px, pt.py, color, put);
           } else {
             // arrived: car in its bay; the person only if the lot is outdoor
-            putCar(bayX, bayY, carColor, put);
+            putCar(bayX, bayY, carColor, 0, -1, put);
             const lot = w.lot[dest]!;
             if (OUTDOOR_LOTS.has(lot) || w.landmark[dest] !== 0) {
               putPerson(destX, destY, color, put);
@@ -4156,6 +4230,78 @@ function drawResidents(sim: SimState, tick: number, fog: Uint8Array | null, put:
 
       putPerson(px, py, color, put);
       if (downline) put(px, py - 2, hexToRgb("#ffd700")); // tithe gold
+    }
+  }
+}
+
+/**
+ * v3 MISSION COHORTS MARCH (the send-out tie-in): a deployed cohort renders
+ * as a single-file column of believers walking the real street network from
+ * its compound to the mission target — same sidewalk rules as every other
+ * pedestrian — and walks home when recalled. Arrived cohorts mill at their
+ * ground. Pace mirrors cohorts.ts (marchTicksPerTile), so the column reaches
+ * the target exactly when the sim says the mission starts working.
+ */
+function drawCohorts(
+  sim: SimState,
+  tick: number,
+  fog: Uint8Array | null,
+  put: Put,
+  mtpt: number,
+): void {
+  const w = sim.world;
+  for (const p of sim.players) {
+    if (!p.spawned || p.cohorts.length === 0) continue;
+    const color = hexToRgb(colorForPlayer(p.id));
+    for (let ci = 0; ci < p.cohorts.length; ci++) {
+      const c = p.cohorts[ci]!;
+      if (fog && fog[c.target] !== 1) continue;
+      // nearest operational compound — mirrors cohortTransit()
+      const tx = c.target % w.width;
+      const ty = (c.target / w.width) | 0;
+      let bestT = -1;
+      let best = -1;
+      for (const bd of sim.buildings) {
+        if (bd.player !== p.id || bd.type !== "compound" || bd.buildTicksLeft > 0) continue;
+        const d = Math.abs((bd.tile % w.width) - tx) + Math.abs(((bd.tile / w.width) | 0) - ty);
+        if (best < 0 || d < best) {
+          best = d;
+          bestT = bd.tile;
+        }
+      }
+      if (bestT < 0) continue;
+      const transit = Math.max(1, best * mtpt);
+      const srcX = (bestT % w.width) * TILE_PX + 4;
+      const srcY = ((bestT / w.width) | 0) * TILE_PX + 7;
+      const dstX = tx * TILE_PX + 3;
+      const dstY = ty * TILE_PX + 6;
+      let frac: number;
+      let marching = true;
+      if (c.recalling) {
+        frac = Math.max(0, 1 - c.recallAge / transit);
+      } else if (c.age < transit) {
+        frac = c.age / transit;
+      } else {
+        frac = 1;
+        marching = false;
+      }
+      if (marching) {
+        const legs = buildRoute(w, bestT, c.target, srcX, srcY, dstX, dstY);
+        const total = routeLen(legs);
+        const head = total * frac;
+        for (let k = 0; k < 3; k++) {
+          const pt = routePoint(legs, Math.max(0, head - k * 3), false);
+          putPerson(pt.px, pt.py, color, put);
+        }
+      } else {
+        // on the ground: the column works its block
+        for (let k = 0; k < 3; k++) {
+          const h = pixHash(c.target, k + ci * 7, 99);
+          const px2 = dstX + ((h + (tick >> 4)) % 5) - 2;
+          const py2 = dstY - ((h >> 4) % 3);
+          putPerson(px2, py2, color, put);
+        }
+      }
     }
   }
 }

@@ -58,8 +58,10 @@ B1  ✔️ SIM — deterministic gameplay core (@flock/sim, runs bit-identically
 │   │   │            road contact (orthogonality guarantee at the source)
 │   │   ├── B1.4.1.8 ✔️ Street-segment registry — freshLabel → Street[] →
 │   │   │            World.streets (every segment nameable)
-│   │   └── B1.4.1.9 ✔️ Town shape — layoutHighwaysAndTown: cx/cy/r + highway
-│   │                row + downtown extent (the geometry every stage reads)
+│   │   ├── B1.4.1.9 ✔️ Town shape — layoutHighwaysAndTown: cx/cy/r + highway
+│   │   │            row + downtown extent (the geometry every stage reads)
+│   │   └── B1.4.1.10 ✔️ Wider blocks + mid-block lanes (§2 rev. 6) 🖼️ —
+│   │                blocks 5–6/6–8; ~half the deep gaps earn a named "Lane"
 │   ├── B1.4.2  ✔️ DIRT & LANES — the unpaved layer
 │   │   ├── B1.4.2.1 ✔️ carveDirtLane — hash-oriented L-path (axis-at-a-time,
 │   │   │            zero diagonal stair-steps)
@@ -93,18 +95,24 @@ B1  ✔️ SIM — deterministic gameplay core (@flock/sim, runs bit-identically
 │   │            Industrial + Downtown/OldTown/College/Trailer) w/ coeffs;
 │   │            industrial by the rail, commercial on Main St
 │   ├── B1.4.7  ✔️ KEYSTONE CIVICS — guaranteed every town
-│   │   ├── B1.4.7.1 ✔️ keystone() stamp engine — try full size → shrink to
-│   │   │            1×1 → force-place on first road-fronting lot
+│   │   ├── B1.4.7.1 ✔️ keystone() stamp engine — SCAN placement (enumerate
+│   │   │            valid spots, rng-pick), graceful shrink → force-place
 │   │   ├── B1.4.7.2 ✔️ The seven guarantees — elementary + high school,
-│   │   │            sheriff, grocery, church, fire station, gas (feeds B1.18)
-│   │   └── B1.4.7.3 ✔️ INVARIANT: keystone gate ×5 seeds (mapgen.test.ts)
+│   │   │            sheriff 2×2, grocery, church 2×2, fire, gas (feeds B1.18)
+│   │   ├── B1.4.7.3 ✔️ INVARIANT: keystone gate ×5 seeds (mapgen.test.ts)
+│   │   └── B1.4.7.4 ✔️ Frontage parking (stampFront) 🖼️ — the lot sits
+│   │                BETWEEN facade and street; every component touches road
 │   ├── B1.4.8  ✔️ BLOCK INTERIORS & FRONTAGE
 │   │   ├── B1.4.8.1 ✔️ enforceRoadFrontage — homes FRONT the street;
 │   │   │            interiors are yards (revised away path corridors)
 │   │   ├── B1.4.8.2 ✔️ orthogonalizePaths — safety net bridging any
 │   │   │            corner-only path contact
-│   │   └── B1.4.8.3 ✔️ INVARIANT: no home without street access within 1
-│   │                orth tile (mapgen.test.ts frontage gate)
+│   │   ├── B1.4.8.3 ✔️ INVARIANT: no home without street access within 1
+│   │   │            orth tile (mapgen.test.ts frontage gate)
+│   │   ├── B1.4.8.4 ✔️ Block alleys 🖼️ — yard corridors between two streets
+│   │   │            become dirt service alleys (stub-eaten, throat-punched)
+│   │   └── B1.4.8.5 ✔️ Empty-yard dressing 🖼️ — mow stripes + tree/
+│   │                clothesline/wildflowers + fences; no bare holes
 │   ├── B1.4.9  ✔️ FARMING — the working countryside
 │   │   ├── B1.4.9.1 ✔️ layoutFarms — farmsteads anchored ON rural lanes
 │   │   ├── B1.4.9.2 ✔️ Field parcels — rectangular, road-aligned, baulk
@@ -317,6 +325,10 @@ B5  🔨 VISUALS — shared pixel renderer (SimState → RGBA, cosmetic boundary
 │   │            size; claim assets extended to grass verges
 │   ├── B5.2.4 ✔️ ASSETS.md — full asset × LOD ledger; high-detail versions
 │   │            tracked as 🧩 stubs per the Stub Law
+│   ├── B5.2.6 ✔️ Front-facing facades 🖼️ — 16 special-building types compose
+│   │            one facade across their footprint (approval sheets v1–v7)
+│   ├── B5.2.7 ✔️ House + street variety 🖼️ — wall tones, roof variance,
+│   │            porches/dormers/hoops; downtown benches + planters
 │   └── B5.2.5 ✔️ Renderer v3 — biome palettes (desert/forest), footpaths,
 │                bridge-crossing fix, wired powerlines, cul-de-sac bulbs,
 │                orchards/pastures/warehouse/high-school, property stakes

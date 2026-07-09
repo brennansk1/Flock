@@ -41,15 +41,25 @@ _2026-07-05 close-out: the archetype gap is shut — B1.4.14.2–.7 all VERIFIED
 sawmill fallback fixed a real seed-3 generation gap the probe found). B1.4.19
 quality-metrics harness live with baseline recorded._
 
+_2026-07-09 session (visual overhaul, user-directed): **special buildings
+redone as front-facing composed facades** (B5.2.6) with **frontage parking
+that always touches a road** (B1.4.7.4 + invariant test), the anchor-collapse
+bug fixed (B1.4.7.1 scan placement — grocery/sheriff/fire were silently 1×1
+on most seeds), **blocks widened with mid-block lanes + dirt alleys + yard
+life** so interiors read as town fabric (B1.4.1.10, B1.4.8.4–.5), and a house
+/street variety pass (B5.2.7). Approval sprite sheets delivered to the user.
+Suite 105/105 sim + 14/14 server green; the church-vs-drifter microbench now
+asserts its honest anti-regression property (tier strength at 24²/2min is
+layout luck — measured before AND after; real-scale validation stays with
+playtest_sim). BALANCE WATCH: church edge over drifter at tiny scale is ~even
+(aggregate 100v96) — fold into the B7.9 balance pass._
+
 Next recommended actions, in order:
-1. **B6.5** — cross-browser determinism CI (top HANDOFF §10 risk). Note the
-   §2A coastline wobble uses `Math.sin` (mapgen.ts:863) — transcendental fns
-   are implementation-defined across JS engines, so oceanside worlds are the
-   FIRST place a cross-engine hash divergence would appear. B6.5 should
-   include an archetype world in its gate.
-2. **B1.4.12** — terrain fields v2 (heightmap+moisture first), the deferred
-   foundational rework; would also subsume the seed-99 road-connectivity dip
-   tracked in B1.4.19's baseline.
+1. Playtest-feedback batch 2 (user-queued): sidewalk/driving/dot realism,
+   night window glow, route-following cars that park at homes/lots, and a
+   sub-agent tutorial run against latest code.
+2. **B1.4.12 follow-ons** — reviewer items still deferred: #1 river-anchored
+   founding, #15 curvilinear suburbs.
 
 ## Manifest
 
@@ -97,6 +107,7 @@ Next recommended actions, in order:
 | B1.4.1.7 | B1/mapgen/grid/elbows | Elbow fill | fillRoadElbows bridges every corner-only road contact at the source | B1.4.1.6 | ✔️ | gridRoads.ts:240; orthogonality invariant green |
 | B1.4.1.8 | B1/mapgen/grid/segments | Street-segment registry | freshLabel → `Street[]` → World.streets; every segment addressable for naming | B1.4.1.3 | ✔️ | gridRoads.ts:80; naming tests green |
 | B1.4.1.9 | B1/mapgen/grid/shape | Town shape | layoutHighwaysAndTown yields {cx,cy,r,highwayY,…} — the geometry every later stage reads | — | ✔️ | mapgen.ts:1029; downstream stages consume TownShape |
+| B1.4.1.10 | B1/mapgen/grid/lanes | Wider blocks + mid-block lanes (§2 rev. 6) 🖼️ | Blocks grow to 5–6 downtown / 6–8 fringe so lawns/walks/parking read; ~half the gaps ≥7 rows earn a named residential "X Lane" through the middle (more frontage, more houses) | B1.4.1.3 | ✔️ | gridRoads.ts gap()+lane pass; suite 105/105; vision-checked sheet_v7 + map renders (2026-07-09) |
 
 #### B1.4.2 — Dirt & lanes
 
@@ -133,9 +144,10 @@ Next recommended actions, in order:
 
 | ID | Tree Path | Feature | Contract / Acceptance Criteria | Depends On | Status | Evidence / Notes |
 |----|-----------|---------|-------------------------------|------------|--------|------------------|
-| B1.4.7.1 | B1/mapgen/keystones/engine | keystone() stamp engine | Try full footprint → shrink 1×1 → force-place on first road-fronting citizen lot | B1.4.15.1 | ✔️ | mapgen.ts:486–560 |
-| B1.4.7.2 | B1/mapgen/keystones/seven | The seven guarantees | Elementary + high school, sheriff, grocery, church, fire station, gas — every town, every seed (feeds civics engine B1.18) | B1.4.7.1 | ✔️ | keystone gate ×5 seeds green |
+| B1.4.7.1 | B1/mapgen/keystones/engine | keystone() stamp engine | SCAN-based (2026-07-09): enumerate every valid placement, rng-pick; graceful shrink 3×2→2×2→2×1→1×1 → force-place. (Random throws almost never hit the few legal spots in a 25-tile downtown and were silently collapsing every anchor to 1×1) | B1.4.15.1 | ✔️ | mapgen.ts fits/fronted/claim + stamp(scan); all anchors at full size ×5 seeds (probe 2026-07-09) |
+| B1.4.7.2 | B1/mapgen/keystones/seven | The seven guarantees | Elementary + high school, sheriff (2×2), grocery, church (2×2), fire station, gas — every town, every seed (feeds civics engine B1.18) | B1.4.7.1 | ✔️ | keystone gate ×5 seeds green |
 | B1.4.7.3 | B1/mapgen/keystones/invariant | INVARIANT: keystone gate | Test asserts all seven per seed | B1.4.7.2 | ✔️ | mapgen.test.ts green (2026-07-05) |
+| B1.4.7.4 | B1/mapgen/keystones/frontpark | Frontage parking (stampFront) 🖼️ | Big civic anchors set back one row; a Parking strip spans the frontage BETWEEN facade and street (majority on a curb cut); south frontage preferred so the facade faces its lot; EVERY parking component touches a road (opportunistic + guarantee passes included) | B1.4.7.1 | ✔️ | stampFront side-tiers + touchesRoad guards; INVARIANT "every parking lot touches a road" ×5 seeds green; vision-checked sheet_v7 (2026-07-09) |
 
 #### B1.4.8 — Block interiors & frontage
 
@@ -144,6 +156,8 @@ Next recommended actions, in order:
 | B1.4.8.1 | B1/mapgen/blocks/frontage | enforceRoadFrontage | Homes FRONT the street; block interiors become yards (no path corridors) | B1.4.1 | ✔️ | mapgen.ts:462; revised per user feedback |
 | B1.4.8.2 | B1/mapgen/blocks/orthopaths | orthogonalizePaths | Safety net: bridge any corner-only path contact | B1.4.8.1 | ✔️ | mapgen.ts:1405 |
 | B1.4.8.3 | B1/mapgen/blocks/invariant | INVARIANT: home access | No home without street access within 1 orth tile | B1.4.8.1 | ✔️ | frontage gate ×5 seeds green |
+| B1.4.8.4 | B1/mapgen/blocks/alleys | Block alleys (§2 rev. 6) 🖼️ | Corridors of non-fronting yard tiles connecting two streets become dirt service alleys (throats punched to pavement; stubs eaten back; pre-existing farm/landmark lanes untouched); alley-fronting lots may hold homes | B1.4.8.1 | ✔️ | carveBlockAlleys; suite 105/105 incl. home-access gate; vision-checked map/crops (2026-07-09) |
+| B1.4.8.5 | B1/mapgen/blocks/yardlife | Empty-yard dressing 🖼️ | pop-0 interior yards never render bare: mow stripes + shade tree / clothesline / wildflowers + parcel fences (renderer; existing hues only) | B1.4.8.4 | ✔️ | townRender empty-yard branch; vision-checked 2026-07-09 — block interiors no longer read as holes |
 
 #### B1.4.9 — Farming
 
@@ -326,6 +340,8 @@ Next recommended actions, in order:
 | B5.2.3 | B5/townrender/growth | Cult building expansion | Compound icon gains visible growth stages (fence at ≥7%, banners at ≥15% town share); wilderness-claim assets extend to grass verges | B5.2 | ✔️ | stages keyed to ownedTiles permille (25/70/150‰ thresholds shared with woodsClaim); mid/late match screenshots rendered |
 | B5.2.4 | B5/assetsdoc | ASSETS.md ledger | Every rendered asset documented: name, source fn, LOD1 form, LOD2–4 detail, status; every deferred high-detail variant is a 🧩 row here + in this manifest | B5.2.1–.3 | ✔️ | ASSETS.md written: terrain/lots/landmarks/cult/units/effects × LOD, deferred variants itemized → B5.3.1 |
 | B5.2.5 | B5/townrender/v3 | Renderer v3 | Biome palettes (desert sand/cacti, forest density), Path sidewalks, bridge-CROSSING detection (no more shore-parallel false bridges), poles every 2 tiles with connected wire, cul-de-sac bulbs, orchard/pasture/warehouse/high-school assets, property stakes | B1.4.10 | ✔️ | vision-checked: biomes/paths→lawns rework, bridge crossings, U-wires, traffic, stop signs, streetlights, backyards, crop variety, welcome signs, smoke |
+| B5.2.6 | B5/townrender/facades | Front-facing special-building facades 🖼️ | 16 anchor types (schools, sheriff, grocery, church/chapel, fire, gas, bank, library, PO, cinema, factory, office, warehouse, motel) compose ONE facade across their contiguous footprint (roof band / textured wall / window rhythm / signed entrance / lawn-walk apron); per-tile 8×8 slices, clipped; outer ring stays ground so the territory tint rings the building; fixed 8px/tile (composition, not density) | B5.2, B1.4.7.4 | ✔️ | drawFacade + lotRect; approval sheets v1–v7 (user-delivered 2026-07-09); dead per-tile cases removed; suite 105/105 |
+| B5.2.7 | B5/townrender/variety | House + street variety pass 🖼️ | 2 extra wall tones per district, per-house roof-tone variance, porches, dormers, flower beds, driveway hoops; downtown benches + planters on the off-lamp rhythm; existing palette only (RESTRAINT guard) | B5.2.6 | ✔️ | vision-checked sheet_v7 + school-crop renders (2026-07-09) |
 | B5.3 | B5/authored | Authored audio + animation (§30/§31) | ~40 frame-by-frame animations, full audio pass | B5.2 | 🚫 | BLOCKED: artist/composer content, not code; render/event seams ready |
 | B5.3.1 | B5/authored/lod | High-detail LOD 3–4 asset variants | Each 🧩 line in ASSETS.md gets a dedicated high-detail form (animated neon, truss bridges, per-tree canopies, walk cycles…) | B5.2.4 | 🧩 | STUBBED by design: low-LOD procedural forms ship now; this row is the Stub-Law tracker for the deferred art pass |
 

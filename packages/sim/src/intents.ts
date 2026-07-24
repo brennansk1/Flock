@@ -36,6 +36,27 @@ export const IntentType = {
 
 export type IntentType = (typeof IntentType)[keyof typeof IntentType];
 
+/**
+ * The canned match emotes (§30). Index-based on purpose: the wire carries a
+ * number, never player-authored text, so EMOTE needs no moderation pass the way
+ * CHAT does — an out-of-range index is the only thing the server can be handed.
+ * Tone guardrail (§30, B8.6): these mock the mechanisms of persuasion, never a
+ * real faith. Kept short deliberately — six reads at a glance; a dozen is noise.
+ */
+export const EMOTES = [
+  "🙏 Praise be",
+  "🔥 Heresy!",
+  "👁 We see you",
+  "🤝 Truce?",
+  "😤 Betrayed",
+  "💀 Doomed",
+] as const;
+
+/** Wire guard: the only EMOTE payloads the server will relay. */
+export function isEmoteIndex(v: unknown): v is number {
+  return typeof v === "number" && Number.isInteger(v) && v >= 0 && v < EMOTES.length;
+}
+
 export type BuildingType =
   | "compound"
   | "collection_plate"

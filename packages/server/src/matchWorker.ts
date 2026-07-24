@@ -36,6 +36,7 @@ import {
   updateFFA,
   newRating,
   IntentType,
+  isEmoteIndex,
   Terrain,
   MatchStatus,
   type Balance,
@@ -363,6 +364,14 @@ export class MatchWorker {
       const chat = intent as Extract<Intent, { t: typeof IntentType.CHAT }>;
       const { allowed, text } = moderateChat(chat.msg ?? "");
       if (allowed) this.broadcast({ type: "chat", from: playerId, channel: chat.channel ?? "all", msg: text });
+      return;
+    }
+
+    // EMOTE is relayed too, but carries an index into the shared EMOTES table
+    // rather than text — so the guard is a range check, not a moderation pass.
+    if (intent.t === IntentType.EMOTE) {
+      const e = (intent as Extract<Intent, { t: typeof IntentType.EMOTE }>).emote;
+      if (isEmoteIndex(e)) this.broadcast({ type: "emote", from: playerId, emote: e });
       return;
     }
 

@@ -64,6 +64,7 @@ type ServerMsg =
   | { type: "hash"; tick: number; hash: string }
   | { type: "snapshot"; snapshot: Snapshot; players: WirePlayer[] }
   | { type: "chat"; from: number; channel: string; msg: string }
+  | { type: "emote"; from: number; emote: number }
   | { type: "recap"; recap: MatchRecap }
   | { type: "results"; results: MatchResult[] }
   | { type: "error"; message: string }
@@ -94,12 +95,15 @@ export interface GameSession {
   account?: WireAccount;
   /** rolling chat log (server-moderated). */
   chat: { from: number; msg: string }[];
+  /** rolling emote log (index into EMOTES; server range-checked). */
+  emotes: { from: number; emote: number }[];
   /** filled by the server at END (§25) */
   recap?: MatchRecap;
   /** filled by the server at END (§20/§22) */
   results?: MatchResult[];
   sendIntent(intent: ClientIntent): void;
   sendChat(msg: string): void;
+  sendEmote(emote: number): void;
   /** solo-vs-bots pause (server-confirmed via the `paused` message). */
   paused: boolean;
   sendPause(value: boolean): void;
@@ -191,6 +195,7 @@ export function connect(url: string, onReady: (g: GameSession) => void, hooks: C
           playerId: msg.playerId,
           players: [...msg.players],
           chat: [],
+          emotes: [],
           paused: false,
           sendPause: (value: boolean) => ws.send(JSON.stringify({ type: value ? "pause" : "resume" })),
           ...(pendingAccount ? { account: pendingAccount } : {}),
@@ -202,6 +207,7 @@ export function connect(url: string, onReady: (g: GameSession) => void, hooks: C
             rebuildPrediction();
           },
           sendChat: (text: string) => ws.send(JSON.stringify({ type: "intent", intent: { t: "CHAT", player: msg.playerId, channel: "all", msg: text } })),
+          sendEmote: (emote: number) => ws.send(JSON.stringify({ type: "intent", intent: { t: "EMOTE", player: msg.playerId, emote } })),
         };
         onReady(session);
         break;
@@ -257,6 +263,13 @@ export function connect(url: string, onReady: (g: GameSession) => void, hooks: C
         if (session) {
           session.chat.push({ from: msg.from, msg: msg.msg });
           if (session.chat.length > 50) session.chat.shift();
+        }
+        break;
+      }
+      case "emote": {
+        if (session) {
+          session.emotes.push({ from: msg.from, emote: msg.emote });
+          if (session.emotes.length > 50) session.emotes.shift();
         }
         break;
       }

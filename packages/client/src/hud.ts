@@ -26,6 +26,7 @@ import {
   toFloat,
   fromInt,
   mul,
+  EMOTES,
   Stance,
   MatchStatus,
   Terrain,
@@ -459,6 +460,11 @@ const HUD_CSS = `
 .fk-reduced-motion .fk-doc .badge{animation:none}
 .fk-mute-chat .fk-chat{display:none}
 .fk-mute-chat .fk-chatin{display:none}
+.fk-mute-chat .fk-emotes{display:none}
+/* emote picker (§30): canned reactions, no typing, no moderation surface */
+.fk-emotes{pointer-events:auto;display:flex;gap:3px;margin-bottom:3px}
+.fk-emote{flex:1;background:#241c12;color:#efe3c6;border:0;box-shadow:inset 0 0 0 1px #36291a,0 2px 0 #060403;padding:4px 0;font-size:13px;line-height:1;cursor:pointer;font-family:inherit}
+.fk-emote:hover{background:#2a2014;box-shadow:inset 0 0 0 1px var(--fk-acc),0 2px 0 #060403}
 @media(max-width:1100px){.fk-rail-stack{width:150px}.fk-right-stack{width:190px}.fk-build{width:50px}}
 `;
 
@@ -891,6 +897,21 @@ export class Hud {
     this.chatIn = chatIn;
     window.addEventListener("keydown", this.focusChatKey);
 
+    // emote picker (§30, B8.15 — every action has a button): six canned
+    // reactions. The wire carries the index, so there is nothing to moderate
+    // and nothing a player can author. Hidden with chat when muted (§28).
+    const emoteRow = document.createElement("div");
+    emoteRow.className = "fk-emotes";
+    EMOTES.forEach((label, i) => {
+      const b = document.createElement("button");
+      b.className = "fk-emote";
+      b.textContent = label.split(" ")[0] ?? label;
+      b.title = label;
+      b.setAttribute("aria-label", label);
+      b.onclick = () => this.g.sendEmote(i);
+      emoteRow.appendChild(b);
+    });
+
     // CIVICS: the key buildings and who holds them (§13 rev.) — click one to
     // jump the camera there and plan the takeover.
     const civicsBox = document.createElement("div");
@@ -898,7 +919,7 @@ export class Hud {
     civicsBox.innerHTML = `<h4>Key Buildings</h4>`;
     this.el.civics = civicsBox;
 
-    rightStack.append(players, civicsBox, feed, chatIn);
+    rightStack.append(players, civicsBox, feed, emoteRow, chatIn);
     right.append(this.collapse(rightStack, "►", "◄"), rightStack);
     this.root.appendChild(right);
 
@@ -1351,7 +1372,16 @@ export class Hud {
         return `<div class="e fk-chat">${kq("#8a7550")}<span style="color:#a08a64">💬 ${esc(nm)}: ${esc(c.msg)}</span></div>`;
       })
       .join("");
-    const html = `<div class="fk-feed-h">● DRAMA FEED</div>${offers}${lines}${chat}`;
+    // emotes ride the same muted-with-chat rail; the wire carries an index, so
+    // the label comes from the shared table rather than from the sender.
+    const emotes = this.g.emotes
+      .slice(-4)
+      .map((e) => {
+        const nm = this.g.players.find((p) => p.id === e.from)?.name ?? `Cult #${e.from}`;
+        return `<div class="e fk-chat">${kq("#8a7550")}<span style="color:#a08a64">${esc(nm)}: ${esc(EMOTES[e.emote] ?? "…")}</span></div>`;
+      })
+      .join("");
+    const html = `<div class="fk-feed-h">● DRAMA FEED</div>${offers}${lines}${chat}${emotes}`;
     if (this.el.feed.dataset.h !== html) {
       this.el.feed.innerHTML = html;
       this.el.feed.dataset.h = html;

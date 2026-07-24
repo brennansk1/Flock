@@ -58,6 +58,7 @@ export type ServerMsg =
       players: WirePlayer[];
     }
   | { type: "chat"; from: number; channel: string; msg: string }
+  | { type: "emote"; from: number; emote: number }
   | {
       /** END → RECAP (§18/§25): the story of the match, headline grammar included. */
       type: "recap";

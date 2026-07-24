@@ -78,6 +78,7 @@ export function connectTutorial(
       { id: RIVAL_ID, name: "The Sleeper Cult", archetype: "radiant", bot: true },
     ],
     chat: [{ from: 0, msg: "TUTORIAL — offline practice town. Nothing here is ranked." }],
+    emotes: [],
     paused: false,
     sendPause: (v: boolean) => {
       g.paused = v;
@@ -88,6 +89,10 @@ export function connectTutorial(
     sendChat: (msg: string) => {
       g.chat.push({ from: 1, msg });
       if (g.chat.length > 50) g.chat.shift();
+    },
+    sendEmote: (emote: number) => {
+      g.emotes.push({ from: 1, emote });
+      if (g.emotes.length > 50) g.emotes.shift();
     },
   };
 

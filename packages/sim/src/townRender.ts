@@ -42,6 +42,53 @@ import {
 
 export const TILE_PX = 8;
 
+/**
+ * CANOPY INDIVIDUATION (F1). A wood used to be one statistical texture at a
+ * fixed frequency, so every woods tile looked identical and a stand read as a
+ * flat two-tone mass rather than as trees. Each tile now owns a crown — offset
+ * centre, varying radius, its own lightness — and neighbouring crowns overlap
+ * into a canopy you can pick individual trees out of.
+ *
+ * Only 3×3×4 = 36 crown shapes exist, so they are rasterised once here instead
+ * of being re-derived with float math for every pixel of every woods tile:
+ * measured, doing it per pixel cost +40ms/frame (+16%) on the full-map render.
+ * Cell values: 0 none · 1 lit · 2 canopy · 3 rim · 4 cast shadow.
+ */
+const CROWN_MASKS: readonly Uint8Array[] = (() => {
+  const out: Uint8Array[] = [];
+  for (let cxi = 0; cxi < 3; cxi++) {
+    for (let cyi = 0; cyi < 3; cyi++) {
+      for (let ri = 0; ri < 4; ri++) {
+        const cx = 3.5 + (cxi - 1);
+        const cy = 3.5 + (cyi - 1);
+        const r = 2.6 + ri * 0.35;
+        const m = new Uint8Array(TILE_PX * TILE_PX);
+        for (let py = 0; py < TILE_PX; py++) {
+          for (let px = 0; px < TILE_PX; px++) {
+            const dx = px - cx;
+            const dy = py - cy;
+            const d2 = dx * dx + dy * dy;
+            let v = 0;
+            if (d2 <= r * r) {
+              if (dx + dy < -1.2) v = 1; // upper-left catches the sun
+              else if (d2 > (r - 1) * (r - 1)) v = 3; // outer ring falls off
+              else v = 2;
+            } else if (d2 <= (r + 1.1) * (r + 1.1) && dx + dy > 1.4) {
+              v = 4; // shadow cast to the south-east
+            }
+            m[py * TILE_PX + px] = v;
+          }
+        }
+        out.push(m);
+      }
+    }
+  }
+  return out;
+})();
+
+/** Per-tree lightness step, so adjacent crowns don't read as one surface. */
+const crownTone = (base: RGB, step: number): RGB => shade(base, 0.94 + step * 0.06);
+
 // ---------------------------------------------------------------- sprites
 
 /** 8×8 icon bitmaps: '.'=ground, '#'=dark outline, 'o'=owner color, '*'=accent. */
@@ -1746,6 +1793,17 @@ function drawTile(
       const claim = woodsClaim(sim, t, tx, ty);
       const edgeN = ty > 0 && w.terrain[t - w.width] !== Terrain.Woods;
       const edgeW = tx > 0 && w.terrain[t - 1] !== Terrain.Woods;
+      // CANOPY INDIVIDUATION (F1): the stand used to be one statistical texture
+      // at a fixed frequency, so every woods tile looked identical and a wood
+      // read as a flat two-tone mass rather than as trees. Each tile now owns a
+      // crown — offset centre, varying radius, its own tone step — so crowns
+      // overlap into a canopy you can pick individual trees out of. The old
+      // blob noise stays underneath as understory between the crowns.
+      // unsigned: pixHash can come back negative, and a negative index here
+      // silently yields an undefined mask
+      const treeH = pixHash(tx, ty, 131) >>> 0;
+      const crownMask = CROWN_MASKS[(treeH % 3) * 12 + ((treeH >>> 3) % 3) * 4 + ((treeH >>> 6) % 4)]!;
+      const toneStep = (treeH >>> 9) % 3; // per-tree lightness
       for (let py = 0; py < TILE_PX; py++) {
         for (let px = 0; px < TILE_PX; px++) {
           const gx = tx * TILE_PX + px;
@@ -1761,11 +1819,20 @@ function drawTile(
             const baseCol = colorRoll === 0 ? aRed : colorRoll === 1 ? aOrange : aGold;
             c = h % 3 === 0 ? baseCol : h % 3 === 1 ? shade(baseCol, 0.82) : shade(baseCol, 1.15);
           } else {
-            // clumpy canopy: cell-noise blobs of light/dark green + trunk gaps
+            // understory: the old cell-noise blob, now the ground BETWEEN crowns
             const blob = pixHash(gx >> 2, gy >> 2, 77) % 5;
             c = blob < 2 ? C.canopy : blob < 4 ? C.canopyDark : C.canopyLight;
+            // this tile's own crown, lit from the north-west like everything
+            // else. Read from a precomputed mask: only 36 crown shapes exist,
+            // so shaping them per pixel with float math cost +40ms/frame (+16%)
+            // on the full map for a result a lookup gives for free.
+            const cell = crownMask[py * TILE_PX + px]!;
+            if (cell === 1) c = crownTone(C.canopyLight, toneStep);
+            else if (cell === 2) c = crownTone(C.canopy, toneStep);
+            else if (cell === 3) c = crownTone(C.canopyDark, toneStep);
+            else if (cell === 4) c = shade(C.canopyDark, 0.82); // shadow SE
           }
-          
+
           if (h % 23 === 0) c = C.trunk;
           // sunlit fringe on north/west edges
           if ((edgeN && py === 0) || (edgeW && px === 0)) {

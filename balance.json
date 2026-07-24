@@ -90,9 +90,9 @@
   },
   "victory": {
     "domination_pct": {
-      "S": 72,
-      "M": 72,
-      "L": 80
+      "S": 50,
+      "M": 45,
+      "L": 40
     },
     "economic_usd": {
       "S": 1200000,

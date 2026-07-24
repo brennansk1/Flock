@@ -31,7 +31,25 @@ import {
   botTurn,
   botShouldAct,
   IntentType,
+  TileState,
+  NEUTRAL,
+  dominationPermilleFor,
 } from "../packages/sim/dist/index.js";
+
+/**
+ * The winner's converted-soul share of the whole town — the quantity the
+ * domination threshold is actually compared against (sim.ts checkVictory
+ * measures SOULS, not acreage). Reported so the threshold can be set against
+ * measured reality instead of guessed.
+ */
+function popShare(sim, playerId) {
+  const w = sim.world;
+  let mine = 0;
+  for (let t = 0; t < w.owner.length; t++) {
+    if (w.owner[t] === playerId && w.state[t] === TileState.Believer) mine += w.pop[t];
+  }
+  return sim.totalPop > 0 ? mine / sim.totalPop : 0;
+}
 
 const MATCHES = Number(process.argv[2] ?? 20);
 const PLAYERS = Number(process.argv[3] ?? 4);
@@ -67,7 +85,8 @@ for (let m = 0; m < MATCHES; m++) {
     spawns,
     timerTicks: MAX_TICKS,
     foundingTicks: 1,
-    dominationPermille: 700,
+    // read the shipped knob, so the probe measures the config players get
+    dominationPermille: dominationPermilleFor(balance, WORLD, WORLD),
   });
   const rng = seedRng(seed ^ 0xb07);
   const bots = spawns.map((s, i) => ({
@@ -156,6 +175,7 @@ for (let m = 0; m < MATCHES; m++) {
     leadChanges2H,
     comeback,
     finalLeadShare,
+    winnerPopShare: popShare(sim, winnerPlayer.id),
     contestedSpan: contested / samples.length,
     ticks: n,
     decisive: !!sim.winner,
@@ -172,6 +192,10 @@ console.log(`lead changes, 2nd half   ${mean(rows.map((r) => r.leadChanges2H)).t
 console.log(`comeback rate            ${pct(mean(rows.map((r) => (r.comeback ? 1 : 0))))}   <- midpoint leader lost`);
 console.log(`final lead share         ${pct(mean(rows.map((r) => r.finalLeadShare)))}   <- winner's slice of owned land`);
 console.log(`contested span           ${pct(mean(rows.map((r) => r.contestedSpan)))}   <- match felt like a race`);
+const ps = rows.map((r) => r.winnerPopShare);
+console.log(
+  `winner soul share        mean ${pct(mean(ps))}  best ${pct(Math.max(...ps))}   <- what domination is compared against`,
+);
 
 // Depth Review verdict thresholds. These are the axis gates, stated up front so
 // the number is judged against a bar rather than eyeballed.

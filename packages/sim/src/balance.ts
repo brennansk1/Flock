@@ -178,6 +178,30 @@ export interface Balance {
     tendHoldDivisor: number;
     tendFaithPerS: Fixed;
   };
+  /**
+   * Victory thresholds (§18). Plain numbers — these are compared against a
+   * population share, never fed through fixed-point tick math.
+   */
+  victory: {
+    /** domination cut-off as a PERCENT of total town souls, keyed by map size */
+    dominationPct: Record<"S" | "M" | "L", number>;
+  };
+}
+
+/** Map-size bucket for the size-keyed victory tables (§1: S 64², M 96², L 128²). */
+export function mapSizeBucket(width: number, height: number): "S" | "M" | "L" {
+  const n = Math.max(width, height);
+  return n <= 64 ? "S" : n <= 96 ? "M" : "L";
+}
+
+/**
+ * The domination threshold this world should run, in per-mille, read from
+ * balance.json so it stays hot-patchable (§A). Until 2026-07-24 nothing read
+ * `victory.domination_pct` at all — createSim's hardcoded 720 default governed
+ * every match, and the knob in balance.json was dead config.
+ */
+export function dominationPermilleFor(balance: Balance, width: number, height: number): number {
+  return Math.round(balance.victory.dominationPct[mapSizeBucket(width, height)] * 10);
 }
 
 export function loadBalance(raw: RawBalance): Balance {
@@ -270,6 +294,13 @@ export function loadBalance(raw: RawBalance): Balance {
       crusadeAttritionPermillePerS: raw.missions?.crusade_attrition_permille_per_s ?? 2,
       tendHoldDivisor: raw.missions?.tend_hold_divisor ?? 200,
       tendFaithPerS: fromFloat(raw.missions?.tend_faith_per_s ?? 0.4),
+    },
+    victory: {
+      dominationPct: {
+        S: raw.victory?.domination_pct?.S ?? 55,
+        M: raw.victory?.domination_pct?.M ?? 45,
+        L: raw.victory?.domination_pct?.L ?? 40,
+      },
     },
   };
 }

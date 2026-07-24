@@ -37,6 +37,7 @@ import {
   newRating,
   IntentType,
   isEmoteIndex,
+  dominationPermilleFor,
   Terrain,
   MatchStatus,
   type Balance,
@@ -186,6 +187,10 @@ export class MatchWorker {
         townType,
       }),
       spawns: [],
+      // Domination threshold from balance.json (§18/§A). Passing it explicitly
+      // is what makes the knob live: without it createSim falls back to its
+      // hardcoded 720, which no winner has ever reached at 64² or 96².
+      dominationPermille: dominationPermilleFor(this.balance, worldSize, worldSize),
       foundingTicks, // FOUNDING spawn-pick window (§18)
       disableCouriers: extra.disableCouriers ?? false,
       disableCPA: extra.disableCPA ?? false,

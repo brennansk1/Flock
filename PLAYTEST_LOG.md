@@ -380,3 +380,53 @@ the system; passive opponents don't exercise it. Do not over-read the sect run.
 Verdict: **anti-degenerate FAILS on both tiers.** Per the Depth Review that
 triggers DEPTH-FIRST REDESIGN before further EXTEND work. Direction is a design
 call — raised to the user rather than chosen unilaterally.
+
+## PT-0019 — 2026-07-24 — DEPTH-FIRST REDESIGN: the victory threshold was dead config
+
+Root cause of PT-0018's "0% decisive". Domination is measured in **souls** —
+a share of the whole town's population (sim.ts checkVictory) — and the
+threshold was 72%. Measured ceiling of what a winner ever actually converts:
+
+| map | winner soul share (mean / best) | old threshold |
+|---|---|---|
+| 96² (M) | 41.7% / 51.8% | 72% |
+| 64² (S) | 48.2% / 64.0% | 72% |
+
+The bar sat ~20 points above the best result ever observed, so domination was
+not rare — it was **unreachable**, and every match ran to the timer.
+
+Worse, `victory.domination_pct` in balance.json was **never read by anything**:
+`loadBalance` dropped the `victory` block, the server never passed
+`dominationPermille`, and every match silently used createSim's hardcoded 720.
+The designer-facing knob for the game's primary win condition was wired to
+nothing, so no amount of balance.json tuning could ever have fixed this.
+
+Fix: carry `victory` into the loaded Balance, add `dominationPermilleFor()`
+(size-bucketed), have matchWorker pass it, and set thresholds from the measured
+ceilings — S 50, M 45, L 40 (L extrapolated, see below).
+
+Result at 96² / 4p / church bots — all three Depth gates flip to PASS:
+
+| metric | before | after |
+|---|---|---|
+| decisive (domination) | 0% | **62.5%** |
+| decidedAt (median) | 51.0% | **63.8%** (gate ≥60%) |
+| lead changes, 2nd half | 0.88 | **1.00** |
+| comeback rate | 37.5% | **50.0%** |
+
+`decidedAt` improved because matches now END at the decision point instead of
+grinding on past it — the shallow back half was post-resolution play.
+
+**Honest limits of this fix.** Two cases improved but still fail their gates:
+- **64² (S)** now resolves 50% of the time (was 0%) but `decidedAt` is 20% and
+  second-half lead changes 0.13. Four cults on a 64² board lock position almost
+  immediately; that is a room-to-maneuver problem, not a threshold problem, and
+  wants a player-count-vs-map-size rule or comeback pressure. Filed, not faked.
+- **Weak (sect) bots at 96²** reach 12.5% decisive, mean soul share 37.2%. Left
+  deliberately: calibrating the threshold down until passive bots resolve would
+  make domination fire trivially in competent play. A stalemate between four
+  passive players *should* run to the timer.
+- **L (128²) = 40 is extrapolated, not measured.** Needs a probe run before it
+  can be called verified.
+
+Baseline preserved: sim 105/105, server 17/17, build clean.

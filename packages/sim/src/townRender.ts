@@ -1292,6 +1292,12 @@ function drawTile(
       // graded forest + autumn ecotone check (§2: every biome edge grades)
       let forestRing = 0;
       let autumnRing = 0;
+      // EDGE FEATHERING (F2): the ecotone above grades by BIOME, so the wooded
+      // stands scattered through temperate country — most of the woods on a
+      // farm map — got no margin at all and met open grass on a hard line. Real
+      // woodland edges feather out through scrub and saplings. Ring distance to
+      // actual Woods TERRAIN, piggybacked on the scan that was already running.
+      let woodRing = 0;
       {
         outer: for (let ring = 1; ring <= 3; ring++) {
           for (let dy = -ring; dy <= ring; dy++) {
@@ -1300,10 +1306,12 @@ function drawTile(
               const x = tx + dx;
               const y = ty + dy;
               if (x < 0 || y < 0 || x >= w.width || y >= w.height) continue;
-              const nb = w.biome[y * w.width + x];
+              const ni = y * w.width + x;
+              const nb = w.biome[ni];
               if (nb === 2 && w.biome[t] !== 2 && !forestRing) forestRing = ring;
               if (nb === 3 && w.biome[t] !== 3 && !autumnRing) autumnRing = ring;
-              if (forestRing && autumnRing) break outer;
+              if (!woodRing && w.terrain[ni] === Terrain.Woods) woodRing = ring;
+              if (forestRing && autumnRing && woodRing) break outer;
             }
           }
         }
@@ -1316,6 +1324,13 @@ function drawTile(
         (tx > 0 && w.terrain[t - 1] === Terrain.Lake) ||
         (tx < w.width - 1 && w.terrain[t + 1] === Terrain.Lake);
       const isMarsh = nearWater && valueNoise(x0, y0, 8, 91) > 0.65 && w.biome[t] !== 1;
+      // F3 bloom field, sampled ONCE per tile: wildflower patches are a
+      // large-scale feature, and valueNoise is the hot function B5.2.10 found
+      // at 49% CPU — calling it per pixel here measured 266 -> 414 ms/frame.
+      const bloom = valueNoise(x0, y0, 26, 151);
+      // densities tuned down after a first pass read as confetti at crop zoom
+      // (Visual QA RESTRAINT): patchiness should be legible, not loud
+      const bloomDensity = bloom > 0.68 ? 53 : bloom > 0.54 ? 197 : 900;
 
       for (let py = 0; py < TILE_PX; py++) {
         for (let px = 0; px < TILE_PX; px++) {
@@ -1348,8 +1363,18 @@ function drawTile(
           // follows the terrain contour instead of tile-aligned columns
           if (elevAt(gx + 2, gy) - elev > 0.045) c = shade(c, 0.94);
           if (h % 19 === 0) c = C.scrub;
-          if (h % 211 === 0) c = C.flowerY;
-          else if (h % 223 === 0) c = C.flowerW;
+          // CLUSTERED GROUND COVER (F3): flowers used to sit at a fixed
+          // per-pixel probability, so every meadow tile carried the same speck
+          // density everywhere and the result read as noise rather than as
+          // wildflowers. A low-frequency bloom field gives the eye real
+          // structure — rich patches with plain grass between them.
+          const bloomEvery = bloomDensity;
+          if (h % bloomEvery === 0) c = C.flowerY;
+          else if (h % (bloomEvery + 14) === 0) c = C.flowerW;
+          // saplings and scrub thicken as the woodland edge approaches
+          if (woodRing === 1 && h % 5 === 0) c = h % 15 === 0 ? C.canopyDark : C.scrub;
+          else if (woodRing === 2 && h % 11 === 0) c = C.scrub;
+          else if (woodRing === 3 && h % 23 === 0) c = C.scrub;
           
           // graded ecotone: heavy sand at ring 1, thinning scrub to ring 3
           if (desertRing === 1 && h % 3 === 0) c = C.sandBg;

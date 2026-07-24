@@ -347,6 +347,7 @@ export function generateWorld(seed: number, width: number, height: number, opts:
     connectRoadComponents(w); // stitch orphan road islands into the main grid
     pruneRoadStubs(w); // erase whatever still leads nowhere
     pruneAllDeadEnds(w); // …including dirt lanes and orphaned spurs
+    clearEnclosedFarmland(w); // no lone crop patch stranded inside a wood
     carveBlockAlleys(w); // dirt service alleys thread the deep block interiors
     rollLots(w, rng);
     enforceRoadFrontage(w); // houses FRONT the street; interiors are yards
@@ -2695,6 +2696,49 @@ function nearestOf(w: World, from: number, terrain: number): number {
  * dock lanes survive (they end at lots). What disappears is the literal
  * "street to nowhere".
  */
+/**
+ * Farm/wood siting hygiene (§9). "Nature before farms" (B1.4.16.3) makes fields
+ * wrap standing timber rather than the reverse, and in bulk it works — but a
+ * handful of cultivated tiles per map still end up ringed by trees. Measured
+ * before this pass at 96²: 9–28 tiles per seed (0.8–3.1% of farmland). Tiny
+ * counts, outsized visual cost — an isolated gold patch inside a dark stand is
+ * exactly what the eye lands on, and no real farmer clears a plot they cannot
+ * drive a tractor to.
+ *
+ * Any field tile with most of its neighbourhood wooded reverts to grass: the
+ * clearing simply never got cut. Neighbour counts are read from a snapshot
+ * taken before any edit, so the result does not depend on iteration order.
+ */
+function clearEnclosedFarmland(w: World): void {
+  const before = Uint8Array.from(w.terrain as unknown as Uint8Array);
+  const isWood = (t: number): boolean => before[t] === Terrain.Woods;
+  for (let t = 0; t < w.terrain.length; t++) {
+    if (before[t] !== Terrain.Field) continue;
+    const x = t % w.width;
+    const y = (t / w.width) | 0;
+    let wooded = 0;
+    for (const [dx, dy] of NEIGHBORS8) {
+      const nx = x + dx;
+      const ny = y + dy;
+      if (nx < 0 || ny < 0 || nx >= w.width || ny >= w.height) continue;
+      if (isWood(ny * w.width + nx)) wooded++;
+    }
+    if (wooded >= 5) w.terrain[t] = Terrain.Grass;
+  }
+}
+
+/** Fixed 8-neighbour order — deterministic iteration for the hygiene passes. */
+const NEIGHBORS8: readonly (readonly [number, number])[] = [
+  [1, 0],
+  [-1, 0],
+  [0, 1],
+  [0, -1],
+  [1, 1],
+  [1, -1],
+  [-1, 1],
+  [-1, -1],
+];
+
 function pruneAllDeadEnds(w: World): void {
   const { width, height } = w;
   const isPath = (t: number): boolean =>

@@ -202,13 +202,19 @@ A3      asset-driven generation
 
 ### Decisions — settled 2026-07-24
 
-1. **✂️ CUT: curvilinear suburbs (#15) and the diagonal legacy road (#16).**
+1. **Placement (H): you place the FIRST compound, the rest auto-place around it.**
+   User-settled. The founding pick already exists (§18/B4.8), so the manual
+   decision that matters — where you plant your first stake — is preserved, and
+   every later building is bought rather than clicked onto a tile. This is a
+   better answer than my auto-place-with-override suggestion: it keeps exactly
+   one siting decision instead of repeating a weaker one every build.
+2. **✂️ CUT: curvilinear suburbs (#15) and the diagonal legacy road (#16).**
    User: *"I don't want any diagonal roads, I like it how it is with the grid
    pattern."* This is the good outcome — both features conflicted with the
    orthogonality invariant `B1.4.17.5`, so cutting them **preserves the
    invariant intact** and removes the only contract conflict in workstream A.
    A2 now contains just `#1 river-anchored founding`.
-2. **✂️ CUT: moving freight train** — an agent system wearing an asset costume.
+3. **✂️ CUT: moving freight train** — an agent system wearing an asset costume.
 
 ## 7. What I will not do
 

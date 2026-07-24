@@ -315,3 +315,35 @@ test("every parking lot touches a road, and civic anchors park on their frontage
     }
   }
 });
+
+test("INVARIANT: no cultivated tile is stranded inside a wood", () => {
+  // "Nature before farms" (B1.4.16.3) makes fields wrap timber rather than the
+  // reverse, and in bulk it always did — but 9-28 tiles per seed used to leak
+  // through as crop ringed by trees, which reads as a farm in the forest.
+  // Legitimate field/wood BOUNDARIES must survive; only stranded patches go.
+  const N8 = [
+    [1, 0], [-1, 0], [0, 1], [0, -1],
+    [1, 1], [1, -1], [-1, 1], [-1, -1],
+  ] as const;
+  for (const seed of SEEDS) {
+    const w = generateWorld(seed, 96, 96);
+    let enclosed = 0;
+    let touching = 0;
+    for (let t = 0; t < w.terrain.length; t++) {
+      if (w.terrain[t] !== Terrain.Field) continue;
+      const x = t % w.width;
+      const y = (t / w.width) | 0;
+      let wooded = 0;
+      for (const [dx, dy] of N8) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= w.width || ny >= w.height) continue;
+        if (w.terrain[ny * w.width + nx] === Terrain.Woods) wooded++;
+      }
+      if (wooded >= 5) enclosed++;
+      else if (wooded >= 1) touching++;
+    }
+    assert.equal(enclosed, 0, `seed ${seed}: ${enclosed} crop tiles ringed by woods`);
+    assert.ok(touching > 20, `seed ${seed}: field/wood boundaries survived (${touching})`);
+  }
+});

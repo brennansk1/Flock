@@ -34,3 +34,4 @@ export * from "./townRender.js";
 export * from "./gridRoads.js";
 export * from "./names.js";
 export * from "./civics.js";
+export * from "./dettrig.js";

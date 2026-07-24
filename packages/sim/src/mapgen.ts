@@ -16,6 +16,7 @@
  * flow count residents. Deterministic from seed via the sim's xoshiro RNG.
  */
 
+import { detSin, detCos, detAtan2 } from "./dettrig.js";
 import { fromInt, fromFloat } from "./fixed.js";
 import { seedRng, nextRange, nextU32, type RngState } from "./rng.js";
 import { Terrain, Biome, Landmark, Lot, type World, type DistrictCoeffs } from "./types.js";
@@ -1177,7 +1178,7 @@ function applyTownArchetype(
     const p1 = nextRange(rng, 628) / 100;
     const coastX: number[] = [];
     for (let y = 0; y < height; y++) {
-      const wobble = 2.5 * Math.sin(0.07 * y + p1) + 1.4 * Math.sin(0.19 * y);
+      const wobble = 2.5 * detSin(0.07 * y + p1) + 1.4 * detSin(0.19 * y);
       coastX.push(Math.round(coastBase + side * wobble));
     }
     for (let y = 0; y < height; y++) {
@@ -1390,7 +1391,7 @@ function layoutHighwaysAndTown(w: World, rng: RngState, rScale = 1): TownShape {
     const i0 = Math.floor(a) % SPOKES;
     const i1 = (i0 + 1) % SPOKES;
     const f = a - Math.floor(a);
-    const smooth = (1 - Math.cos(f * Math.PI)) / 2;
+    const smooth = (1 - detCos(f * Math.PI)) / 2;
     return spokeR[i0]! * (1 - smooth) + spokeR[i1]! * smooth;
   };
   // towns stretch along their highway: squash the north–south axis
@@ -1398,7 +1399,7 @@ function layoutHighwaysAndTown(w: World, rng: RngState, rScale = 1): TownShape {
     const dx = x - cx;
     const dy = (y - cy) * 1.35;
     const d = Math.sqrt(dx * dx + dy * dy);
-    return d <= radiusAt(Math.atan2(dy, dx));
+    return d <= radiusAt(detAtan2(dy, dx));
   };
 
   // the crossing sits OFF the town's center (#14) — real grids grow lopsided
@@ -1410,7 +1411,7 @@ function layoutHighwaysAndTown(w: World, rng: RngState, rScale = 1): TownShape {
   // quarter lobes get random compass directions
   const quarterBase = nextRange(rng, 4); // 0..3 → which lobe is Old Town
   const sectorOf = (dx: number, dy: number): number => {
-    const a = Math.atan2(dy, dx) + Math.PI; // 0..2π
+    const a = detAtan2(dy, dx) + Math.PI; // 0..2π
     return (Math.floor((a / (2 * Math.PI)) * 4) + quarterBase) % 4;
   };
   // the industrial quarter sits on ONE side of the highway at the town edge —
@@ -1443,7 +1444,7 @@ function layoutHighwaysAndTown(w: World, rng: RngState, rScale = 1): TownShape {
       const dx = x - cx;
       const dy = y - cy;
       const d = Math.sqrt(dx * dx + dy * dy * 1.8);
-      const edge = d / radiusAt(Math.atan2(dy * 1.35, dx));
+      const edge = d / radiusAt(detAtan2(dy * 1.35, dx));
       
       let nearHighway = false;
       for (let oy = -2; oy <= 2 && !nearHighway; oy++) {
@@ -2366,13 +2367,13 @@ function organicBlob(
       if (dist < 0.5) {
         // always fill the very center
       }
-      const ang = Math.atan2(dy, dx);
+      const ang = detAtan2(dy, dx);
       const rim =
         r *
         (1 +
-          h1 * Math.sin(k1 * ang + p1) +
-          h2 * Math.sin(k2 * ang + p2) +
-          h3 * Math.sin(k3 * ang + p3));
+          h1 * detSin(k1 * ang + p1) +
+          h2 * detSin(k2 * ang + p2) +
+          h3 * detSin(k3 * ang + p3));
       // edge fray: tiles near the rim drop out probabilistically
       const margin = rim - dist;
       if (margin < 0) continue;

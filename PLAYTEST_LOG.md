@@ -339,3 +339,44 @@ rebalance re-run AFTER M3.3, when the economic loop closes. Filed as B9.3.M3.4.
 - Verdict: core loop + feel + onboarding now hang together. Remaining to true
   10/10 are human-feel items (definitive archetype tune, Circle's ceiling in
   human hands) that only real playtests can settle — the review de-risked them.
+
+## PT-0018 — 2026-07-24 — Strategic Depth Review (Prime Directive 2, measured)
+
+New instrument: `tools/depth_probe.mjs`. botleague answers "is an archetype
+over-winning"; it cannot answer the question the Depth Review actually asks —
+**for how much of a match do decisions still matter?** The probe samples
+ownership every 5s and reports when the eventual winner takes a lead they never
+lose (`decidedAt`), second-half lead changes, comeback rate, and contested span.
+
+Live settings (96², 4p, 12-min timer, domination 700‰):
+
+| metric | tier=sect | tier=church | gate |
+|---|---|---|---|
+| decisive (domination) finishes | **0%** | **0%** | — |
+| decidedAt (median) | 20.3% | 51.0% | ≥60% FAIL both |
+| lead changes, 2nd half | 0.58 | 0.88 | ≥0.5 PASS both |
+| comeback rate | 8.3% | 37.5% | ≥15% |
+| final lead share | 38.0% | 40.5% | — |
+| contested span | 46.7% | 31.7% | — |
+
+**Finding 1 (robust, both tiers): no match ends by domination at the live map
+size — 100% run to the timer.** The 72% domination victory the tutorial's final
+card teaches ("hold 72% to end it early") effectively never fires at 96². Best
+guess: B8.5 scaled population with map area (2026-07-02) and the domination
+threshold — a share of *owned* land — was never re-measured against the bigger
+board. PT-0017's note that 3–4p configs "resolve 70–82%" does not reproduce
+here at 96²/4p on either tier; it likely measured a smaller world.
+
+**Finding 2: `decidedAt` is strongly tier-sensitive (20% → 51%).** So "the
+leader locks in early" is substantially an artifact of weak opposition, not
+purely a systems defect — against church bots the match stays contested to the
+halfway mark and the midpoint leader loses 37.5% of the time. The depth is in
+the system; passive opponents don't exercise it. Do not over-read the sect run.
+
+**Finding 3: archetype drift is worse at live settings than logged.** Bot-league
+24 matches / 4p / 96²: dawn 41.7%, radiant 20.8%, circle 20.8%, visitors 16.7%
+(expected 25%). Previously logged 33.3% for dawn at 48²/6p. Fold into B7.9.
+
+Verdict: **anti-degenerate FAILS on both tiers.** Per the Depth Review that
+triggers DEPTH-FIRST REDESIGN before further EXTEND work. Direction is a design
+call — raised to the user rather than chosen unilaterally.

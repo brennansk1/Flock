@@ -304,3 +304,109 @@ B6.9 → D pathing → C cars → A1 → A2(#1 only)
 E and F are both render-side, so they carry no determinism risk and can start
 immediately — but they do consume frame budget, so §1's 160 ms full-map ceiling
 applies to every one of them.
+
+---
+
+## 9. Added scope — cult buildings, placement UX, siting realism (user-directed)
+
+### H — Cult buildings: purchase → auto-place → construction animation
+
+**This is a gameplay change, not a visual one**, so it is called out separately
+and needs its own contract. Requested model (OpenFront-style): the player *buys*
+a building, the game *chooses the site*, and the building visibly *goes up*.
+
+Today the flow is manual: BUILD arms a placement mode and the player clicks a
+tile (`B4.8`, and `B8.15` gave every action a button). Moving to buy-and-
+auto-place touches sim, not just render:
+
+| ID | Node | Contract | Spine |
+|---|---|---|---|
+| H1 | **Auto-siting rule** | Given a building type and a player, pick the site deterministically from owned/legal ground — nearest-to-front for defensive types, nearest-to-density for economic. **Must be pure + fixed-point + seeded**: this runs inside `applyIntent`, so it is inside the determinism contract. | B1 🎮 |
+| H2 | **Construction state** | Buildings gain a `buildTicksLeft`; they occupy their tile immediately but grant no effect until complete. Adds a field to the hashed state ⇒ **snapshot version bump** and a round-trip test. | B1 🎮 |
+| H3 | **Construction animation** | Scaffold → frame → finished, driven by `buildTicksLeft`. Render-side, free of determinism risk. | B5 🖼️ |
+| H4 | **Purchase UX** | Build tray becomes buy-and-forget; the camera flashes the chosen site (the `flashTile` affordance from `B4.9` already exists). | B4 🖼️ |
+
+**Design caution worth raising before building it:** auto-placement removes a
+decision the player currently makes. The strategy work this session was about
+*adding* meaningful choices, and siting a compound near a front vs. deep in safe
+territory is a real one. Recommendation: **auto-place as the default with an
+opt-in manual override** (buy → suggested site flashes → click elsewhere to
+place manually). That keeps the convenience without deleting the decision.
+H2's construction delay actually *adds* depth — a building under construction
+is a vulnerable commitment, which is exactly the kind of tradeoff the Depth
+Review wants.
+
+### I — Siting realism: no farms in the forest
+
+**Measured, not assumed.** A probe over seeds 11/21/42/77/99 at 96²:
+
+| seed | farm tiles | ringed by woods (≥5 of 8 neighbours) |
+|---|---|---|
+| 11 | 1018 | 10 (1.0%) |
+| 21 | 766 | 9 (1.2%) |
+| 42 | 864 | 13 (1.5%) |
+| 77 | 902 | 28 (**3.1%**) |
+| 99 | 1117 | 9 (0.8%) |
+
+So the "nature before farms" order invariant (`B1.4.16.3`) holds in bulk —
+fields do wrap timber rather than the reverse — but **9–28 tiles per map leak
+through as cultivated ground enclosed by trees.** Small counts, high visual
+cost: an isolated gold patch inside a dark stand is exactly what the eye
+catches.
+
+| ID | Node | Contract |
+|---|---|---|
+| I1 | **Enclosed-farmland hygiene pass** | After `fillFarmBelt`, any cultivated tile with ≥5 of 8 wooded neighbours reverts to grass (or is felled into the field, whichever the surrounding parcel implies). Runs with the other post-passes (`B1.4.17`). |
+| I2 | **INVARIANT test** | "no cultivated tile is enclosed by woods" — gated ×5 seeds, alongside the existing orthogonality and pop-floor gates. |
+
+Mapgen-side ⇒ inside the hash ⇒ full gate + metrics delta (`farmShare` 0.206
+baseline; a fix this small should move it by <0.005).
+
+### J — Building footprints: what should be bigger than a house
+
+The keystone engine already shrinks 3×2 → 2×2 → 2×1 → 1×1 (`B1.4.7.1`), and
+that scan-based fix stopped anchors silently collapsing to 1×1. But the
+*target* sizes were never revisited against realism. A grain elevator the same
+footprint as a bungalow is why some blocks read wrong.
+
+Proposed footprint tiers (to confirm before implementing):
+
+| Tier | Types | Rationale |
+|---|---|---|
+| **Large (3×2+)** | Factory, Warehouse, Supermarket, HighSchool, School, Cannery, Sawmill, GrainElevator, Depot | industrial/institutional buildings dwarf houses in a real town |
+| **Medium (2×2)** | Church, Chapel, Sheriff, FireStation, Bank, PostOffice, Library, Cinema, Motel, Office | civic anchors, already partly sized |
+| **Small (1×1)** | Shop, Diner, GasStation, Barn, Silo, Greenhouse, WaterTower, Substation | genuinely house-scale or vertical-not-wide |
+
+J pairs with **E2** (facade coverage): a bigger footprint is only an improvement
+if the facade composes across it, which is precisely what `drawFacade` does.
+
+### K — Yards, lawns and frontage realism
+
+`B1.4.8.5` already dresses empty yards (mow stripes, shade tree, clothesline,
+wildflowers, parcel fences) and `B1.4.8.1` fronts homes on the street. The gap
+the downtown render shows is **uniformity**: every lawn is dressed to the same
+density, so a block reads as a repeating tile rather than as neighbours who
+maintain their yards differently.
+
+| ID | Node | Contract |
+|---|---|---|
+| K1 | **Per-household yard character** | Tidiness varies by household hash — mown/overgrown, fenced/open, planted/bare. Same asset vocabulary, different distribution. Pairs with **E3**, which is the same class of fix for houses. |
+| K2 | **Frontage depth by district** | Deep setbacks + long driveways on the fringe, shallow-to-zero downtown. Currently closer to uniform. |
+| K3 | **Back-yard vs front-yard distinction** | Front = presentation (walk, planting, tidy), back = utility (shed, laundry, junk). Today both read alike. |
+
+### Where this lands in the order
+
+E1 (key-building identity) and F1–F3 (vegetation) stay first — both serve the
+most-visible-per-unit-work test. Then:
+
+```
+E1 → F1-F3 → I1/I2 (farm-in-forest, cheap + measurable) → J footprints
+   → E2/E4 facades → K yards → G/F4 seasonal → E3 distribution
+   → H1-H4 cult buildings + placement UX (gameplay contract; needs the
+     auto-place-vs-manual decision first)
+   → B6.9 → D pathing → C cars → A1 → A2(#1)
+```
+
+H is sequenced late deliberately: it is the only item here that changes the
+hashed state and removes a player decision, so it wants the auto-place/manual
+question settled and the visual work stable underneath it.

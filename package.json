@@ -12,10 +12,10 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present",
+    "build": "npm run build -w @flock/sim && npm run build -w @flock/server && npm run build -w @flock/client",
+    "test": "npm run build -w @flock/sim && npm run test --workspaces --if-present",
     "lint": "npm run lint --workspaces --if-present",
-    "typecheck": "npm run typecheck --workspaces --if-present",
+    "typecheck": "npm run build -w @flock/sim && npm run typecheck --workspaces --if-present",
     "dev:server": "npm run dev --workspace @flock/server",
     "dev:client": "npm run dev --workspace @flock/client"
   },

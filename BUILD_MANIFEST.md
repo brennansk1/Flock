@@ -54,7 +54,26 @@ layout luck — measured before AND after; real-scale validation stays with
 playtest_sim). BALANCE WATCH: church edge over drifter at tiny scale is ~even
 (aggregate 100v96) — fold into the B7.9 balance pass._
 
+_2026-07-24 session — Depth Review + build/lint repair:_
+- **Clean-tree build was broken** (T.1): `npm run build --workspaces` runs
+  alphabetically, so @flock/client typechecked before @flock/sim emitted its
+  d.ts. Invisible with a stale dist; reproducible from any fresh clone. Root
+  scripts now run sim → server → client.
+- **B8.11 CLOSED** (emote relay + picker), server suite 14→17.
+- **B1.20 CLOSED — the headline finding.** Domination was unreachable AND its
+  balance.json knob was wired to nothing. See PT-0018/PT-0019. All three Depth
+  gates now PASS at 96²/4p vs church bots.
+- **B1.21 OPENED** — 64² still locks position by 20% elapsed.
+- **B6.7/B6.8 ADDED** — the depth instrument, and the determinism gate made
+  runnable against a preinstalled browser.
+- WATCH: archetype drift is worse at live settings than logged — 24 matches
+  4p/96²: dawn 41.7%, radiant 20.8%, circle 20.8%, visitors 16.7% (expect 25%).
+
 Next recommended actions, in order:
+0. **Tutorial cut to the core loop** (user-directed, in flight): 18 steps → ~7,
+   Heat/Dissent left LIVE so Crusade's cost is real, drop the click-NEXT panel
+   tours and the five money gifts. It currently teaches buttons, not tradeoffs —
+   and its final card still promises a 72% domination win that no longer exists.
 1. Playtest-feedback batch 2 (user-queued): sidewalk/driving/dot realism,
    night window glow, route-following cars that park at homes/lots, and a
    sub-agent tutorial run against latest code.
@@ -283,6 +302,8 @@ Next recommended actions, in order:
 | B1.16 | B1/felling | Tree auto-felling | BUILD / SPAWN parcel / BUY_PROPERTY on Woods fells trees (terrain→Grass) deterministically; hashed | B1.17 | ✔️ | property.test.ts: woods felled on parcel claim + neighbors felled on build |
 | B1.17 | B1/property | Property engine | SPAWN = wilderness founding: 5×5 parcel + starter compound + bused-in congregation (no more town-blob start); BUY_PROPERTY intent, cost escalating per parcel, must adjoin empire; wilderness BUILD requires own parcel; crowding penalty on follower cap when parcels near-full | B1.16, T.4 | ✔️ | property.test.ts 6/6: parcel spawn, off-property build rejected, escalating cost, unlinked rejected, crowding cap sag, snapshot round-trip |
 | B1.18 | B1/civics | Civics takeover engine | Owning the majority of a civic lot's tiles grants: sheriff→heat decay bonus; elementary→creep ×1.25; high school→follower growth ×1.15; grocery→defense ×1.2; church→faith drift up | B1.4.7 | ✔️ | civics engine: control determinism + sheriff-heat A/B test green; wired into economy (heat/faith/growth) + conversion (creep/defense) |
+| B1.20 | B1/victory | Domination threshold reachable + tunable 🎮 | Domination is judged on SOULS (share of total town pop). Threshold must (a) actually be reachable and (b) come from balance.json rather than a hardcoded default. `victory.dominationPct` carried through loadBalance; `mapSizeBucket`/`dominationPermilleFor` select by size; matchWorker passes it | B1.13 | ✔️ | Was dead config: loadBalance dropped `victory`, server never passed the value, every match used createSim's hardcoded 720 vs a measured ceiling of 51.8% (96²) / 64.0% (64²) ⇒ unreachable, 0% decisive. Now S 50 / M 45 / L 40. 96²/church: decisive 0→62.5%, decidedAt 51→63.8%, comeback 37.5→50% — all 3 Depth gates PASS (PT-0019). L extrapolated, unmeasured |
+| B1.21 | B1/victory/smallmap | Small-map depth 🎮 | 64² must not lock position in the first fifth of the match | B1.20 | ⬜ | OPEN after B1.20: 64² now resolves 50% of matches (was 0%) but decidedAt 20%, 2H lead changes 0.13 — four cults on a 64² board have no room to maneuver. Wants a player-count-vs-map-size rule or comeback pressure, not a threshold tweak (PT-0019) |
 | B1.19 | B1/outreach | Compound outreach | Fronts may press tiles within outreach radius of an operational compound (not just adjacency) — targeted conversion from wilderness bases | B1.17 | ✔️ | outreach test: front flips town tiles from a wilderness compound with zero adjacency |
 
 ### B2 — Meta systems (outside lockstep)
@@ -358,6 +379,8 @@ Next recommended actions, in order:
 | B6.3 | B6/botleague | Balance harness (§40/§41) | Per-archetype win-rate drift over N bot matches | B1.14 | ✔️ | tools/botleague.mjs; nightly runs → B7.9 |
 | B6.4 | B6/soak | Load/desync soak | N clients vs live server; asserts desync SLA | B3.3 | ✔️ | prior run: 12 clients / 1600+ intents / 0 desyncs |
 | B6.5 | B6/xbrowser | Cross-browser determinism CI | The identical probe (worldgen incl. §2A oceanside + 400 sim ticks, hashed at 5 checkpoints × 4 cases) runs in Node, Chromium, Firefox AND WebKit; any hash divergence exits 1; wired into ci.yml | T.2.3 | ✔️ | tools/xbrowser_determinism.mjs + tools/xbrowser/probe.mjs (vite iife bundle, playwright): PASS across V8 / SpiderMonkey / JavaScriptCore locally 2026-07-05; ci.yml installs browsers + runs gate on every push |
+| B6.7 | B6/depthprobe | Strategic Depth instrument | Samples ownership every 5s and reports decidedAt (when the winner takes a lead never lost), 2nd-half lead changes, comeback rate, final lead share, contested span, and winner SOUL share; judges them against stated gates. Answers "how long does a match stay undecided", which botleague cannot | B6.3 | ✔️ | tools/depth_probe.mjs; PT-0018 baseline + PT-0019 post-fix runs |
+| B6.8 | B6/xbrowser/exec | Gate runs on a preinstalled browser | `FLOCK_<ENGINE>_PATH` points the determinism gate at an existing binary when the container's build doesn't match playwright's expected download | B6.5 | ✔️ | Node↔Chromium PASS ×4 world cases (2026-07-24); Firefox/WebKit builds absent in this container, so 2 of the usual 4 engines |
 | B6.6 | B6/gennames | Name corpus generator | `tools/gen_names.py` (Python faker) emits `packages/sim/src/nameData.ts`: deduped town/street/first/surname banks; regenerable, generated file checked in and never hand-edited | — | ✔️ | ran with faker 40.28.1 (seeded): 512 towns / 384 streets / 328 firsts / 512 surnames baked in |
 
 ### B7 — Launch infrastructure (external seams)
@@ -394,7 +417,7 @@ listed as B7.* rows above (each has its interface in code and its row here).
 | B8.8 | B8/pact | Ecumenical Pact (§16) | PACT_PICK simmed: share an OWNED doctrine node with your ally (pactNode/pactWith on PlayerState, hashed + snapshotted); revoked on alliance break; shift-click owned node in doctrine grid | B1.12 | ✔️ | sim handler + hasDoctrine honors pact grants; pact.test.ts (78/78 sim green) |
 | B8.9 | B8/qol | Match-control QoL | `c` close nearest own front, `z` cancel build (50% refund), `F8` surrender w/ confirm; hints in menu | B4.4 | ✔️ | main.ts switch; audit gaps 3/4/7 closed |
 | B8.10 | B8/simcampaign | Playtest simulation campaign | tools/playtest_sim.mjs: duration distribution on live settings, archetype drift, bot tier ladder, size pacing | B6.3 | ✔️ | campaign artifacts in PLAYTEST_READINESS.md |
-| B8.11 | B8/emote | EMOTE relay + picker | Server relay + client emote UI | B3.2 | ⬜ | accepted MINOR: cosmetic, post-playtest |
+| B8.11 | B8/emote | EMOTE relay + picker | Server relay + client emote UI | B3.2 | ✔️ | The EMOTE intent existed since M1 but nothing relayed or sent it. Shared `EMOTES` table + `isEmoteIndex` guard in sim (index-based ⇒ no moderation surface); server relays tagged with the socket's id, not the payload's claim; six-button picker above chat, muted with chat (§28). emote.test.ts ×3 (relay shape, identity spoof rejected, range guard); server 14→17 |
 | B8.12 | B8/settingssync | Server-side settings persistence | Per-account settings endpoint | B3.4 | ⬜ | accepted MINOR: localStorage works per device |
 | B8.13 | B8/hudredesign | "Interface Testament v3.0" HUD + menu (design handoff) | Pixel-1970s design system (Press Start 2P/Pixelify/VT323, ember/harvest/avocado/teal tokens, hard drops, scanlines) across menu, in-match HUD, loading; believer share bar (DOM), archetype cards + loadout reveal + per-cult re-dress, collapsible rails, pixel build tray, B.I.T.E. doctrine overlay | B4.4 | ✔️ | implemented from "Flock HUD System.dc.html" handoff; browser-verified (menu, re-dress, in-match); build+tests green |
 | B8.14 | B8/foundinggate | Founding gate + solo pause | Match holds at the window edge until EVERY founder places (bots place at edge; AFK humans auto-place at 2× backstop); ⏸ solo pause (server-confirmed, auto-resume on join) + ✕ EXIT top-left | B8.1 | ✔️ | verified live: gate held 16s past window, released on placement; pause froze the match clock |

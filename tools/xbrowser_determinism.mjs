@@ -54,7 +54,13 @@ for (const name of wanted) {
     failed = true;
     continue;
   }
-  const browser = await engine.launch();
+  // Containers and CI images often ship a browser build that does not match the
+  // one this playwright version would download. FLOCK_<ENGINE>_PATH points the
+  // gate at an already-present binary instead of failing with "run playwright
+  // install" — the gate is the guard for the determinism contract, so it must
+  // be runnable wherever the code is.
+  const override = process.env[`FLOCK_${name.toUpperCase()}_PATH`];
+  const browser = await engine.launch(override ? { executablePath: override } : {});
   try {
     const page = await browser.newPage();
     await page.addScriptTag({ path: `${here}xbrowser/dist/probe.iife.js` });

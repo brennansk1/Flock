@@ -296,15 +296,22 @@ const LOT_STYLE: Record<number, [RGB, RGB, RGB]> = {
   [Lot.Supermarket]: [hexToRgb("#d8d2c4"), hexToRgb("#b8b2a4"), hexToRgb("#3f7fbf")],
   [Lot.Diner]: [hexToRgb("#d7d7dc"), hexToRgb("#a9a9b4"), hexToRgb("#d23b3b")],
   [Lot.School]: [hexToRgb("#b0563f"), hexToRgb("#5f4a40"), hexToRgb("#f0e6d0")],
-  [Lot.Library]: [hexToRgb("#bcb4a2"), hexToRgb("#968e7c"), hexToRgb("#6a6256")],
+  // Civic anchors used to share one tan body AND one muted-brown roof, so
+  // sheriff / bank / library were mutually unreadable from above — which now
+  // matters for play, not just looks, since which anchor you hold changes what
+  // you get (B1.18/B1.4.20). The ROOF carries the identity: it is the largest
+  // surface visible from overhead, and the church proves a distinct roof reads
+  // instantly. Bodies stay in the existing civic family; no new hue is invented
+  // that the palette did not already contain.
+  [Lot.Library]: [hexToRgb("#bcb4a2"), hexToRgb("#3f6b52"), hexToRgb("#6a6256")], // deep green roof
   [Lot.Chapel]: [hexToRgb("#efe9da"), hexToRgb("#7d7468"), hexToRgb("#efe9da")],
   [Lot.GasStation]: [hexToRgb("#d8d2c4"), hexToRgb("#cc4444"), hexToRgb("#f2d23b")],
-  [Lot.Sheriff]: [hexToRgb("#b8ab90"), hexToRgb("#857a60"), hexToRgb("#caa53a")],
+  [Lot.Sheriff]: [hexToRgb("#b8ab90"), hexToRgb("#3f5e7a"), hexToRgb("#caa53a")], // law-blue roof, brass star
   [Lot.Office]: [hexToRgb("#9aa0a8"), hexToRgb("#7e848c"), hexToRgb("#cfd8e2")],
   [Lot.Barn]: [hexToRgb("#a8392e"), hexToRgb("#7e2b22"), hexToRgb("#efe6d0")],
   [Lot.Silo]: [hexToRgb("#c4c8cc"), hexToRgb("#9b9fa3"), hexToRgb("#8a8e92")],
   [Lot.Church]: [hexToRgb("#e7e0cf"), hexToRgb("#6f6456"), hexToRgb("#caa53a")],
-  [Lot.Bank]: [hexToRgb("#d6cfb8"), hexToRgb("#b0a888"), hexToRgb("#3f5e7a")],
+  [Lot.Bank]: [hexToRgb("#d6cfb8"), hexToRgb("#5f9e88"), hexToRgb("#3f5e7a")], // verdigris copper roof
   [Lot.PostOffice]: [hexToRgb("#c9cdd2"), hexToRgb("#3f5e7a"), hexToRgb("#c8554a")],
   [Lot.FireStation]: [hexToRgb("#b03a30"), hexToRgb("#8c2c24"), hexToRgb("#e8e4d8")],
   [Lot.Factory]: [hexToRgb("#9a9088"), hexToRgb("#736a62"), hexToRgb("#5a5450")],

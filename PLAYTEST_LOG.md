@@ -430,3 +430,27 @@ grinding on past it — the shallow back half was post-resolution play.
   can be called verified.
 
 Baseline preserved: sim 105/105, server 17/17, build clean.
+
+## PT-0020 — 2026-07-24 — mapgen upgrade sweep
+
+- **B1.4.21 CLOSED — transcendental-free mapgen.** ECMA-262 permits
+  implementation-defined precision for `Math.sin/cos/atan2`, so engines may
+  disagree in the last bits; mapgen output is hashed, making that a latent
+  desync. `dettrig.ts` implements all three from IEEE-exact `+ - * /` only.
+  Deliberately *approximating* rather than reshaping: sin/cos within 3.5e-6 and
+  atan2 within 1.2e-5 rad of `Math.*`, far below tile quantisation, so towns are
+  preserved rather than redrawn. Metrics unchanged but blockCount 70.8→70.4.
+- **J footprints.** High school was 3×2 — identical to the elementary — so the
+  two biggest institutional buildings read as the same place; now 4×2 (8 tiles
+  vs the school's 6). Warehouse 3×1→3×2. Every keystone still places at full
+  target size across seeds 11/21/42/77/99, no shrink fallback triggered.
+- **I1/I2 CLOSED — farms in the forest.** 9–28 stranded crop tiles per seed → 0,
+  with legitimate field/wood boundaries untouched (185/116/161/170/186).
+- **B1.4.22 ATTEMPTED AND REVERTED — river-anchored founding.** See the manifest
+  row: siting works (waterShare 0.051→0.059) but roadConnectivity regressed
+  0.991→0.980. Reverted rather than shipped without the sample-set QA that a
+  world-shape change requires.
+
+Baseline after the sweep: sim 112/112, server 17/17, cross-browser determinism
+PASS ×4 world cases, metrics back at connectivity 0.991 / farmShare 0.211 /
+waterShare 0.051 / collisions 0.

@@ -402,6 +402,8 @@ Next recommended actions, in order:
 No untracked stubs. The only deliberate placeholders are the launch seams
 listed as B7.* rows above (each has its interface in code and its row here).
 
+| B1.4.22 | B1/mapgen/riverfounding | River-anchored founding (§2 rev. 6 item #1) | Towns should be sited where the water is — the ford, the mill seat — instead of dropped at map centre with a ±4 jitter | B1.4.12 | 🚫 | ATTEMPTED AND REVERTED 2026-07-24, with the useful number recorded. Elevation is built before town layout, so biasing the centre toward the low/flat valley seat is a contained change (no pipeline restructure needed) and it does put towns on the water: waterShare 0.051→0.059. BUT roadConnectivity regressed 0.991→0.980 and farmShare 0.211→0.192 — siting the grid in the valley puts more streets against the river, and the road graph loses ~1% connectivity where they meet it. Reverted rather than shipped: a world-shape change needs the 20-sample PROCGEN QA to clear, and a measured regression in the road-health metric is exactly what that gate exists to catch. WHOEVER PICKS THIS UP: the siting works, the open problem is bridging/road-hygiene where the grid meets water |
+
 ### B8 — Playtest-readiness sprint (2026-07-02)
 
 | ID | Tree Path | Feature | Contract / Acceptance Criteria | Depends On | Status | Evidence / Notes |

@@ -48,7 +48,15 @@ export interface RawBalance {
   };
   heat: { decay: number; cpa_harass: number; cpa_siege: number };
   schism: { territory_share: number; avg_dissent: number; sustain_s: number; secede_share: number };
-  scandal: { evidence_per_s: number; notify_at: number; dmg_heat_coef: number; dmg_min: number; dmg_max: number };
+  scandal: {
+    evidence_per_s: number;
+    /** optional: rate while a victim watchtower is watching (defaults to half) */
+    evidence_watched_per_s?: number;
+    notify_at: number;
+    dmg_heat_coef: number;
+    dmg_min: number;
+    dmg_max: number;
+  };
   archetypes: Record<"dawn" | "radiant" | "circle" | "visitors", { r0: number; retain: number; income: number; heat: number }>;
   victory: {
     domination_pct: Record<"S" | "M" | "L", number>;
@@ -178,13 +186,41 @@ export interface Balance {
     tendHoldDivisor: number;
     tendFaithPerS: Fixed;
   };
+  /** Schism watcher (§16) — the counter-pressure on over-expansion. */
+  schism: {
+    /** territory trigger, in per-mille of populated tiles */
+    territorySharePermille: number;
+    /** cult-average dissent trigger */
+    avgDissent: Fixed;
+    /** how long both conditions must hold, in ticks */
+    sustainTicks: number;
+    /** fraction of the parent's tiles that secedes, in per-mille */
+    secedeSharePermille: number;
+  };
+  /** Scandal (§15.2) — the counter-pressure on a runaway leader. */
+  scandal: {
+    /** evidence %/s while gathering undisturbed */
+    evidencePerS: Fixed;
+    /** evidence %/s while a victim watchtower watches the district borders */
+    evidenceWatchedPerS: Fixed;
+    /** evidence % at which the victim is tipped off */
+    notifyAt: Fixed;
+    /** follower loss = clamp(victim Heat × coef, min, max) percent */
+    dmgHeatCoef: Fixed;
+    dmgMin: Fixed;
+    dmgMax: Fixed;
+  };
   /**
-   * Victory thresholds (§18). Plain numbers — these are compared against a
-   * population share, never fed through fixed-point tick math.
+   * Victory thresholds (§18). Plain numbers where they are compared against a
+   * population share; Fixed where they meet fixed-point tick math.
    */
   victory: {
     /** domination cut-off as a PERCENT of total town souls, keyed by map size */
     dominationPct: Record<"S" | "M" | "L", number>;
+    /** Revelation economic target ("The Ledger", §11.3) by map size */
+    economicUsd: Record<"S" | "M" | "L", number>;
+    /** Revelation doctrinal path (§18): hold Faith 100, then channel */
+    doctrinal: { faithHoldTicks: number; channelTicks: number };
   };
 }
 
@@ -206,6 +242,8 @@ export function dominationPermilleFor(balance: Balance, width: number, height: n
 
 export function loadBalance(raw: RawBalance): Balance {
   const dt = fromFloat(raw.sim.tick_ms / 1000);
+  /** ticks per second, derived from the configured tick length */
+  const TPS = Math.round(1000 / raw.sim.tick_ms);
   const arche = (k: "dawn" | "radiant" | "circle" | "visitors"): ArchetypeCoeffs => ({
     r0: fromFloat(raw.archetypes[k].r0),
     retain: fromFloat(raw.archetypes[k].retain),
@@ -295,11 +333,34 @@ export function loadBalance(raw: RawBalance): Balance {
       tendHoldDivisor: raw.missions?.tend_hold_divisor ?? 200,
       tendFaithPerS: fromFloat(raw.missions?.tend_faith_per_s ?? 0.4),
     },
+    schism: {
+      territorySharePermille: Math.round((raw.schism?.territory_share ?? 0.35) * 1000),
+      avgDissent: fromFloat(raw.schism?.avg_dissent ?? 40),
+      sustainTicks: Math.round((raw.schism?.sustain_s ?? 30) * TPS),
+      secedeSharePermille: Math.round((raw.schism?.secede_share ?? 0.25) * 1000),
+    },
+    scandal: {
+      evidencePerS: fromFloat(raw.scandal?.evidence_per_s ?? 1.2),
+      evidenceWatchedPerS: fromFloat(raw.scandal?.evidence_watched_per_s ?? (raw.scandal?.evidence_per_s ?? 1.2) / 2),
+      notifyAt: fromFloat(raw.scandal?.notify_at ?? 50),
+      dmgHeatCoef: fromFloat(raw.scandal?.dmg_heat_coef ?? 0.6),
+      dmgMin: fromFloat(raw.scandal?.dmg_min ?? 5),
+      dmgMax: fromFloat(raw.scandal?.dmg_max ?? 35),
+    },
     victory: {
       dominationPct: {
-        S: raw.victory?.domination_pct?.S ?? 55,
+        S: raw.victory?.domination_pct?.S ?? 50,
         M: raw.victory?.domination_pct?.M ?? 45,
         L: raw.victory?.domination_pct?.L ?? 40,
+      },
+      economicUsd: {
+        S: raw.victory?.economic_usd?.S ?? 1_200_000,
+        M: raw.victory?.economic_usd?.M ?? 3_000_000,
+        L: raw.victory?.economic_usd?.L ?? 6_000_000,
+      },
+      doctrinal: {
+        faithHoldTicks: Math.round((raw.victory?.doctrinal?.faith_hold_s ?? 90) * TPS),
+        channelTicks: Math.round((raw.victory?.doctrinal?.channel_s ?? 20) * TPS),
       },
     },
   };

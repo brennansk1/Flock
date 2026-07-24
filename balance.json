@@ -100,8 +100,8 @@
       "L": 6000000
     },
     "doctrinal": {
-      "faith_hold_s": 90,
-      "channel_s": 20
+      "faith_hold_s": 180,
+      "channel_s": 45
     }
   },
   "charisma_items": 1.0,

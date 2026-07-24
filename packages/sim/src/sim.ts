@@ -13,6 +13,7 @@
 import { add, sub, mul, div, clamp, min, max, fromInt, ONE, type Fixed } from "./fixed.js";
 import { seedRng, type RngState } from "./rng.js";
 import type { Balance } from "./balance.js";
+import { mapSizeBucket } from "./balance.js";
 import { IntentType, type Intent, type Turn } from "./intents.js";
 import {
   NEUTRAL,
@@ -189,7 +190,12 @@ export function createSim(opts: {
     districtBuffs: [],
     auras: [],
     prophecies: [],
-    revelationMode: opts.revelationMode ?? false,
+    // Revelation ON by default (2026-07-24). The doctrinal and economic paths
+    // were implemented but gated behind a flag nothing ever set, so the game
+    // shipped with one reachable victory condition and no "which path do I
+    // play" decision at all — and the Prosperity Circle, whose §11.3 identity
+    // IS the economic win, had no win condition of its own.
+    revelationMode: opts.revelationMode ?? true,
     disableCouriers: opts.disableCouriers ?? false,
     disableCPA: opts.disableCPA ?? false,
     disableSchisms: opts.disableSchisms ?? false,
@@ -1127,7 +1133,7 @@ function stepEffects(s: SimState, b: Balance): void {
     if (s.revelationMode && p.alive) {
       if (p.faith >= HUNDRED) {
         p.faithHoldTicks++;
-        if (p.faithHoldTicks >= 90 * TPS && ownsLandmark(s, p.id, Landmark.Megachurch)) {
+        if (p.faithHoldTicks >= b.victory.doctrinal.faithHoldTicks && ownsLandmark(s, p.id, Landmark.Megachurch)) {
           p.channelTicks++;
         } else {
           p.channelTicks = 0; // megachurch lost mid-channel = interrupted
@@ -1318,10 +1324,12 @@ function checkVictory(s: SimState, b: Balance): void {
     return;
   }
 
-  // (3) [Revelation] Doctrinal: Faith 100 held 90s + 20s Megachurch channel (§18).
+  // (3) [Revelation] Doctrinal: Faith 100 held, then an uninterrupted Megachurch
+  // channel (§18). Holding the Megachurch is the point — it makes ONE building
+  // on the map a win condition, so seizing it is a strategic decision.
   if (s.revelationMode) {
     for (const p of contenders) {
-      if (p.channelTicks >= 20 * 10) {
+      if (p.channelTicks >= b.victory.doctrinal.channelTicks) {
         s.status = MatchStatus.Ended;
         s.winner = p.id;
         return;
@@ -1331,7 +1339,7 @@ function checkVictory(s: SimState, b: Balance): void {
 
   // (4) [Revelation] Economic: The Ledger — bank ≥ map target (§11.3/§18).
   if (s.revelationMode) {
-    const target = fromInt(1_200_000); // S-map target; M/L wire in with map sizes
+    const target = fromInt(b.victory.economicUsd[mapSizeBucket(s.world.width, s.world.height)]);
     for (const p of contenders) {
       if (p.archetype === "circle" && p.usd >= target) {
         s.status = MatchStatus.Ended;

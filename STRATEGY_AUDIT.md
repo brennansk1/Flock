@@ -154,3 +154,68 @@ missing mechanics.
 4. Then re-run `tools/depth_probe.mjs` and the bot-league; the archetype drift
    (dawn 41.7% / visitors 16.7%) should be re-read only after 1–3, since two of
    the four archetypes are currently being measured with broken win conditions.
+
+---
+
+## 7. Follow-through — 2026-07-24, same day
+
+Acting on §6 in order. Measured after every step; the numbers moved a lot.
+
+### Knobs wired (§4 closed)
+
+All twelve now reach runtime and are pinned by tests that *move* them rather
+than merely read them. JSON values already matched the literals, so this was a
+pure refactor with no behaviour change: schism reads `b.schism.*` (stepSchism
+took a `Balance` and ignored it), scandal reads `b.scandal.*`, the doctrinal and
+economic targets read `b.victory.*`, and the economic target is finally
+size-bucketed instead of hardcoded to the S value.
+
+### Revelation enabled (§3 closed, with one part still open)
+
+`revelationMode` now defaults ON. The two alternate paths were implemented and
+unit-tested — m2.test.ts passed `revelationMode: true` explicitly — while
+production shipped them off. That is why there was no "which path" decision.
+
+**Mapgen puts exactly one Megachurch on every seed** (verified across 11/21/42/
+77/99), so the doctrinal path is a single contested objective: one building on
+the board is a win condition and only one cult can hold it. That is the
+"which buildings do I take over" decision, at the sharpest level the game has.
+
+### Path distribution, measured (10 matches, 96², 4p, shipped config)
+
+| step | domination | doctrinal | economic | timer |
+|---|---|---|---|---|
+| before today | 0 | 0 | 0 | **10** |
+| Revelation ON, doctrinal at 90s+20s | 0 | **8** | 0 | 2 |
+| doctrinal retuned to 180s+45s | **5** | 1 | 0 | 4 |
+
+The middle row is the important one. Enabling Revelation as-designed did not
+create a choice — it replaced "the timer always decides" with "doctrinal always
+decides", which by the Depth Review's own ranking is the worse defect (an
+obvious dominant strategy trivialising the system). The doctrinal commitment was
+simply too cheap: ~110s total, with Faith trivially pinned at 100.
+
+At 180s hold + 45s channel it becomes a real commitment — ~3.75 minutes of
+uninterrupted Megachurch control in a 12-minute match, contestable because there
+is only one. Three paths now win matches and none dominates.
+
+### Still open: the economic path is unreachable by ~780×
+
+`victory.economic_usd` is 1.2M/3M/6M. **Measured Circle peak bank across six
+matches: $2,002–$3,847.** The design document's economic scale and the
+implemented economy differ by nearly three orders of magnitude, so The Ledger
+cannot fire and the Prosperity Circle still has no path of its own — it sits at
+16.7% in the bot-league against an expected 25%.
+
+This is deliberately **not** fixed here. Picking a number means choosing between
+two very different corrections — re-scale the economy up to the design's
+intent, or re-scale the target down to the economy as built — and that decision
+changes what the Circle *is*. It needs a human call, not a guess.
+
+### Where that leaves the strategy surface
+
+- **Path choice: real but incomplete.** 3 of 4 paths live, none dominant.
+- **Building choice: real.** The single Megachurch is a win condition; civic
+  anchors carry differentiated economic effects (B1.18/B1.4.20).
+- **Tunability: fixed.** Every counter-pressure dial — schism, scandal — is
+  connected, which is the prerequisite for the snowball work still open as B1.21.

@@ -59,7 +59,7 @@ test("FOUNDING: the sim holds its breath until the window closes", () => {
   assert.ok(toInt(s.players[0]!.usd) > usd0, "economy starts when founding ends");
 });
 
-test("Doctrinal victory: Faith 100 held 90s + 20s Megachurch channel (Revelation)", () => {
+test("Doctrinal victory: Faith pinned + an uninterrupted Megachurch channel (Revelation)", () => {
   const w = world16();
   w.landmark[5] = Landmark.Megachurch;
   const s = createSim({
@@ -80,8 +80,10 @@ test("Doctrinal victory: Faith 100 held 90s + 20s Megachurch channel (Revelation
   ]), balance);
   assert.equal(s.world.owner[5], 1, "p1 holds the Megachurch");
   s.players[0]!.faith = fromInt(100);
-  // hold 90s + channel 20s; megachurch trickle keeps faith pinned at 100
-  for (let i = 0; i < 1150 && s.status !== MatchStatus.Ended; i++) {
+  // hold, then channel — bound derived from balance so retuning the path does
+  // not silently turn this into a test of nothing
+  const need = balance.victory.doctrinal.faithHoldTicks + balance.victory.doctrinal.channelTicks + 50;
+  for (let i = 0; i < need && s.status !== MatchStatus.Ended; i++) {
     s.players[0]!.faith = fromInt(100); // pin against drift for the test
     step(s, turn(s.tick), balance);
   }

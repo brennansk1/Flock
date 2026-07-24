@@ -99,18 +99,18 @@ export function stepSchism(s: SimState, b: Balance): void {
   const w = s.world;
   for (const p of [...s.players]) {
     if (!p.alive || !p.spawned) continue;
-    const territoryOk = p.ownedTiles * 1000 >= s.populated * 350;
+    const territoryOk = p.ownedTiles * 1000 >= s.populated * b.schism.territorySharePermille;
     let dissentOk = false;
     if (territoryOk && p.ownedTiles > 0) {
       let sum: Fixed = 0;
       for (let t = 0; t < w.owner.length; t++) {
         if (w.owner[t] === p.id && w.state[t] === TileState.Believer) sum = add(sum, w.dissent[t]!);
       }
-      dissentOk = div(sum, fromInt(p.ownedTiles)) >= fromInt(40);
+      dissentOk = div(sum, fromInt(p.ownedTiles)) >= b.schism.avgDissent;
     }
     if (territoryOk && dissentOk) {
       p.schismRiskTicks++;
-      if (p.schismRiskTicks >= 30 * TPS) {
+      if (p.schismRiskTicks >= b.schism.sustainTicks) {
         p.schismRiskTicks = 0;
         eruptSchism(s, p, b);
       }
@@ -134,7 +134,7 @@ function eruptSchism(s: SimState, parent: PlayerState, b: Balance): void {
   }
   if (seed < 0) return;
 
-  const target = Math.max(1, Math.floor(parent.ownedTiles / 4)); // 25% (§16)
+  const target = Math.max(1, Math.floor((parent.ownedTiles * b.schism.secedeSharePermille) / 1000)); // §16
   const splinterId = s.nextSplinterId++;
   const splinter = newPlayer(splinterId, parent.archetype, b);
   splinter.spawned = true;

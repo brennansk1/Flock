@@ -301,9 +301,9 @@ export function stepAgents(s: SimState, b: Balance): void {
     }
     // 1.2%/s; 0.6%/s while any victim watchtower watches the district borders
     const slowed = victimHasWatchtower(s, a.victim);
-    const rate = slowed ? fromFloat(0.6) : fromFloat(1.2);
+    const rate = slowed ? b.scandal.evidenceWatchedPerS : b.scandal.evidencePerS;
     file.evidence = min(add(file.evidence, mul(rate, b.dt)), HUNDRED);
-    if (!file.notified && file.evidence >= fromInt(50)) {
+    if (!file.notified && file.evidence >= b.scandal.notifyAt) {
       file.notified = true; // "Someone is asking questions about you." (§15.2)
     }
     if (file.evidence >= HUNDRED) s.agents.splice(i, 1); // holds the Publish button
@@ -371,7 +371,7 @@ export function publishScandal(s: SimState, attacker: PlayerState, victimId: Pla
   if (tryAbsorbMassApostasy(victim)) return true; // E4 UNSHAKEABLE
 
   // lose clamp(Heat × 0.6, 5, 35)% of followers; ×1.5 vs Prosperity Circle
-  let pct = clamp(mul(victim.heat, fromFloat(0.6)), fromInt(5), fromInt(35));
+  let pct = clamp(mul(victim.heat, b.scandal.dmgHeatCoef), b.scandal.dmgMin, b.scandal.dmgMax);
   if (victim.archetype === "circle") pct = mul(pct, fromFloat(1.5));
   victim.followers = mul(victim.followers, sub(ONE, div(pct, HUNDRED)));
   victim.faith = victim.faith > fromInt(25) ? sub(victim.faith, fromInt(25)) : 0;

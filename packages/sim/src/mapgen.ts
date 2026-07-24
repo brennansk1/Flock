@@ -826,7 +826,9 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
   keystone(Lot.Supermarket, 3, 2, [D.Commercial, D.Downtown], 12); // the grocery
   keystone(Lot.Sheriff, 2, 2, [D.Downtown, D.Commercial], 6); // the police station
   keystone(Lot.School, 3, 2, [D.College, D.Suburbs, D.ResHigh], 16); // elementary
-  keystone(Lot.HighSchool, 3, 2, [D.College, D.Suburbs, D.ResHigh], 20);
+  // the high school is the biggest institutional building in a small town — it
+  // was the same 3×2 as the elementary, so the two read as the same place
+  keystone(Lot.HighSchool, 4, 2, [D.College, D.Suburbs, D.ResHigh], 20);
   keystone(Lot.Church, 2, 2, [D.OldTown, D.Suburbs, D.Downtown], 6);
   keystone(Lot.FireStation, 2, 2, [D.Downtown, D.Commercial], 8);
   keystone(Lot.GasStation, 2, 1, [D.Commercial, D.Trailer], 4);
@@ -877,7 +879,7 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
   // town without its works is a postcard, not a town: the factory falls
   // back through smaller footprints and the fringe before giving up
   anchor(Lot.Factory, [[3, 2], [2, 2], [2, 1]], [D.Industrial, D.Trailer], 14);
-  keystone(Lot.Warehouse, 3, 1, [D.Industrial, D.Trailer, D.Commercial], 6);
+  keystone(Lot.Warehouse, 3, 2, [D.Industrial, D.Trailer, D.Commercial], 6); // deep, not a thin strip
   stamp(Lot.Warehouse, 2, 1, D.Industrial, 6);
   stamp(Lot.GasStation, 1, 1, D.Industrial, 3);
   stamp(Lot.Substation, 1, 1, D.Industrial, 1);

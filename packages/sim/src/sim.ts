@@ -1254,6 +1254,26 @@ function prophecyRapture(s: SimState, p: PlayerState): void {
   }
 }
 
+/**
+ * Converted souls per cult — the quantity the game actually judges winning on.
+ * Deterministic: a single ascending tile walk, integer adds only.
+ *
+ * Both the domination threshold and the timer tiebreak read this. They used to
+ * disagree — domination counted souls while the timer ranked by raw acreage —
+ * so a cult farming cheap empty land climbed the tiebreak while going nowhere
+ * on domination, and which metric decided the match depended on how it ended.
+ */
+function soulsByOwner(s: SimState): Map<PlayerId, number> {
+  const w = s.world;
+  const souls = new Map<PlayerId, number>();
+  for (let t = 0; t < w.owner.length; t++) {
+    const o = w.owner[t]!;
+    if (o === NEUTRAL || w.state[t] !== TileState.Believer) continue;
+    souls.set(o, (souls.get(o) ?? 0) + w.pop[t]!);
+  }
+  return souls;
+}
+
 /** Victory checks, per tick, in §18 priority order; plus elimination. */
 function checkVictory(s: SimState, b: Balance): void {
   if (s.status === MatchStatus.Ended) return;
@@ -1273,13 +1293,7 @@ function checkVictory(s: SimState, b: Balance): void {
   // about converting the town; tile share is only the fallback for popless
   // test worlds.
   if (s.totalPop > 0) {
-    const w = s.world;
-    const popByOwner = new Map<PlayerId, number>();
-    for (let t = 0; t < w.owner.length; t++) {
-      const o = w.owner[t]!;
-      if (o === NEUTRAL || w.state[t] !== TileState.Believer) continue;
-      popByOwner.set(o, (popByOwner.get(o) ?? 0) + w.pop[t]!);
-    }
+    const popByOwner = soulsByOwner(s);
     for (const p of contenders) {
       if ((popByOwner.get(p.id) ?? 0) * 1000 >= s.totalPop * s.dominationPermille) {
         s.status = MatchStatus.Ended;
@@ -1327,15 +1341,18 @@ function checkVictory(s: SimState, b: Balance): void {
     }
   }
 
-  // (5) Timer expiry → highest tiles, then $ earned, then Faith (§1).
+  // (5) Timer expiry → most souls converted, then $ earned, then Faith (§1).
+  // Ranked on SOULS so the timer agrees with the domination threshold above;
+  // acreage remains a means (income, access, front adjacency), not a second
+  // hidden win condition. Popless test worlds fall back to tiles.
   if (s.timerTicks > 0 && s.tick >= s.timerTicks && contenders.length > 0) {
+    const souls = s.totalPop > 0 ? soulsByOwner(s) : null;
+    const score = (p: PlayerState): number => (souls ? (souls.get(p.id) ?? 0) : p.ownedTiles);
     let best = contenders[0]!;
     for (const p of contenders.slice(1)) {
-      if (
-        p.ownedTiles > best.ownedTiles ||
-        (p.ownedTiles === best.ownedTiles && p.usd > best.usd) ||
-        (p.ownedTiles === best.ownedTiles && p.usd === best.usd && p.faith > best.faith)
-      ) {
+      const sp = score(p);
+      const sb = score(best);
+      if (sp > sb || (sp === sb && p.usd > best.usd) || (sp === sb && p.usd === best.usd && p.faith > best.faith)) {
         best = p;
       }
     }

@@ -454,3 +454,26 @@ Baseline preserved: sim 105/105, server 17/17, build clean.
 Baseline after the sweep: sim 112/112, server 17/17, cross-browser determinism
 PASS ×4 world cases, metrics back at connectivity 0.991 / farmShare 0.211 /
 waterShare 0.051 / collisions 0.
+
+## PT-0021 — 2026-07-24 — farm/produce Visual QA (scope correction)
+
+Rendered the farmstead crop before touching livestock or produce, and the
+verdict corrects the task's own premise: **both are already well developed and
+should not be rebuilt.**
+
+- **Produce:** four crop types roll per 6-tile parcel (corn gold, soy green,
+  pale wheat, fallow brown), with seasonal states (spring soil, tan stubble,
+  snow) and hay bales on harvested parcels in fall. The patchwork reads as
+  working farmland at crop zoom.
+- **Livestock:** grazing drift keyed to the tick so a herd reads alive rather
+  than statuary, white/brown cattle, chestnut-and-black horses on roughly one
+  pasture in five, and second heads so animals cluster.
+
+**The one real gap: field edges.** Parcels are hard-edged rectangles meeting
+abruptly — no grass headland (the turning strip at the ends of rows) and no farm
+track running in off the road. Road-field shoulders already exist (B1.4.9.7), so
+this is specifically field-to-field boundaries and field interiors.
+
+Deliberately not "improved" further. RESTRAINT: adding animals or crop types to
+a scene that already reads well makes it read worse, and the framework ranks
+subtraction above addition. Filed for whoever takes the headland work.

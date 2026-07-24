@@ -200,13 +200,15 @@ A2      river founding / curvilinear (contract decision first)
 A3      asset-driven generation
 ```
 
-Two decisions are needed from the user before the tranches that need them, and
-neither blocks starting:
+### Decisions — settled 2026-07-24
 
-1. **Curvilinear suburbs & diagonal roads vs. the orthogonality invariant** (A2)
-   — carve-out or cut? A2 cannot start until this is settled.
-2. **Moving freight train** (B5.4.5) — accept as ✂️ cut, or promote to a
-   workstream-C agent node?
+1. **✂️ CUT: curvilinear suburbs (#15) and the diagonal legacy road (#16).**
+   User: *"I don't want any diagonal roads, I like it how it is with the grid
+   pattern."* This is the good outcome — both features conflicted with the
+   orthogonality invariant `B1.4.17.5`, so cutting them **preserves the
+   invariant intact** and removes the only contract conflict in workstream A.
+   A2 now contains just `#1 river-anchored founding`.
+2. **✂️ CUT: moving freight train** — an agent system wearing an asset costume.
 
 ## 7. What I will not do
 
@@ -218,3 +220,87 @@ neither blocks starting:
 - **No touching `packages/sim` tick-path math** for any of this. Cars, routing
   and assets are render-side; if a node seems to need sim state, that is a
   design smell to raise, not to route around.
+
+---
+
+## 8. Added scope — building fidelity & vegetation (user-directed, 2026-07-24)
+
+Grounded in an actual Visual QA pass, not assumption: rendered
+`tools/spritesheet.mjs` (all lot icons) and `tools/qa_screenshots.mjs` (downtown
+core, forest edge, four seasons, day/night) and looked at them.
+
+### E — Building fidelity: 36 lot types, ~16 with real facades
+
+`Lot` defines **36 building types**. B5.2.6 gave composed multi-tile facades to
+roughly **16 anchors**. The rest still render as single-tile icons, and it shows.
+
+**What the downtown-core render actually says:**
+- The **church reads instantly** — steeple, white walls, correct silhouette.
+  That is the bar, and it proves the facade system can hit it.
+- **Almost nothing else announces what it is.** School, sheriff, post office,
+  bank and office are near-identical tan/grey slabs at LOD1. A player cannot
+  tell which building grants which civic effect without the HUD panel — which
+  breaks the "which buildings do I take over" decision the strategy work just
+  made load-bearing.
+- **Flat-slab problem**: several lots are featureless rectangles with no roof
+  band, window rhythm, or entrance.
+- **Residential repetition**: house variants exist (B5.2.7) but *cluster* — the
+  same red-roof house repeats along a run. The defect is variant **distribution**,
+  not variant count.
+
+| ID | Node | Contract |
+|---|---|---|
+| E1 | **Key-building identity pass** | Each of the 7 guaranteed keystones (elementary, high school, sheriff, grocery, church, fire, gas) is identifiable **from silhouette + colour alone at LOD1**, without labels. Church is the reference. Gate: a blind-ID test — render each and confirm it reads as what it is. |
+| E2 | **Facade coverage for the remaining ~20 types** | Every lot ≥2 tiles gets a composed facade (roof band, wall texture, window rhythm, signed entrance). Single-tile lots get a distinguishing motif instead. |
+| E3 | **Variant distribution, not variant count** | Break house clustering — vary roof tone/plan by lot hash so runs don't repeat. **No new palette entries**; this is a distribution fix. |
+| E4 | **Missing-asset sweep** | Walk the 36 types against the render and list what has no distinct form at all; fill the gaps. |
+
+E1 is first and highest value: it serves the gameplay decision, not just looks.
+
+### F — Vegetation & forest overhaul
+
+The forest-edge render is the weakest terrain in the game, and it is a
+single-pass fix rather than an art-asset problem.
+
+**What is wrong, specifically:**
+1. **Forest is a flat two-tone mass.** No individual canopies, no size variation,
+   no understory. At LOD3 you should see trees; you see a green blob.
+2. **No edge feathering.** Woodland meets grass on a hard line — no scrub
+   margin, no scattered outlier trees. Real edges transition.
+3. **Uniform fleck density.** Wildflower/scrub specks are spread evenly across
+   every grass tile, which reads as noise rather than as patches.
+4. **Grass mottle is too large and too soft** — it reads as a texture artifact
+   rather than as meadow relief.
+
+Crops and pastures are the *strongest* terrain (row striping and livestock both
+work), so the fix is to bring woodland up to that standard.
+
+| ID | Node | Contract |
+|---|---|---|
+| F1 | **Canopy individuation** | Trees get per-tree size/tone variation from the tile hash so a stand reads as trees, not a mass. |
+| F2 | **Edge feathering** | A scrub/sapling margin ring where woods meet open ground; scattered outliers beyond it. Pairs with the existing `B1.4.11.9` riparian bias. |
+| F3 | **Clustered ground cover** | Flecks driven by a low-frequency field so flowers appear in patches. Also fixes #4 by giving the eye real structure. |
+| F4 | **Seasonal vegetation response** | Woods and ground cover shift per season — the QA tool already renders spring/summer/fall/winter × day/night, so the evidence gate exists. Winter especially: bare deciduous vs conifer. |
+
+### G — Seasons & time of day
+
+`tools/qa_screenshots.mjs` **already renders the full matrix** (4 seasons ×
+day/night). So this is a quality pass with an existing gate, not new plumbing.
+Fold F4 in here, plus B5.4.3 night glow. Judge every change against the same
+six renders.
+
+### Revised order
+
+```
+E1 key-building identity   ← serves the strategy decision; highest value
+F1-F3 vegetation           ← biggest "realistic town" win per unit of work
+E2/E4 facade coverage + missing assets
+G/F4 seasonal + night polish
+E3 variant distribution
+   ↓ (then the original plan)
+B6.9 → D pathing → C cars → A1 → A2(#1 only)
+```
+
+E and F are both render-side, so they carry no determinism risk and can start
+immediately — but they do consume frame budget, so §1's 160 ms full-map ceiling
+applies to every one of them.

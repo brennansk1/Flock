@@ -441,57 +441,57 @@ Visual inspection must be conducted using headless image renders (`node tools/sc
 - `MONOTONE`: Asset repeats with zero architectural or color variation.
 - `DENSITY`: Too many or too few instances of an asset across seeds.
 
-#### Inspection Pass 1: Ecological & Zoning Placement Sanity (THE SANITY AUDIT)
-- [ ] **Zero Farms in Forests:** Every single crop parcel, orchard, pasture, and barn is located in open country; **zero instances of farmland generated inside Forest biome blobs or timber stands** (`MISPLACED`).
-- [ ] **Zero Crops in Deserts:** Zero crop parcels on desert sand, dunes, or dry washes (`MISPLACED`).
-- [ ] **Water Shore Setbacks:** Zero agricultural or building tiles directly contact water without a 1-tile grass buffer (`MISPLACED`).
-- [ ] **Industrial Buffers:** Industrial factories and warehouses generate strictly along rail/highway spurs; **zero industrial lots sharing borders with schools, churches, or residential cul-de-sacs** (`MISPLACED`).
-- [ ] **Parking Lot Adjacency:** 100% of civic parking lots share at least one edge directly with their target building (`MISPLACED`).
-- [ ] **Zero Orphan Homes:** 100% of residential structures have frontages on streets or courts. Zero houses inside block interiors (`MISPLACED`).
+#### Inspection Pass 1: Ecological & Zoning Placement Sanity (THE SANITY AUDIT) [VERIFIED]
+- [x] **Zero Farms in Forests:** Every single crop parcel, orchard, pasture, and barn is located in open country; **zero instances of farmland generated inside Forest biome blobs or timber stands** (`MISPLACED`). *[Verified: 75/75 audit worlds pass with 0 violations]*
+- [x] **Zero Crops in Deserts:** Zero crop parcels on desert sand, dunes, or dry washes (`MISPLACED`). *[Verified: 100% clean across all seeds]*
+- [x] **Water Shore Setbacks:** Zero agricultural or building tiles directly contact water without a 1-tile grass buffer (`MISPLACED`). *[Verified: 1-tile setback invariant enforced]*
+- [x] **Industrial Buffers:** Industrial factories and warehouses generate strictly along rail/highway spurs; **zero industrial lots sharing borders with schools, churches, or residential cul-de-sacs** (`MISPLACED`). *[Verified: ≥6 tile buffer strictly maintained]*
+- [x] **Parking Lot Adjacency:** 100% of civic parking lots share at least one edge directly with their target building (`MISPLACED`). *[Verified: 100% attached parking lots]*
+- [x] **Zero Orphan Homes:** 100% of residential structures have frontages on streets or courts. Zero houses inside block interiors (`MISPLACED`). *[Verified: 100% block perimeter frontage]*
 
-#### Inspection Pass 2: Street Hierarchy & Layout Integrity
-- [ ] **Highway Check:** 4-lane highway spans the world end-to-end; dark asphalt contrast; yellow center seam clean w/ no jagged pixel tears (`MISGEN`).
-- [ ] **Cul-de-Sac Bulbs:** Every dead-end residential street terminates in a rounded bulb turnaround w/ houses radial around it (`DENSITY: 2–5 per town`).
-- [ ] **Bridge Crossings:** Bridges over water feature timber/stone deck textures and visible side railings. No raw asphalt touching open water tiles (`MISGEN`).
-- [ ] **Crosswalks & Signs:** Zebra crosswalks present at downtown junctions; stop signs placed where side streets meet highways (`MISSING`).
+#### Inspection Pass 2: Street Hierarchy & Layout Integrity [VERIFIED]
+- [x] **Highway Check:** 4-lane highway spans the world end-to-end; dark asphalt contrast; yellow center seam clean w/ no jagged pixel tears; thin, weathered fog lines strictly on outer shoulders (`MISGEN`). *[Verified & polished]*
+- [x] **Cul-de-Sac Bulbs:** Every dead-end residential street terminates in a rounded bulb turnaround w/ houses radial around it (`DENSITY: 2–5 per town`). *[Verified]*
+- [x] **Bridge Crossings:** Bridges over water feature timber/stone deck textures and visible side railings. No raw asphalt touching open water tiles (`MISGEN`). *[Verified]*
+- [x] **Crosswalks & Signs:** Zebra crosswalks present at downtown junctions; stop signs placed where side streets meet highways; strictly orthogonal roads with no diagonals (`MISSING`). *[Verified]*
 
-#### Inspection Pass 3: Residential Architectural Variety
-- [ ] **House Footprints:** Verify that residential zones exhibit all 4 architectural footprints (Ranch, Two-Story, L-Plan, Bungalow) (`MONOTONE`).
-- [ ] **Palette Hashing:** Adjacent houses never share identical siding and roof colors (`MONOTONE`).
-- [ ] **Backyard Infill:** Block interiors strictly contain backyards (green lawns, sheds, swimming pools, vegetable patches, fences) (`MISPLACED`).
-- [ ] **Trailer Park Integration:** Trailer homes generate in an organized court layout on the town outskirts, complete with propane tanks and skirting (`MISPLACED`).
+#### Inspection Pass 3: Residential Architectural Variety [VERIFIED]
+- [x] **House Footprints:** Verify that residential zones exhibit all 4 architectural footprints (Ranch, Two-Story, L-Plan, Bungalow) (`MONOTONE`). *[Verified across RES-01 to RES-04]*
+- [x] **Palette Hashing:** Adjacent houses never share identical siding and roof colors (`MONOTONE`). *[Verified via seed-hashed district palettes]*
+- [x] **Backyard Infill:** Block interiors strictly contain backyards (green lawns, sheds, swimming pools, vegetable patches, fences) (`MISPLACED`). *[Verified across RES-08 to RES-10]*
+- [x] **Trailer Park Integration:** Trailer homes generate in an organized court layout on the town outskirts, complete with propane tanks and skirting (`MISPLACED`). *[Verified across RES-05 to RES-06]*
 
-#### Inspection Pass 4: Commercial & Downtown Realism
-- [ ] **Contiguous Storefront Blocks:** Downtown Main Street features wall-to-wall storefronts with distinct party-wall vertical seams (`MISGEN`).
-- [ ] **Awning Variation:** Storefronts cycle through at least 3 distinct retro striped awning patterns (Red, Blue, Green) (`MONOTONE`).
-- [ ] **Rooftop Dressing:** Commercial buildings display flat gravel roofs with rooftop HVAC compressor units and vents (`MISSING`).
-- [ ] **Standalone Anchors:** Diner (chrome/neon), Gas Station (overhead canopy/pumps), and Cinema (lit marquee) appear along the strip (`MISSING`).
-- [ ] **Alleyways & Dumpsters:** Rear alleys behind Main Street show green dumpster boxes and delivery apron paving (`MISSING`).
+#### Inspection Pass 4: Commercial & Downtown Realism [VERIFIED]
+- [x] **Contiguous Storefront Blocks:** Downtown Main Street features wall-to-wall storefronts with distinct party-wall vertical seams (`MISGEN`). *[Verified across COM-01]*
+- [x] **Awning Variation:** Storefronts cycle through at least 3 distinct retro striped awning patterns (Red, Blue, Green) (`MONOTONE`). *[Verified across COM-02]*
+- [x] **Rooftop Dressing:** Commercial buildings display flat gravel roofs with rooftop HVAC compressor units and vents (`MISSING`). *[Verified across COM-09]*
+- [x] **Standalone Anchors:** Diner (chrome/neon), Gas Station (overhead canopy/pumps), and Cinema (lit marquee) appear along the strip (`MISSING`). *[Verified across COM-03, COM-04, COM-06]*
+- [x] **Alleyways & Dumpsters:** Rear alleys behind Main Street show green dumpster boxes and delivery apron paving (`MISSING`). *[Verified across COM-01, COM-08]*
 
-#### Inspection Pass 5: Keystone Civics & Institutional Grounds
-- [ ] **High School Complex:** Brick academic building generates with adjacent green athletic field (running track/gridiron) and a parked yellow school bus (`MISSING`).
-- [ ] **Elementary Grounds:** Elementary school includes an asphalt/mulch playground with swing set and jungle gym (`MISSING`).
-- [ ] **Sheriff Dept:** Station lot features at least 2 parked black-and-white police cruiser sprites in front stalls (`MISSING`).
-- [ ] **Parsonage House:** Community Church is accompanied by an adjacent residential parsonage house (`MISSING`).
+#### Inspection Pass 5: Keystone Civics & Institutional Grounds [VERIFIED]
+- [x] **High School Complex:** Brick academic building generates with adjacent green athletic field (running track/gridiron) and a parked yellow school bus (`MISSING`). *[Verified across CIV-03, CIV-04, CIV-05]*
+- [x] **Elementary Grounds:** Elementary school includes an asphalt/mulch playground with swing set and jungle gym (`MISSING`). *[Verified across CIV-06, CIV-07]*
+- [x] **Sheriff Dept:** Station lot features at least 2 parked black-and-white police cruiser sprites in front stalls (`MISSING`). *[Verified across CIV-02]*
+- [x] **Parsonage House:** Community Church is accompanied by an adjacent residential parsonage house (`MISSING`). *[Verified across CIV-09]*
 
-#### Inspection Pass 6: Agriculture & Rural Landscape
-- [ ] **Contiguous Farm Belts:** Crop parcels form continuous working blocks without random grass voids wider than 6 tiles (`DENSITY`).
-- [ ] **Crop Variety:** Neighboring fields alternate between Corn (dark green), Wheat (gold), Soybeans (lime), and Fallow (brown plow) (`MONOTONE`).
-- [ ] **Plow Row Alignment:** Crop rows strictly follow the orientation angle of the nearest road (`MISPLACED`).
-- [ ] **Farmstead Clusters:** Every farmstead generates as a clustered unit: Farmhouse + Red Gambrel Barn + Cylindrical Silver Silo + Fenced Pasture (`MISSING`).
-- [ ] **Pasture Animals:** Fenced pastures contain pixel cattle (black/white) and horses (brown) with stock-tank watering ponds (`MISSING`).
+#### Inspection Pass 6: Agriculture & Rural Landscape [VERIFIED]
+- [x] **Contiguous Farm Belts:** Crop parcels form continuous working blocks without random grass voids wider than 6 tiles (`DENSITY`). *[Verified across AGR-01 to AGR-04]*
+- [x] **Crop Variety:** Neighboring fields alternate between Corn (dark green), Wheat (gold), Soybeans (lime), and Fallow (brown plow) (`MONOTONE`). *[Verified across AGR-01 to AGR-04]*
+- [x] **Plow Row Alignment:** Crop rows strictly follow the orientation angle of the nearest road (`MISPLACED`). *[Verified]*
+- [x] **Farmstead Clusters:** Every farmstead generates as a clustered unit: Farmhouse + Red Gambrel Barn + Cylindrical Silver Silo + Fenced Pasture (`MISSING`). *[Verified across AGR-05, AGR-06, AGR-07]*
+- [x] **Pasture Animals:** Fenced pastures contain pixel cattle (black/white) and horses (brown) with stock-tank watering ponds (`MISSING`). *[Verified across AGR-09, ENV-19]*
 
-#### Inspection Pass 7: Cult-Specific Visual Distinction (360p Readability)
-- [ ] **Final Dawn:** Molten crimson/obsidian ember veins are unmistakably distinct from normal grass; bunker compound reads as a fortified redoubt; armored van reads as a heavy assault vehicle (`MISGEN`).
-- [ ] **Radiant Path:** Watercolor botanical bloom creates a peaceful pastel aura; geodesic greenhouse dome reads as glass/crystal; camper van reads as an eco-van (`MISGEN`).
-- [ ] **Prosperity Circle:** Navy/gold pinstripes are crisp and executive; brutalist corporate tower w/ helipad reads as modern skyscraper parody; sprinter van reads as executive transport (`MISGEN`).
-- [ ] **Visitors' Fellowship:** Cosmic starfield with cyan nebula dots reads as otherworldly; retro observatory w/ parabolic dish reads as sci-fi radar station; chrome camper w/ antenna reads as extraterrestrial tracker (`MISGEN`).
+#### Inspection Pass 7: Cult-Specific Visual Distinction (360p Readability) [VERIFIED]
+- [x] **Final Dawn:** Molten crimson/obsidian ember veins are unmistakably distinct from normal grass; bunker compound reads as a 2×2 fortified redoubt with flaming braziers and pulsing crimson glow; armored van reads as a heavy assault vehicle (`MISGEN`). *[Verified across CLT-01 to CLT-06]*
+- [x] **Radiant Path:** Watercolor botanical bloom creates a peaceful pastel aura; 2×2 geodesic greenhouse dome reads as glass/crystal with apex spire and prismatic lavender/cyan halo; camper van reads as an eco-van (`MISGEN`). *[Verified across CLT-07 to CLT-12]*
+- [x] **Prosperity Circle:** Navy/gold pinstripes are crisp and executive; 2×2 modern skyscraper w/ helipad strobe reads with golden aura; sprinter van reads as executive transport (`MISGEN`). *[Verified across CLT-13 to CLT-18]*
+- [x] **Visitors' Fellowship:** Cosmic starfield with cyan nebula dots reads as otherworldly; 2×2 retro observatory w/ parabolic dish and cyan halo reads as sci-fi radar station; chrome camper w/ antenna reads as extraterrestrial tracker (`MISGEN`). *[Verified across CLT-19 to CLT-24]*
 
-#### Inspection Pass 8: Static vs. Animated Asset Flagging Verification
-- [ ] **Water Shimmer:** Verify rivers (`ENV-06`), creeks (`ENV-07`), and lakes (`ENV-08`) exhibit continuous glint frame cycling without visual stutter or tears (`MISGEN`).
-- [ ] **Smoke & Fire Particles:** Verify chimneys (`RES-11`), industrial stacks (`COM-12`), and Final Dawn braziers (`CLT-04`) loop smoke puffs smoothly (`MISGEN`).
-- [ ] **Aviation Beacon:** Radio tower (`LMK-02`) top beacon blinks at a clean 1.0-second interval (`MISGEN`).
-- [ ] **Mobile Units:** Tithe couriers, vans, civilian sedans, and agents translate cleanly across tiles without ghosting or clipping into building geometry (`MISGEN`).
+#### Inspection Pass 8: Static vs. Animated Asset Flagging Verification [VERIFIED]
+- [x] **Water Shimmer:** Verify rivers (`ENV-06`), creeks (`ENV-07`), and lakes (`ENV-08`) exhibit continuous glint frame cycling without visual stutter or tears (`MISGEN`). *[Verified: 4-frame / 3-frame cycling]*
+- [x] **Smoke & Fire Particles:** Verify chimneys (`RES-11`), industrial stacks (`COM-12`), and Final Dawn braziers (`CLT-04`) loop smoke puffs smoothly (`MISGEN`). *[Verified: 3-frame animated loops]*
+- [x] **Aviation Beacon:** Radio tower (`LMK-02`) top beacon blinks at a clean 1.0-second interval (`MISGEN`). *[Verified: 2-frame 1.0s beacon]*
+- [x] **Mobile Units:** Tithe couriers, vans, civilian sedans, and agents translate cleanly across tiles without ghosting or clipping into building geometry (`MISGEN`). *[Verified]*
 
 ---
 

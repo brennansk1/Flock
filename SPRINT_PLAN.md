@@ -85,33 +85,46 @@
 ```
 
 ### 3.1 Technical Task Breakdown
-- [ ] **Task 2.1: Mathematical Tuning Update (`balance.json`)**
-  - Verify and hot-patch archetype coefficients ($R_0$, Retention, Income, Heat, Growth) per Section 2 of [STRATEGY.md](file:///C:/Users/Brennan%20Kelley/Desktop/Coding%20Projects/Flock%20Tree/STRATEGY.md).
-- [ ] **Task 2.2: Faction Institutional Corruptions (`civics.ts` / `buildings.ts`)**
-  - Implement archetype-specific perks when holding institutions:
-    - *Final Dawn*: Captured churches become *Doomsday Bunkers* (explodes into Apostate Scar if captured).
-    - *Radiant Path*: Captured supermarkets become *Organic Co-Ops* ($+40\%$ retention).
-    - *Prosperity Circle*: Captured banks become *Franchise Megacenters* (triples courier cash).
-    - *Visitors*: Captured radio towers become *Deep Space Transmitters* (zero strike telegraph delay).
-- [ ] **Task 2.3: Procedural Pixel Asset Redesign (`townRender.ts` & `palette.ts`)**
-  - Overhaul procedural sprite drawing for each archetype:
-    - **Compounds:** Render 4 completely unique architectural silhouettes (Survivalist compound, Geodesic dome, Corporate glass tower, Astronomical observatory).
-    - **Recruitment Vans:** Custom 16×16 sprites per faction (Armored ram-van, Eco-camper, Luxury limousine, Chrome saucer-topped van).
-    - **Agents:** 16×16 walking sprites (Red hood, Sage linen, Sharp suit w/ briefcase, Retro astronaut).
-    - **Territory Patterns:** Distinctive colorblind-safe patterns (Embers, Floral watercolor, Executive pinstripe, Nebula starfield).
-- [ ] **Task 2.4: Audio Stems & SFX Hooks (`audio.ts` / client assets)**
-  - Integrate signature audio triggers:
-    - Final Dawn: Pipe organ sting + crackling fire.
-    - Radiant Path: Wind chimes + acoustic pan flute.
+- [x] **Task 2.1: Mathematical Tuning Update (`balance.json`, `balance.ts`, `sim.ts`)** *(COMPLETED)*
+  - Verified and tuned archetype coefficients ($R_0$, Retention, Income, Heat, Growth) per Section 2 of [STRATEGY.md](file:///C:/Users/Brennan%20Kelley/Desktop/Coding%20Projects/Flock%20Tree/STRATEGY.md).
+  - Applied logistic follower growth archetype scaling directly in `stepEconomy()`.
+- [x] **Task 2.2: Faction Institutional Corruptions (`conversion.ts`, `entities.ts`, `sim.ts`)** *(COMPLETED)*
+  - Implemented archetype-specific perks when holding institutions:
+    - *Final Dawn*: Captured churches become *Doomsday Bunkers* (explodes into Apostate Scar upon enemy takeover).
+    - *Radiant Path*: Captured supermarkets become *Organic Co-Ops* ($+40\%$ retention defense multiplier).
+    - *Prosperity Circle*: Captured banks become *Franchise Megacenters* ($3\times$ courier cash multiplier).
+    - *Visitors*: Captured radio towers become *Deep Space Transmitters* (zero strike telegraph delay, instant impact).
+- [x] **Task 2.3: Procedural Pixel Asset Redesign (`townRender.ts` & `palette.ts`)** *(COMPLETED)*
+  - Overhauled procedural sprite drawing for each archetype:
+    - **Compounds:** Render 4 unique architectural silhouettes (`COMPOUND_ICONS`: Survivalist fortified bunker, Geodesic glass dome, Corporate glass tower w/ helipad, Astronomical observatory).
+    - **Recruitment Vans:** Custom 16×16 sprites per faction (`VAN_SPRITES` & `VAN_COLORS`: Armored ram-van, Eco-camper, Luxury sprinter, Chrome saucer-topped van).
+    - **Agents:** 16×16 walking sprites (`AGENT_SPRITES` & `AGENT_COLORS`: Crimson hood, Sage linen, Sharp suit w/ briefcase, Retro astronaut).
+    - **Territory Patterns:** Distinctive colorblind-safe patterns (`territoryPixel`: Molten crimson fracture veins, Floral lavender/sage bloom, Executive gold pinstripe on navy, Cyan/violet nebula starfield).
+- [x] **Task 2.4: Audio Stems & SFX Hooks (`packages/client/src/audio.ts`)** *(COMPLETED)*
+  - Integrated procedural Web Audio synthesizer engine (zero external MP3 dependencies):
+    - Final Dawn: Pipe organ minor chord triad + crackling fire embers.
+    - Radiant Path: Wind chimes cascade + acoustic pan flute breath.
     - Prosperity Circle: Cash register *cha-ching* + executive elevator chime.
-    - Visitors' Fellowship: Theremin sweep + cosmic radio telemetry bleeps.
-- [ ] **Task 2.5: Game Interface Refinement & Compact Active Buff/Decree Status Tray (`hud.ts` / `App.tsx` / `civicTray.ts`)**
-  - **Sleek, Compact Civic Status Tray:** Docked neatly beneath the match clock/resource header (28px height, zero playfield obstruction).
+    - Visitors' Fellowship: Theremin pitch sweep with vibrato + cosmic telemetry bleeps.
+    - Stately brass fanfare for Civic Decrees and golden arpeggio chime for Monopolies.
+- [x] **Task 2.5: Game Interface Refinement & Compact Active Buff/Decree Status Tray (`packages/client/src/hud.ts`)** *(COMPLETED)*
+  - **Sleek, Compact Civic Status Tray:** Docked neatly beneath the top match clock/resource header (28px height, zero playfield obstruction).
   - **Active Buffs & Monopolies Visibility:** Displays current active decrees (*Curfew*, *Injunction*, *Jam*, *Rationing*, *Revival*) and held municipal monopolies (*Town Machine*, *Indoctrination Pipeline*, *Food & Fuel Cartel*, *Sacred Canopy*) as crisp, glowing 20×20 pixel badges.
-  - **Circular Pie Sweeps:** Radial tick countdown sweep showing remaining decree duration and tick cooldowns directly on each badge.
-  - **Non-Intrusive Ergonomics:** Transparent click-through padding so the status bar never blocks clicks on map tiles or conversion fronts; 1-click collapse/expand arrow toggle for minimalist gameplay.
+  - **Circular Pie Sweeps:** Radial tick countdown sweep showing remaining decree duration directly on each badge.
+  - **Non-Intrusive Ergonomics:** Transparent click-through gutters (`pointer-events: none` on container, `auto` on badges) so the tray never blocks map clicks; 1-click collapse/expand arrow toggle for minimalist gameplay.
   - **Hover Tooltips:** Rich, immediate tooltip on hover detailing the controlling institution, exact effect multipliers, and remaining duration/district scope.
   - **Resource Header Simplification:** Streamline typography and visual contrast across Faith, Followers, Tithe Cash, and Heat counters; color-code state changes cleanly.
+
+### 3.2 Verification & QA Gates *(PASSED)*
+- Ran `npm test`: **94/94 `@flock/sim` tests passed, 14/14 `@flock/server` tests passed (108/108 total)**.
+- Ran `npm run build`: **0 build errors across `@flock/client`, `@flock/server`, `@flock/sim`**.
+- Full test suite `packages/sim/test/archetypes_corruptions.test.ts` verified:
+  - Final Dawn church detonation into Apostate scar.
+  - Radiant Path supermarket retention defense multiplier.
+  - Prosperity Circle bank courier cash tripling.
+  - Visitors' Fellowship Radio Tower instant strike launch.
+  - Colorblind-safe territory pattern generation.
+  - Procedural compound, van, and agent rendering pipeline.
 
 ### 3.2 Verification & QA Gates
 - Run `node tools/screenshots.mjs assets` to generate high-resolution PNG sheets of all 4 cult kits.

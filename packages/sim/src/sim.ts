@@ -916,7 +916,8 @@ export function applyIntent(s: SimState, intent: Intent, b: Balance): void {
       let cost = mul(fromInt(def.cost), strikeCostMult(p)); // I3 −20% (§10)
       if (ownsLandmark(s, p.id, Landmark.RadioTower)) cost = mul(cost, fp(0.7)); // §12
       if (p.usd < cost) break;
-      p.usd = sub(p.usd, cost);
+      const isDeepSpaceTransmitter =
+        p.archetype === "visitors" && ownsLandmark(s, p.id, Landmark.RadioTower);
       s.strikes.push({
         id: s.nextEntityId++,
         player: p.id,
@@ -924,7 +925,7 @@ export function applyIntent(s: SimState, intent: Intent, b: Balance): void {
         target: t,
         victim,
         chargeTicksLeft: def.chargeTicks,
-        warningTicksLeft: WARNING_TICKS,
+        warningTicksLeft: isDeepSpaceTransmitter ? 0 : WARNING_TICKS,
       });
       break;
     }
@@ -1022,6 +1023,9 @@ function stepEconomy(s: SimState, b: Balance): void {
       const utilization = sub(ONE, div(p.followers, cap)); // (1 − F/cap)
       let dF = mul(b.economy.followerGrowth, mul(p.followers, utilization));
       dF = mul(dF, faithGrowthMod);
+      if (b.archetypes[p.archetype]?.growth) {
+        dF = mul(dF, b.archetypes[p.archetype].growth);
+      }
       // High-school takeover: youth recruitment feeds the flock (§13 rev.)
       if (controlsCivic(civics, Lot.HighSchool, p.id)) dF = mul(dF, b.civics.highschoolGrowthMult);
       if (computeMonopolies(s, p.id).indoctrinationPipeline) dF = mul(dF, fp(1.20));

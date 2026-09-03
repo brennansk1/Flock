@@ -17,6 +17,7 @@ import {
   Terrain,
   TileState,
   Landmark,
+  Lot,
   type AgentUnit,
   type PlayerId,
   type PlayerState,
@@ -32,7 +33,7 @@ import {
   staffingRatio,
 } from "./buildings.js";
 import { heatGainMult, raidEffectMultAgainst, tryAbsorbMassApostasy, scarTicksFor } from "./doctrine.js";
-import { computeMonopolies, isEmergencyJamActive } from "./civics.js";
+import { computeMonopolies, isEmergencyJamActive, controlsCivic, computeCivicControl } from "./civics.js";
 
 const TPS = 10;
 const HUNDRED = fromInt(100);
@@ -113,10 +114,14 @@ export function stepCouriers(s: SimState, b: Balance): void {
       for (let i = 0; i < plates.length; i++) {
         for (let j = i + 1; j < plates.length; j++) {
           const path = linePath(w, plates[i]!, plates[j]!);
-          const usd = min(
+          let usd = min(
             mul(b.economy.courierPerTile, fromInt(path.length)),
             b.economy.courierCap,
           );
+          const ownerPl = s.players.find((pl) => pl.id === pid);
+          if (ownerPl?.archetype === "circle" && controlsCivic(computeCivicControl(s), Lot.Bank, pid)) {
+            usd = mul(usd, fromInt(3)); // Franchise Megacenter: triples courier cash
+          }
           s.couriers.push({
             id: s.nextEntityId++,
             player: pid,

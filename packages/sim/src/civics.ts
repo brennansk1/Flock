@@ -52,6 +52,7 @@ export const CIVIC_LOTS: readonly Lot[] = [
   Lot.HighSchool,
   Lot.Supermarket,
   Lot.Church,
+  Lot.Bank,
 ];
 
 /** Human-readable effect line per civic lot (client HUD + docs). */
@@ -61,6 +62,7 @@ export const CIVIC_EFFECTS: Record<number, string> = {
   [Lot.HighSchool]: "youth recruitment — faster follower growth",
   [Lot.Supermarket]: "control the food — your flock holds firmer",
   [Lot.Church]: "the pulpit is yours — Faith climbs",
+  [Lot.Bank]: "financial leverage — enhanced tithe & courier commerce",
 };
 
 /** Definition of an active municipal civic decree. */

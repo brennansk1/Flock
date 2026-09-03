@@ -29,6 +29,7 @@ import {
   TileState,
   TileFlag,
   Lot,
+  Landmark,
   PROGRESS_STRIDE,
   type PlayerState,
   type SimState,
@@ -393,6 +394,8 @@ export function resolveConversion(s: SimState, b: Balance): void {
           res = mul(res, homeDefenseMult(defender)); // B2 Uniforms (§10)
           // Grocery takeover: control the food, keep the flock (§13 rev.)
           if (controlsCivic(civics, Lot.Supermarket, defender.id)) res = mul(res, b.civics.groceryDefenseMult);
+          // Radiant Path Organic Co-Op: doubles district retention defense (+40%)
+          if (defender.archetype === "radiant" && controlsCivic(civics, Lot.Supermarket, defender.id)) res = mul(res, fp(1.40));
           // Food Rationing active decree: +35% retention defense in supermarket district!
           if (isFoodRationingActive(s, w.district[t]!, defender.id)) res = mul(res, fp(1.35));
           res = mul(res, glowMult(s, defender, t)); // Radiant Glow (§11.2)
@@ -495,6 +498,32 @@ export function resolveConversion(s: SimState, b: Balance): void {
       if (loser) {
         loser.ownedTiles = Math.max(0, loser.ownedTiles - 1);
         loser.followers = loser.followers > residents ? sub(loser.followers, residents) : 0;
+
+        // Final Dawn Doomsday Bunker: captured holy ground detonates into an apostate scar
+        if (
+          loser.archetype === "dawn" &&
+          (w.lot[t] === Lot.Church || w.lot[t] === Lot.Chapel || w.landmark[t] === Landmark.Megachurch)
+        ) {
+          const scarDuration = b.conversion.apostateScarTicks;
+          const targetLot = w.lot[t]!;
+          const targetLmk = w.landmark[t]!;
+          for (let ct = 0; ct < w.owner.length; ct++) {
+            if (
+              (targetLot !== Lot.None && w.lot[ct] === targetLot) ||
+              (targetLmk !== Landmark.None && w.landmark[ct] === targetLmk)
+            ) {
+              if (w.owner[ct] === prevOwner && ct !== t) {
+                loser.ownedTiles = Math.max(0, loser.ownedTiles - 1);
+              }
+              w.owner[ct] = NEUTRAL;
+              w.state[ct] = TileState.Apostate;
+              w.scarTicks[ct] = scarDuration;
+              destroyBuildingsOnTile(s, ct);
+              for (const pl of s.players) s.progress.delete(ct * PROGRESS_STRIDE + pl.id);
+            }
+          }
+          continue;
+        }
       }
     }
     p.followers = add(p.followers, residents);

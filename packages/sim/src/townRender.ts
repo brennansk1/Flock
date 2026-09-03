@@ -44,6 +44,50 @@ export const TILE_PX = 8;
 
 // ---------------------------------------------------------------- sprites
 
+/** 8×8 Compound silhouettes per faction archetype (§30). */
+const COMPOUND_ICONS: Record<Archetype, string[]> = {
+  dawn: [
+    "#.*..*.#", // Flaming braziers flanking parapets
+    "########", // Heavy fortified parapet
+    "#oo##oo#", // Slit firing ports
+    "#oooooo#", // Reinforced blast walls
+    "#oo##oo#", // Sandbag reinforced tier
+    "########", // Heavy steel blast gate
+    "##o##o##", // Embrasures
+    "########", // Foundation
+  ],
+  radiant: [
+    "...**...", // Apex crystal spire
+    "..#**#..", // Crystal spire
+    ".#oooo#.", // Faceted geodesic glass dome
+    "#o#oo#o#", // Geodesic struts & glass panes
+    "#oooooo#", // Solar greenhouse tiers
+    "#o#oo#o#", // Structural arches
+    ".######.", // Terraced botanical base
+    "...##...", // Entrance steps
+  ],
+  circle: [
+    "..####..", // Modern corporate rooftop
+    ".#*##*#.", // Helipad & digital beacon
+    ".######.", // Tinted glass curtain
+    ".#o##o#.", // Executive boardroom suites
+    ".#o##o#.", // Mid-level offices
+    ".#o##o#.", // Mid-level offices
+    ".######.", // Grand entrance atrium
+    "########", // Granite corporate plaza
+  ],
+  visitors: [
+    "..****..", // Rotating parabolic radar dish
+    "...##...", // Antenna mast
+    "..####..", // Observatory dome
+    ".#oooo#.", // Spherical telescope bay
+    "#o#**#o#", // Telemetry aperture & glowing beacon
+    "#oooooo#", // Reinforced science facility
+    ".######.", // Pylon strut mounts
+    "..####..", // Sub-station base
+  ],
+};
+
 /** 8×8 icon bitmaps: '.'=ground, '#'=dark outline, 'o'=owner color, '*'=accent. */
 const ICONS: Record<Building["type"], string[]> = {
   compound: [
@@ -665,7 +709,10 @@ export function renderTown(sim: SimState, opts: RenderOpts = {}): RenderedFrame 
         put(gx0 + TILE_PX, gy0 + k, bright ? dim : halo);
       }
     }
-    drawIcon(ICONS[bd.type], bd.tile, w.width, ownerRgb, put);
+    const ownerPl = sim.players.find((pl) => pl.id === bd.player);
+    const arch: Archetype = (ownerPl?.archetype as Archetype) ?? "dawn";
+    const iconBmp = bd.type === "compound" ? (COMPOUND_ICONS[arch] ?? ICONS.compound) : ICONS[bd.type];
+    drawIcon(iconBmp, bd.tile, w.width, ownerRgb, put);
     // compounds EXPAND as their cult grows: a perimeter fence appears once the
     // flock is established, then banners fly over a true headquarters (§30)
     if (bd.type === "compound" && bd.buildTicksLeft === 0) {
@@ -3907,15 +3954,109 @@ function pickSpot(
 const UNIT_SPRITES = {
   // Tithe Courier — a walker with a golden money satchel
   courier: ["..#...", ".#o#..", ".#o#**", "##oo**", ".#o#..", ".#.#.."],
-  // Recruitment Van — a boxy minibus, side view, with glass + dual wheels
+  // Recruitment Van — generic fallback
   van: ["s####s", "#w#ww#", "#oooo#", "oooooo", "s#ss#s", "..ss.."],
-  // Agent — a hooded figure (own-side only; invisible to others)
+  // Agent — generic fallback
   agent: ["..##..", ".#oo#.", ".#oo#.", ".#oo#.", ".s##s.", "......"],
   // Street Prophet pylon — a speaker on a post, radiating
   pylon: ["*#oo#*", "#oooo#", "*#oo#*", "..##..", "..##..", ".s##s."],
   // CPA picket — a protester holding a sign
   picket: ["####..", "#oo#.o", "####.o", "...#oo", "...oo.", "..s.s."],
 } as const;
+
+/** Faction-specific Recruitment Vans (§30). */
+const VAN_SPRITES: Record<Archetype, string[]> = {
+  // Final Dawn: Armored ram-van with roof megaphone horns and hazard skirt
+  dawn: [
+    "*####*", // Roof megaphones
+    "#w#ww#", // Reinforced ballistic glass
+    "#oooo#", // Matte-black armor body
+    "oooooo", // Hazard stripe skirt
+    "s#ss#s", // Offroad treads / heavy dual wheels
+    "..ss..",
+  ],
+  // Radiant Path: Aerodynamic camper van with herbal drying racks & solar panel
+  radiant: [
+    ".****.", // Roof solar panels
+    "#wwww#", // Panoramic tinted glass
+    "#oooo#", // Pastel sage/cream curved body
+    "oooooo", // Wooden trim skirt
+    "s#ss#s", // Light rolling wheels
+    "..ss..",
+  ],
+  // Prosperity Circle: Glossy executive sprinter van with tinted privacy glass & chrome trim
+  circle: [
+    "s####s", // Aerodynamic roof rail
+    "#wwww#", // Dark executive privacy glass
+    "#oooo#", // Glossy midnight navy body
+    "**oo**", // Chrome / gold trim runner
+    "s#ss#s", // Polished alloy wheels
+    "..ss..",
+  ],
+  // Visitors' Fellowship: Retro chrome van with rooftop rotating antenna dish
+  visitors: [
+    "..**..", // Rotating antenna dish
+    ".*##*.", // Science telemetry mount
+    "#wwww#", // Visor glass windshield
+    "#oooo#", // Curved silver fuselage
+    "s*ss*s", // Glowing cyan hubcaps
+    "..ss..",
+  ],
+};
+
+const VAN_COLORS: Record<Archetype, RGB> = {
+  dawn: hexToRgb("#2b1110"), // Obsidian Black
+  radiant: hexToRgb("#e8ecd8"), // Pastel Linen Cream
+  circle: hexToRgb("#0e1a2f"), // Midnight Navy
+  visitors: hexToRgb("#dcdcdc"), // Chrome Silver
+};
+
+/** Faction-specific Agents (§30). */
+const AGENT_SPRITES: Record<Archetype, string[]> = {
+  // Final Dawn: Red-hooded stealth figure with concealed dagger
+  dawn: [
+    "..**..", // Crimson peaked cowl hood
+    ".#oo#.", // Masked face
+    ".#oo#.", // Dark armored tunic
+    ".#oo#.", // Dagger sheath
+    ".s##s.", // Stalking combat boots
+    "......",
+  ],
+  // Radiant Path: Robed barefoot figure carrying botanical specimen pouch
+  radiant: [
+    "..##..", // Hair / linen headwrap
+    ".#oo#.", // Calm serene face
+    ".#oo#*", // Flowing sage robe + herb satchel
+    ".#oo#.", // Long linen skirt
+    "..##..", // Barefoot
+    "......",
+  ],
+  // Prosperity Circle: Sharp dark suit executive carrying leather briefcase
+  circle: [
+    "..##..", // Slicked hair
+    ".#oo#.", // Sharp collar & tie
+    ".#oo#*", // Midnight blazer + brass briefcase
+    ".#oo#.", // Slacks
+    ".s##s.", // Polished oxford shoes
+    "......",
+  ],
+  // Visitors' Fellowship: Retro astronaut in silver space-jumpsuit with cyan visor
+  visitors: [
+    "..**..", // Bubble helmet dome
+    ".*ww*.", // Glowing cyan communication visor
+    ".#oo#.", // Pressurized silver jumpsuit
+    ".#oo#.", // Life support pack
+    ".s##s.", // Magnetic moon boots
+    "......",
+  ],
+};
+
+const AGENT_COLORS: Record<Archetype, RGB> = {
+  dawn: hexToRgb("#b82e1f"), // Molten Crimson Hood
+  radiant: hexToRgb("#7aa364"), // Botanical Sage
+  circle: hexToRgb("#c5a059"), // Executive Gold Trim / Dark Suit
+  visitors: hexToRgb("#00f0ff"), // Electric Cyan Visor / Chrome
+};
 
 /**
  * Conversion auras (§9 Midnight Festival, §11.2 Free Retreat Weekend): a
@@ -3999,7 +4140,13 @@ function drawUnits(sim: SimState, viewer: number, fog: Uint8Array | null, put: P
   };
 
   for (const c of sim.couriers) drawMover(c.path, c.idx, c.moveProgress, c.path[c.idx] ?? 0, UNIT_SPRITES.courier, hexToRgb("#ffd24a"));
-  for (const v of sim.vans) drawMover(v.path, v.idx, v.moveProgress, v.tile, UNIT_SPRITES.van, hexToRgb("#eef0ff"));
+  for (const v of sim.vans) {
+    const pl = sim.players.find((p) => p.id === v.player);
+    const arch: Archetype = (pl?.archetype as Archetype) ?? "dawn";
+    const bmp = VAN_SPRITES[arch] ?? UNIT_SPRITES.van;
+    const col = VAN_COLORS[arch] ?? hexToRgb("#eef0ff");
+    drawMover(v.path, v.idx, v.moveProgress, v.tile, bmp, col);
+  }
   for (const py of sim.pylons) {
     if (!visible(py.tile)) continue;
     const [x, y] = tilePx(py.tile);
@@ -4013,8 +4160,12 @@ function drawUnits(sim: SimState, viewer: number, fog: Uint8Array | null, put: P
   for (const a of sim.agents) {
     const revealed = a.player === viewer || (a.victim === viewer && (a.exposedTicks > 0 || watchtowerSees(sim, viewer, a.tile)));
     if (revealed && a.phase !== "travel") {
+      const pl = sim.players.find((p) => p.id === a.player);
+      const arch: Archetype = (pl?.archetype as Archetype) ?? "dawn";
+      const bmp = AGENT_SPRITES[arch] ?? UNIT_SPRITES.agent;
+      const col = AGENT_COLORS[arch] ?? hexToRgb("#33354d");
       const [x, y] = tilePx(a.tile);
-      sprite(x + 4, y + 4, UNIT_SPRITES.agent, hexToRgb("#33354d"));
+      sprite(x + 4, y + 4, bmp, col);
     }
   }
 }

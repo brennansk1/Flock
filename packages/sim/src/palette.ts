@@ -94,21 +94,30 @@ export type Archetype = "dawn" | "radiant" | "circle" | "visitors";
 export function territoryPixel(base: RGB, archetype: Archetype, px: number, py: number): RGB {
   switch (archetype) {
     case "dawn": {
-      // radiating-crack: diagonal fracture lines
-      return (px + py) % 7 === 0 ? shade(base, 0.72) : base;
+      // Radiating-crack: molten crimson ember veins + sulfur sparks
+      if ((px + py) % 7 === 0 || (px - py + 14) % 7 === 0) return hexToRgb("#b82e1f");
+      if ((px * 3 + py * 5) % 19 === 0) return hexToRgb("#f3c334");
+      return shade(base, 0.68);
     }
     case "radiant": {
-      // gradient-bloom: soft 8px vertical breathing
+      // Watercolor bloom: soft vertical breathing with lavender & sage botanical speckles
+      if ((px * 11 + py * 7) % 17 === 0) return hexToRgb("#9678b6");
+      if ((px * 5 + py * 13) % 19 === 0) return hexToRgb("#7aa364");
       const t = (py % 8) / 8;
-      return shade(base, 0.9 + 0.18 * t);
+      return shade(base, 0.92 + 0.16 * t);
     }
     case "circle": {
-      // pinstripe: crisp vertical stripes every 4px
-      return px % 4 === 0 ? shade(base, 0.78) : base;
+      // Executive pinstripe: crisp metallic gold pinlines on midnight ground
+      if (px % 4 === 0) return hexToRgb("#c5a059");
+      if (px % 4 === 1) return shade(base, 0.72);
+      return base;
     }
     case "visitors": {
-      // starfield: sparse bright pixels
-      return pixHash(px, py) % 23 === 0 ? shade(base, 1.45) : shade(base, 0.92);
+      // Cosmic starfield: glowing cyan & violet nebula stars on deep space field
+      const h = pixHash(px, py);
+      if (h % 19 === 0) return hexToRgb("#00f0ff");
+      if (h % 13 === 0) return hexToRgb("#a78bfa");
+      return shade(base, 0.88);
     }
   }
 }

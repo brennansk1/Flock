@@ -40,7 +40,7 @@ export interface RawBalance {
   heat: { decay: number; cpa_harass: number; cpa_siege: number };
   schism: { territory_share: number; avg_dissent: number; sustain_s: number; secede_share: number };
   scandal: { evidence_per_s: number; notify_at: number; dmg_heat_coef: number; dmg_min: number; dmg_max: number };
-  archetypes: Record<"dawn" | "radiant" | "circle" | "visitors", { r0: number; retain: number; income: number; heat: number }>;
+  archetypes: Record<"dawn" | "radiant" | "circle" | "visitors", { r0: number; retain: number; income: number; heat: number; growth?: number }>;
   victory: {
     domination_pct: Record<"S" | "M" | "L", number>;
     economic_usd: Record<"S" | "M" | "L", number>;
@@ -72,6 +72,7 @@ export interface ArchetypeCoeffs {
   retain: Fixed;
   income: Fixed;
   heat: Fixed;
+  growth: Fixed;
 }
 
 /** Sim-facing balance with Fixed scalars and a few pre-derived per-tick rates. */
@@ -133,6 +134,7 @@ export function loadBalance(raw: RawBalance): Balance {
     retain: fromFloat(raw.archetypes[k].retain),
     income: fromFloat(raw.archetypes[k].income),
     heat: fromFloat(raw.archetypes[k].heat),
+    growth: fromFloat(raw.archetypes[k].growth ?? 1.0),
   });
   return {
     tickMs: raw.sim.tick_ms,

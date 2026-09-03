@@ -77,6 +77,13 @@
     .tab-content { display: none; }
     .tab-content.active { display: block; }
 
+    @media print {
+      body { padding: 12px; background: #0f1215 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      .nav-tabs, #assetSearch, .cat-filter { display: none !important; }
+      .tab-content { display: block !important; page-break-after: always; margin-bottom: 40px; }
+      .benchmark-card, .asset-card { break-inside: avoid; page-break-inside: avoid; margin-bottom: 20px; }
+    }
+
     .grid-benchmarks {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(640px, 1fr));

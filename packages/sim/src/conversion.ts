@@ -38,7 +38,14 @@ import {
 } from "./types.js";
 import { areAllied, commitBetrayal, grudgeMult } from "./diplomacy.js";
 import { fortMultAt, compoundDefenseAt, destroyBuildingsOnTile } from "./buildings.js";
-import { computeCivicControl, controlsCivic } from "./civics.js";
+import {
+  computeCivicControl,
+  controlsCivic,
+  isCurfewActive,
+  isParentTeacherNightActive,
+  isFoodRationingActive,
+  computeMonopolies,
+} from "./civics.js";
 import {
   r0Mult,
   creepMult,
@@ -347,6 +354,11 @@ export function resolveConversion(s: SimState, b: Balance): void {
       const dc = w.districtCoeffs[w.district[t]!] ?? { conv: ONE, retain: ONE, income: ONE };
       const owner = w.owner[t]!;
 
+      // Town Curfew active decree: if active in this district by any rival, attacker front is frozen!
+      if (isCurfewActive(s, w.district[t]!, p.id)) {
+        continue;
+      }
+
       // pressure numerator
       let pr = mul(b.conversion.basePressure, mul(co.r0, r0Mult(p))); // T1 (§10)
       pr = mul(pr, wk.stanceMult);
@@ -381,6 +393,8 @@ export function resolveConversion(s: SimState, b: Balance): void {
           res = mul(res, homeDefenseMult(defender)); // B2 Uniforms (§10)
           // Grocery takeover: control the food, keep the flock (§13 rev.)
           if (controlsCivic(civics, Lot.Supermarket, defender.id)) res = mul(res, b.civics.groceryDefenseMult);
+          // Food Rationing active decree: +35% retention defense in supermarket district!
+          if (isFoodRationingActive(s, w.district[t]!, defender.id)) res = mul(res, fp(1.35));
           res = mul(res, glowMult(s, defender, t)); // Radiant Glow (§11.2)
           res = mul(res, stanceDefenseMult(b, defender)); // Tend +20% / Crusade −25% (§5)
           if (defender.judasTicks > 0) res = mul(res, fp(0.5)); // JUDAS shock (§16)
@@ -409,6 +423,8 @@ export function resolveConversion(s: SimState, b: Balance): void {
     let cm = creepMult(p); // T2 Whisper Network +60% (§10)
     // Elementary-school takeover: the kids carry the word home (§13 rev.)
     if (controlsCivic(civics, Lot.School, owner)) cm = mul(cm, b.civics.schoolCreepMult);
+    // Parent-Teacher Night active decree: 2x ambient creep in school district!
+    if (isParentTeacherNightActive(s, w.district[t]!, owner)) cm = mul(cm, fromInt(2));
     const creepTo = (n: TileId, roadBonus: boolean): void => {
       if (w.owner[n] !== NEUTRAL || !convertible(w, n)) return;
       const dc = w.districtCoeffs[w.district[n]!] ?? { conv: ONE, retain: ONE, income: ONE };
@@ -482,6 +498,10 @@ export function resolveConversion(s: SimState, b: Balance): void {
       }
     }
     p.followers = add(p.followers, residents);
+    // Indoctrination Pipeline monopoly: +25 bonus followers per neutral flip!
+    if (prevOwner === NEUTRAL && computeMonopolies(s, winner).indoctrinationPipeline) {
+      p.followers = add(p.followers, fromInt(25));
+    }
     w.owner[t] = winner;
     w.state[t] = TileState.Believer;
     w.holdTicks[t] = 0; // Glow resets on flip (§11.2)

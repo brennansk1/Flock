@@ -430,6 +430,27 @@ export type ProgressMap = Map<number, Fixed>;
 /** Key stride for ProgressMap. Player ids must stay below this. */
 export const PROGRESS_STRIDE = 1024;
 
+/** Active municipal civic decrees. */
+export const CivicDecreeId = {
+  TownCurfew: "town_curfew",
+  PepRally: "pep_rally",
+  ParentTeacherNight: "parent_teacher_night",
+  FoodRationing: "food_rationing",
+  EvangelicalRevival: "evangelical_revival",
+  MunicipalInjunction: "municipal_injunction",
+  EmergencyJam: "emergency_jam",
+} as const;
+export type CivicDecreeId = (typeof CivicDecreeId)[keyof typeof CivicDecreeId];
+
+/** An active municipal decree running with remaining duration ticks. */
+export interface ActiveDecree {
+  id: number;
+  player: PlayerId;
+  decree: CivicDecreeId;
+  district: DistrictId;
+  ticksLeft: number;
+}
+
 /** The complete, serializable simulation state. Hashing this == StateHash (§33). */
 export interface SimState {
   tick: number;
@@ -454,6 +475,7 @@ export interface SimState {
   districtBuffs: DistrictBuff[];
   auras: Aura[];
   prophecies: Prophecy[];
+  activeDecrees: ActiveDecree[];
 
   // ---- M1 systems ----
   /** Revelation mode: economic + (future) doctrinal victory paths active (§18). */

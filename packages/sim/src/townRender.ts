@@ -910,9 +910,10 @@ function drawTile(
               }
             }
           }
-          // 4-LANE HIGHWAY: yellow center seam + dashed white lane lines
+          // 4-LANE HIGHWAY: yellow center seam + dashed white lane lines + outer white fog lines
           if (highwayTopLane && py === TILE_PX - 1 && gx % 6 < 3) c = C.highwayLine;
           if (highway && py === 3 && gx % 8 < 3) c = C.asphaltDash; // lane line
+          if (highway && (py === 0 || py === TILE_PX - 1) && !fronted) c = hexToRgb("#e8e8e8"); // white right-hand shoulder fog line
           // 2-LANE STREETS: faint center dashes along the travel axis
           if (!highway) {
             const horiz2 = roadE && roadW && !roadN && !roadS;
@@ -960,27 +961,127 @@ function drawTile(
       // client sees the same cars. Highways carry more; two directions ride
       // the two sides of the roadway.
       {
-        const carC = [hexToRgb("#7088b0"), hexToRgb("#b06a60"), hexToRgb("#d8d2c4"), hexToRgb("#5a7340")];
+        const darkCarC = [
+          hexToRgb("#1e293b"), // Dark Navy Slate
+          hexToRgb("#8b0000"), // Deep Crimson Red
+          hexToRgb("#1a472a"), // Dark Forest Hunter Green
+          hexToRgb("#3b2b20"), // Chocolate Maroon
+          hexToRgb("#2d2d3a"), // Midnight Charcoal
+        ];
+        const headlight = hexToRgb("#ffffaa");
+        const taillight = hexToRgb("#ff2222");
+        const windshield = hexToRgb("#7fc4e8");
+        const trailerBox = hexToRgb("#e2e8f0");
         const tick2 = frameTick >> 1;
-        const drawCar = (cx2: number, cy2: number, horiz2: boolean, col: RGB): void => {
-          put(cx2, cy2, col);
-          put(horiz2 ? cx2 + 1 : cx2, horiz2 ? cy2 : cy2 + 1, shade(col, 0.8));
+
+        const drawVehicleE = (cx2: number, cy2: number, col: RGB, type: number): void => {
+          if (type === 0) {
+            // Compact Sedan (4px)
+            put(cx2, cy2, taillight);
+            put(cx2 + 1, cy2, col);
+            put(cx2 + 2, cy2, windshield);
+            put(cx2 + 3, cy2, headlight);
+          } else if (type === 1) {
+            // Long SUV / Pickup Truck (5px)
+            put(cx2, cy2, taillight);
+            put(cx2 + 1, cy2, col);
+            put(cx2 + 2, cy2, col);
+            put(cx2 + 3, cy2, windshield);
+            put(cx2 + 4, cy2, headlight);
+          } else {
+            // Semi Truck / Delivery Trailer (7px)
+            put(cx2, cy2, taillight);
+            put(cx2 + 1, cy2, trailerBox);
+            put(cx2 + 2, cy2, trailerBox);
+            put(cx2 + 3, cy2, trailerBox);
+            put(cx2 + 4, cy2, col);
+            put(cx2 + 5, cy2, windshield);
+            put(cx2 + 6, cy2, headlight);
+          }
         };
+
+        const drawVehicleW = (cx2: number, cy2: number, col: RGB, type: number): void => {
+          if (type === 0) {
+            // Compact Sedan (4px)
+            put(cx2, cy2, headlight);
+            put(cx2 + 1, cy2, windshield);
+            put(cx2 + 2, cy2, col);
+            put(cx2 + 3, cy2, taillight);
+          } else if (type === 1) {
+            // Long SUV / Pickup Truck (5px)
+            put(cx2, cy2, headlight);
+            put(cx2 + 1, cy2, windshield);
+            put(cx2 + 2, cy2, col);
+            put(cx2 + 3, cy2, col);
+            put(cx2 + 4, cy2, taillight);
+          } else {
+            // Semi Truck / Delivery Trailer (7px)
+            put(cx2, cy2, headlight);
+            put(cx2 + 1, cy2, windshield);
+            put(cx2 + 2, cy2, col);
+            put(cx2 + 3, cy2, trailerBox);
+            put(cx2 + 4, cy2, trailerBox);
+            put(cx2 + 5, cy2, trailerBox);
+            put(cx2 + 6, cy2, taillight);
+          }
+        };
+
+        const drawVehicleS = (cx2: number, cy2: number, col: RGB, type: number): void => {
+          const len = type === 2 ? 5 : type === 1 ? 4 : 3;
+          put(cx2, cy2, windshield);
+          for (let i = 1; i <= len; i++) put(cx2, cy2 + i, col);
+          put(cx2, cy2 + len + 1, headlight);
+        };
+
         const spacing = highway ? 22 : 44;
         if (roadE || roadW) {
           // eastbound on the lower half, westbound on the upper
           const posE = (tx * TILE_PX + tick2) % (spacing * TILE_PX);
-          if (posE < TILE_PX && pixHash(ty, 1, 83) % 3 !== 0) {
-            drawCar(x0 + posE, y0 + 5, true, carC[pixHash(ty, posE >> 3, 84) % 4]!);
+          if (posE < TILE_PX - 3 && pixHash(ty, 1, 83) % 3 !== 0) {
+            const colIdx = pixHash(ty, posE >> 3, 84) % darkCarC.length;
+            const vType = pixHash(ty, posE >> 3, 91) % 3;
+            drawVehicleE(x0 + posE, y0 + 5, darkCarC[colIdx]!, vType);
           }
           const posW = (tx * TILE_PX - tick2 + spacing * TILE_PX * 8) % (spacing * TILE_PX);
-          if (posW < TILE_PX && pixHash(ty, 2, 83) % 3 === 0) {
-            drawCar(x0 + posW, y0 + 2, true, carC[pixHash(ty, posW >> 3, 85) % 4]!);
+          if (posW < TILE_PX - 3 && pixHash(ty, 2, 83) % 3 === 0) {
+            const colIdx = pixHash(ty, posW >> 3, 85) % darkCarC.length;
+            const vType = pixHash(ty, posW >> 3, 92) % 3;
+            drawVehicleW(x0 + posW, y0 + 2, darkCarC[colIdx]!, vType);
           }
         } else if (roadN || roadS) {
           const posS = (ty * TILE_PX + tick2) % (spacing * TILE_PX);
-          if (posS < TILE_PX && pixHash(tx, 3, 83) % 3 === 0) {
-            drawCar(x0 + 5, y0 + posS, false, carC[pixHash(tx, posS >> 3, 86) % 4]!);
+          if (posS < TILE_PX - 3 && pixHash(tx, 3, 83) % 3 === 0) {
+            const colIdx = pixHash(tx, posS >> 3, 86) % darkCarC.length;
+            const vType = pixHash(tx, posS >> 3, 93) % 3;
+            drawVehicleS(x0 + 5, y0 + posS, darkCarC[colIdx]!, vType);
+          }
+        }
+
+        // OVERHEAD POWER LINE CROSSING: horizontal power lines go OVER the road outside town
+        const vergeNorth = ty > 0 && w.terrain[(ty - 1) * w.width + tx] !== Terrain.Road;
+        const vergeRoadH = ty > 0 && (roadAt((ty - 1) * w.width + tx - 1) || roadAt((ty - 1) * w.width + tx + 1));
+        
+        let isRuralCross = true;
+        for (let dy = -3; dy <= 3; dy++) {
+          for (let dx = -3; dx <= 3; dx++) {
+            const nx = tx + dx;
+            const ny = ty + dy;
+            if (nx >= 0 && ny >= 0 && nx < w.width && ny < w.height) {
+              if (Number(w.terrain[ny * w.width + nx]) === Terrain.Citizen) {
+                isRuralCross = false;
+                break;
+              }
+            }
+          }
+          if (!isRuralCross) break;
+        }
+
+        if (vergeNorth && vergeRoadH && isRuralCross) {
+          const wireColor = hexToRgb("#64748b");
+          const polePhase = tx % 4;
+          const dip = polePhase === 2 ? 1 : 0;
+          for (let px = 0; px < TILE_PX; px++) {
+            put(x0 + px, y0 + 2 + dip, wireColor);
           }
         }
       }
@@ -1447,49 +1548,131 @@ function drawTile(
           }
         }
       }
-      // utility poles marching along a rural road: a grass verge beside a road
-      // gets a telephone pole every few tiles, lining up like real power lines.
+      // Utility poles marching along rural roadsides:
+      // Spaced every 4 tiles (32px), featuring wooden T-poles, white ceramic insulators,
+      // and continuous soft silver-grey overhead power cables.
+      // TERMINAL & SPACING GUARANTEE: Even 4-tile spacing relative to run start, zero orphan poles.
       {
-        const roadN = ty > 0 && w.terrain[t - w.width] === Terrain.Road;
-        const roadS = ty < w.height - 1 && w.terrain[t + w.width] === Terrain.Road;
-        const roadE = tx < w.width - 1 && w.terrain[t + 1] === Terrain.Road;
-        const roadW = tx > 0 && w.terrain[t - 1] === Terrain.Road;
-        // utility lines belong on the RURAL side of town: one verge line,
-        // north of east-west roads / west of north-south roads, and only
-        // where no lots front the street (keeps town streets uncluttered)
-        let ruralVerge = true;
-        for (const n of [t - 1, t + 1, t - w.width, t + w.width]) {
-          if (n >= 0 && n < w.terrain.length && w.terrain[n] === Terrain.Citizen) ruralVerge = false;
-        }
-        const runH = roadS && ruralVerge && (roadW || roadE); // pole line north of the road
-        const runV = roadE && !roadS && ruralVerge && (roadN || roadS); // west of the road
-        if (runH || runV) {
-          const pole = runH ? tx % 2 === 0 : ty % 2 === 0;
-          // the WIRE sags in a U between poles: attached high at the
-          // crossarm, dipping a pixel (or two mid-span) between them
-          if (runH) {
-            for (let px = 0; px < TILE_PX; px++) {
-              const dip = pole
-                ? px >= 3 && px <= 5
-                  ? 0 // at the crossarm
-                  : 1
-                : px >= 3 && px <= 4
-                  ? 2 // deepest mid-span
-                  : 1;
-              put(x0 + px, y0 + 2 + dip, C.wire);
-            }
-          } else {
-            for (let py = 0; py < TILE_PX; py++) {
-              const dip = pole ? (py >= 3 && py <= 5 ? 0 : 1) : py >= 3 && py <= 4 ? 2 : 1;
-              put(x0 + 4 + dip - 1, y0 + py, C.wire);
+        const isRoad = (x: number, y: number): boolean =>
+          x >= 0 && y >= 0 && x < w.width && y < w.height && w.terrain[y * w.width + x] === Terrain.Road;
+
+        // A horizontal verge runs north of an east-west road
+        const isRoadS = isRoad(tx, ty + 1);
+        const hasRoadW = isRoad(tx - 1, ty + 1);
+        const hasRoadE = isRoad(tx + 1, ty + 1);
+
+        // A vertical verge runs west of a north-south road
+        const isRoadE = isRoad(tx + 1, ty);
+        const hasRoadN = isRoad(tx + 1, ty - 1);
+        const hasRoadS_V = isRoad(tx + 1, ty + 1);
+
+        // Check if tile is in a rural area OUTSIDE of town (no citizen lots within 3 tiles)
+        let isRuralArea = true;
+        for (let dy = -3; dy <= 3; dy++) {
+          for (let dx = -3; dx <= 3; dx++) {
+            const nx = tx + dx;
+            const ny = ty + dy;
+            if (nx >= 0 && ny >= 0 && nx < w.width && ny < w.height) {
+              if (Number(w.terrain[ny * w.width + nx]) === Terrain.Citizen) {
+                isRuralArea = false;
+                break;
+              }
             }
           }
-          if (pole) {
-            const cxp = x0 + 4;
-            for (let py = 1; py <= 6; py++) put(cxp, y0 + py, C.trunk); // pole
-            put(cxp - 1, y0 + 2, C.trunk); // crossarm
-            put(cxp + 1, y0 + 2, C.trunk);
-            put(cxp + 2, y0 + 7, C.shadow); // foot shadow
+          if (!isRuralArea) break;
+        }
+
+        const runH = isRoadS && (hasRoadW || hasRoadE) && isRuralArea;
+        const runV = isRoadE && (hasRoadN || hasRoadS_V) && !isRoadS && isRuralArea;
+
+        if (runH || runV) {
+          const wireColor = hexToRgb("#64748b"); // subtle silver-grey overhead cable
+          const poleWood = hexToRgb("#7e6244");  // treated wooden utility pole
+          const insulator = hexToRgb("#ffffff"); // white ceramic insulator cap
+          const spacing: number = 4;
+
+          if (runH) {
+            const isStartWest = !hasRoadW;
+            const isEndEast = !hasRoadE;
+
+            // Measure tile distance from start of horizontal verge run for even 4-tile pole spacing
+            let distFromStart = 0;
+            let checkX = tx - 1;
+            while (
+              checkX >= 0 &&
+              isRoad(checkX, ty + 1) &&
+              Number(w.terrain[ty * w.width + checkX]) !== Terrain.Citizen
+            ) {
+              distFromStart++;
+              checkX--;
+            }
+
+            // Pole placement: at start of run (dist 0), every 4 tiles after (dist % 4 === 0),
+            // or at end of run if at least 2 tiles from previous pole
+            const isPoleTile = (distFromStart % spacing === 0) || (isEndEast && distFromStart % spacing >= 2);
+            const dip = (distFromStart % spacing === 2 && !isStartWest && !isEndEast) ? 1 : 0; // 1px sag at mid-span
+
+            // Continuous overhead cable line bounded by terminal poles
+            const pxStart = isStartWest ? 4 : 0;
+            const pxEnd = isEndEast ? 4 : TILE_PX - 1;
+
+            if (pxEnd >= pxStart) {
+              for (let px = pxStart; px <= pxEnd; px++) {
+                put(x0 + px, y0 + 2 + dip, wireColor);
+              }
+            }
+
+            // Utility pole ONLY spawns when connected to wires (no orphan poles)
+            if (isPoleTile && pxEnd >= pxStart) {
+              const cxp = x0 + 4;
+              for (let py = 2; py <= 6; py++) put(cxp, y0 + py, poleWood); // main pole
+              put(cxp - 2, y0 + 2, poleWood); // crossarm
+              put(cxp - 1, y0 + 2, poleWood);
+              put(cxp + 1, y0 + 2, poleWood);
+              put(cxp + 2, y0 + 2, poleWood);
+              put(cxp - 2, y0 + 1, insulator); // insulators on crossarm tips
+              put(cxp + 2, y0 + 1, insulator);
+              put(cxp + 1, y0 + 7, C.shadow); // ground shadow
+            }
+          } else if (runV) {
+            const isStartNorth = !hasRoadN;
+            const isEndSouth = !hasRoadS_V;
+
+            // Measure tile distance from start of vertical verge run
+            let distFromStart = 0;
+            let checkY = ty - 1;
+            while (
+              checkY >= 0 &&
+              isRoad(tx + 1, checkY) &&
+              !isRoad(tx, checkY) &&
+              Number(w.terrain[checkY * w.width + tx]) !== Terrain.Citizen
+            ) {
+              distFromStart++;
+              checkY--;
+            }
+
+            const isPoleTile = (distFromStart % spacing === 0) || (isEndSouth && distFromStart % spacing >= 2);
+
+            // Continuous vertical overhead cable bounded by terminal poles
+            const pyStart = isStartNorth ? 4 : 0;
+            const pyEnd = isEndSouth ? 4 : TILE_PX - 1;
+
+            if (pyEnd >= pyStart) {
+              for (let py = pyStart; py <= pyEnd; py++) {
+                put(x0 + 3, y0 + py, wireColor);
+              }
+            }
+
+            // Utility pole ONLY spawns when connected to wires (no orphan poles)
+            if (isPoleTile && pyEnd >= pyStart) {
+              const cxp = x0 + 3;
+              for (let py = 1; py <= 6; py++) put(cxp, y0 + py, poleWood); // main pole
+              put(cxp - 1, y0 + 1, poleWood);
+              put(cxp, y0 + 1, poleWood);
+              put(cxp + 1, y0 + 1, poleWood);
+              put(cxp, y0, insulator); // top insulator cap
+              put(cxp + 1, y0 + 7, C.shadow); // ground shadow
+            }
           }
         }
         // billboard pair on the highway approaches (§11): a rare verge tile
@@ -1525,13 +1708,13 @@ function drawTile(
       const roadW = tx > 0 && w.terrain[t - 1] === Terrain.Road;
       const roadS = ty < w.height - 1 && w.terrain[t + w.width] === Terrain.Road;
       const roadE = tx < w.width - 1 && w.terrain[t + 1] === Terrain.Road;
-      // CROP VARIETY: each parcel (coarse 6-tile cell) rolls its planting —
-      // corn gold, soy green, pale wheat, or fallow brown
-      const parcel = pixHash((tx / 6) | 0, (ty / 6) | 0, 97) % 4;
+      // CROP VARIETY (§10): 5 distinct crop varieties per parcel —
+      // Golden Wheat, Corn Rows, Canola Blossom, Rich Soybeans, or Dark Soil Furrows
+      const parcel = pixHash((tx / 6) | 0, (ty / 6) | 0, 97) % 5;
       let cropA =
-        parcel === 0 ? C.cropGold : parcel === 1 ? hexToRgb("#8aa54e") : parcel === 2 ? hexToRgb("#d8c88e") : hexToRgb("#a08458");
+        parcel === 0 ? hexToRgb("#d4b247") : parcel === 1 ? hexToRgb("#54802a") : parcel === 2 ? hexToRgb("#e6c832") : parcel === 3 ? hexToRgb("#4f8c2e") : hexToRgb("#6b523b");
       let cropB =
-        parcel === 0 ? C.cropRow : parcel === 1 ? hexToRgb("#71893c") : parcel === 2 ? hexToRgb("#c2b076") : hexToRgb("#8a7048");
+        parcel === 0 ? hexToRgb("#f0d675") : parcel === 1 ? hexToRgb("#e6c832") : parcel === 2 ? hexToRgb("#62a838") : parcel === 3 ? hexToRgb("#3a6921") : hexToRgb("#4e3b29");
 
       if (currentSeason === "spring") {
         cropA = hexToRgb("#5c4832"); // brown soil
@@ -1663,6 +1846,10 @@ function drawTile(
       const isCreek = (shoreW && shoreE) || (shoreN && shoreS);
       const deepC = isCreek ? hexToRgb("#3f6272") : C.waterDeep;
       const rippleC = isCreek ? hexToRgb("#4a7080") : C.waterRipple;
+      // ANIMATED WATER WAVE ENGINE: wave displacement and surf foam shift with frameTick
+      const waveShift = (frameTick >> 1) % 12;
+      const surfShift = (frameTick >> 2) % 4;
+
       for (let py = 0; py < TILE_PX; py++) {
         for (let px = 0; px < TILE_PX; px++) {
           const sand =
@@ -1681,17 +1868,31 @@ function drawTile(
           }
           const gx = tx * TILE_PX + px;
           const gy = ty * TILE_PX + py;
-          const ripple = (gy + (gx >> 2)) % 7 === 0;
-          const glint = pixHash(gx, gy, 31) % 41 === 0;
-          put(x0 + px, y0 + py, glint ? C.waterGlint : ripple ? rippleC : deepC);
+
+          // ANIMATED WAVE CRESTS & RIPPLES: flowing downstream/shoreward
+          const wavePhase = (gy + (gx >> 2) - waveShift + 1200) % 7;
+          const isWaveCrest = wavePhase === 0;
+          const isSubCrest = wavePhase === 3;
+
+          // ANIMATED COASTAL SURF FOAM: white wave breakers lapping shoreline
+          const nearShore = (shoreN && py === 1) || (shoreS && py === TILE_PX - 2) || (shoreW && px === 1) || (shoreE && px === TILE_PX - 2);
+          const isSurfFoam = nearShore && ((gx + gy + surfShift) % 3 === 0);
+
+          // DYNAMIC SUNLIGHT SPARKLE GLINTS
+          const glint = pixHash(gx, gy, 31 + ((frameTick >> 2) % 8)) % 37 === 0;
+
+          let c = glint ? C.waterGlint : isSurfFoam ? hexToRgb("#ffffff") : isWaveCrest ? C.waterGlint : isSubCrest ? rippleC : deepC;
+          put(x0 + px, y0 + py, c);
         }
       }
-      // shallows dressing: reeds along the shore, the odd rock breaking water
-      if ((shoreN || shoreS || shoreW || shoreE) && pixHash(t, 5, 37) % 4 === 0) {
+      // shallows dressing: riparian cattail reeds along the shore, gravel sandbars, or rocks
+      if ((shoreN || shoreS || shoreW || shoreE) && pixHash(t, 5, 37) % 3 === 0) {
         const rx2 = x0 + 2 + (pixHash(t, 6, 37) % 4);
         const ry2 = shoreN ? y0 + 1 : shoreS ? y0 + 6 : y0 + 2 + (pixHash(t, 7, 37) % 4);
-        put(rx2, ry2, C.bush); // reeds
-        put(rx2, ry2 + 1 > y0 + 7 ? y0 + 7 : ry2 + 1, shade(C.bush, 0.8));
+        const reedCol = hexToRgb("#4d6b38");
+        put(rx2, ry2, reedCol); // riparian reeds
+        put(rx2 + 1, ry2, hexToRgb("#705633")); // cattail head
+        put(rx2, ry2 + 1 > y0 + 7 ? y0 + 7 : ry2 + 1, shade(reedCol, 0.8));
       } else if (pixHash(t, 8, 37) % 23 === 0) {
         put(x0 + 3, y0 + 3, C.rock);
         put(x0 + 4, y0 + 3, C.rockShade);
@@ -1745,12 +1946,13 @@ function drawTile(
             const baseCol = colorRoll === 0 ? aRed : colorRoll === 1 ? aOrange : aGold;
             c = h % 3 === 0 ? baseCol : h % 3 === 1 ? shade(baseCol, 0.82) : shade(baseCol, 1.15);
           } else {
-            // clumpy canopy: cell-noise blobs of light/dark green + trunk gaps
-            const blob = pixHash(gx >> 2, gy >> 2, 77) % 5;
-            c = blob < 2 ? C.canopy : blob < 4 ? C.canopyDark : C.canopyLight;
+            // clumpy canopy (§10): cell-noise blobs of light/dark green + trunk gaps + pine highlights
+            const blob = pixHash(gx >> 2, gy >> 2, 77) % 6;
+            c = blob === 0 ? hexToRgb("#6bb352") : blob === 1 ? hexToRgb("#4e873a") : blob < 4 ? C.canopyDark : C.canopyLight;
           }
           
-          if (h % 23 === 0) c = C.trunk;
+          if (h % 23 === 0) c = hexToRgb("#523d2b"); // pine trunk detail
+          if (h % 59 === 0) c = hexToRgb("#82c468"); // dappled sunlit leaf canopy highlight
           // sunlit fringe on north/west edges
           if ((edgeN && py === 0) || (edgeW && px === 0)) {
             if (w.biome[t] === 3 /* Biome.Autumn */ && currentSeason === "fall") {
@@ -1805,6 +2007,15 @@ function drawTile(
             // mown lawn: alternating mowing stripes, the proper green
             c = ((gx >> 1) + (gy >> 1)) % 2 === 0 ? lawnBase : shade(lawnBase, 1.07);
             if (pixHash(gx, gy, 33) % 37 === 0) c = shade(lawnBase, 0.85); // clover
+            // BACKYARD FLOWERBEDS & GARDEN PATHS (§10): vibrant flower patches and stone stepping paths
+            if (pop >= 3) {
+              const flowerRoll = pixHash(gx, gy, 107) % 199;
+              if (flowerRoll === 0) c = hexToRgb("#e08b28"); // marigold orange
+              else if (flowerRoll === 1) c = hexToRgb("#b83b4e"); // rose red
+              else if (flowerRoll === 2) c = hexToRgb("#8d69b3"); // lavender violet
+              else if (flowerRoll === 3) c = hexToRgb("#f0e667"); // daffodil yellow
+              else if (pixHash(gx, gy, 113) % 117 === 0) c = hexToRgb("#9e998d"); // stone stepping path
+            }
           } else {
             // hard ground: concrete/pavers/gravel speckle
             c = pixHash(gx, gy, 33) % 9 === 0 ? shade(lawnBase, 0.92) : lawnBase;
@@ -1938,6 +2149,15 @@ function drawTile(
       for (let gy2 = 2; gy2 <= 5; gy2 += 2) {
         for (let gx2 = 2; gx2 <= 5; gx2++) put(x0 + gx2, y0 + gy2, gy2 === 2 ? C.bush : C.cropRow);
       }
+    } else if (roll === 6) {
+      // CLOTHESLINE (§10): wooden T-posts with drying white, blue, and red laundry items
+      put(x0 + 1, y0 + 3, hexToRgb("#7e6244")); // T-post W
+      put(x0 + 1, y0 + 2, hexToRgb("#7e6244"));
+      put(x0 + 5, y0 + 3, hexToRgb("#7e6244")); // T-post E
+      put(x0 + 5, y0 + 2, hexToRgb("#7e6244"));
+      put(x0 + 2, y0 + 2, hexToRgb("#f0f0f0")); // white shirt
+      put(x0 + 3, y0 + 2, hexToRgb("#3270b8")); // blue jeans
+      put(x0 + 4, y0 + 2, hexToRgb("#b83232")); // red towel
     } else {
       // flowers on the open ground
       for (let i = 0; i < 3; i++) {
@@ -2125,18 +2345,27 @@ function drawLotBuilding(
       put(x0 + 5, y0 + 3, C.windowDark); // chapel window
       put(x0 + 3, y0 + 5, C.door); // chapel entrance door
       break;
-    case Lot.Silo:
-      // cylinder: round the corners, dome cap
-      put(x0 + 2, y0, accent);
-      put(x0 + 3, y0, accent);
-      put(x0 + 4, y0, accent);
-      put(x0 + 5, y0, accent);
+    case Lot.Silo: {
+      // Grain Silo: silver domed roof cap + corrugated metal cylinder
+      const domeCap = hexToRgb("#d0d8dc");
+      const domeGlint = hexToRgb("#ffffff");
+      put(x0 + 3, y0, domeGlint);
+      put(x0 + 4, y0, domeCap);
+      put(x0 + 2, y0 + 1, domeCap);
+      put(x0 + 5, y0 + 1, domeCap);
       break;
-    case Lot.Barn:
+    }
+    case Lot.Barn: {
       put(x0 + 3, y0 + 3, accent); // the white X door
       put(x0 + 4, y0 + 4, accent);
       put(x0 + 4, y0 + 3, accent);
       put(x0 + 3, y0 + 4, accent);
+      // Hay bale stacks beside barn
+      const hayGold = hexToRgb("#e0c34a");
+      const hayShadow = hexToRgb("#b89c30");
+      put(x0 + 1, y0 + 5, hayGold);
+      put(x0 + 2, y0 + 5, hayGold);
+      put(x0 + 1, y0 + 6, hayShadow);
       // a tractor parked by the barn on some farmsteads (§9)
       if (pixHash(t, 17, 43) % 2 === 0) {
         const tractorC = pixHash(t, 18, 43) % 2 === 0 ? hexToRgb("#2f6e2f") : hexToRgb("#b03a2a");
@@ -2145,17 +2374,23 @@ function drawLotBuilding(
         put(x0 + 7, y0 + 6, C.iconDark); // rear wheel
       }
       break;
-    case Lot.GasStation:
-      // Gas station canopy, pumps, posts
+    }
+    case Lot.GasStation: {
+      // Gas station canopy, price sign, pumps, support posts, vacuum island
       for (let px = 1; px <= 6; px++) {
         put(x0 + px, y0 + 3, hexToRgb("#ffffff")); // white flat canopy roof
         put(x0 + px, y0 + 4, accent); // brand color stripe
       }
       put(x0 + 1, y0 + 5, hexToRgb("#8c8c8c")); // support posts
       put(x0 + 6, y0 + 5, hexToRgb("#8c8c8c"));
-      put(x0 + 3, y0 + 5, hexToRgb("#cc3333")); // gas pumps
-      put(x0 + 4, y0 + 5, hexToRgb("#3f7fbf"));
+      put(x0 + 3, y0 + 5, hexToRgb("#e83a3a")); // red gas pump
+      put(x0 + 4, y0 + 5, hexToRgb("#3a7be8")); // blue gas pump
+      put(x0 + 6, y0 + 6, hexToRgb("#3270b8")); // blue air/vacuum island
+      // Roadside price sign board on corner
+      put(x0 + 1, y0 + 1, hexToRgb("#ffee44")); // yellow sign face
+      put(x0 + 1, y0 + 2, hexToRgb("#8c8c8c")); // sign post
       break;
+    }
     case Lot.School:
       if (!sameLeft && !sameUp) {
         put(x0 + 1, y0, accent); // flagpole on the corner tile
@@ -2177,26 +2412,58 @@ function drawLotBuilding(
         put(x0 + 6, y0 + 5, shade(bus, 0.8)); // cab end
       }
       break;
-    case Lot.Diner:
-      // Retro Diner: chrome panel walls, neon strip, large glass storefront
+    case Lot.Shop: {
+      // Main Street retail shop with striped canvas awning
+      put(x0 + 3, y0 + 5, C.door);
+      put(x0 + 2, y0 + 4, hexToRgb("#87ceeb")); // display window
+      put(x0 + 4, y0 + 4, hexToRgb("#87ceeb"));
+      // Striped red & white canvas storefront awning
+      const awnA = hexToRgb("#b83232");
+      const awnB = hexToRgb("#f0f0f0");
+      for (let px = 1; px <= 6; px++) {
+        put(x0 + px, y0 + 3, px % 2 === 0 ? awnA : awnB);
+      }
+      break;
+    }
+    case Lot.Diner: {
+      const chrome = hexToRgb("#dbe2e6");
+      const chromeDark = hexToRgb("#9ba3a8");
+      const neonRed = hexToRgb("#e83a3a");
+      const neonCyan = hexToRgb("#3acfe8");
       for (let py = 3; py <= 5; py++) {
         for (let px = 1; px <= 6; px++) {
-          put(x0 + px, y0 + py, hexToRgb("#cbd2d6")); // shiny chrome siding
+          put(x0 + px, y0 + py, px % 2 === 0 ? chrome : chromeDark); // shiny chrome siding
         }
       }
-      for (let px = 0; px < TILE_PX; px++) put(x0 + px, y0 + 2, hexToRgb("#d23b3b")); // red neon strip
-      put(x0 + 2, y0 + 4, hexToRgb("#3f7fbf")); // big windows
-      put(x0 + 5, y0 + 4, hexToRgb("#3f7fbf"));
+      for (let px = 0; px < TILE_PX; px++) put(x0 + px, y0 + 2, neonRed); // red neon roof overhang
+      put(x0 + 1, y0 + 1, neonCyan);
+      put(x0 + 6, y0 + 1, neonCyan);
+      put(x0 + 2, y0 + 4, hexToRgb("#5ab0e8")); // big glass window glint
+      put(x0 + 5, y0 + 4, hexToRgb("#5ab0e8"));
       put(x0 + 3, y0 + 5, C.door);
+      // Striped blue & white entrance awning
+      const awnA = hexToRgb("#2b5bb8");
+      const awnB = hexToRgb("#f0f0f0");
+      put(x0 + 2, y0 + 3, awnA);
+      put(x0 + 3, y0 + 3, awnB);
+      put(x0 + 4, y0 + 3, awnA);
       break;
-    case Lot.Supermarket:
+    }
+    case Lot.Supermarket: {
       if (!sameLeft) {
         put(x0 + 2, y0 + 1, accent);
         put(x0 + 3, y0 + 1, accent);
       }
       put(x0 + 3, y0 + 5, C.windowDark);
       put(x0 + 4, y0 + 5, C.windowDark);
+      // Striped green & white storefront awning
+      const awnA = hexToRgb("#2b8c42");
+      const awnB = hexToRgb("#f0f0f0");
+      for (let px = 2; px <= 5; px++) {
+        put(x0 + px, y0 + 4, px % 2 === 0 ? awnA : awnB);
+      }
       break;
+    }
     case Lot.Library:
       // Classical Library: triangular pediment top, white columns, stairs
       put(x0 + 3, y0 + 1, accent); // triangular pediment top
@@ -2210,9 +2477,18 @@ function drawLotBuilding(
       put(x0 + 3, y0 + 5, hexToRgb("#968e7c")); // grand entrance steps
       put(x0 + 4, y0 + 5, hexToRgb("#968e7c"));
       break;
-    case Lot.Sheriff:
-      put(x0 + 3, y0 + 1, accent); // the star
+    case Lot.Sheriff: {
+      const goldStar = hexToRgb("#ffd700");
+      const policeBlue = hexToRgb("#3070ff");
+      put(x0 + 3, y0, policeBlue); // flashing police beacon
+      put(x0 + 3, y0 + 1, goldStar); // Sheriff gold star badge emblem
+      put(x0 + 4, y0 + 1, goldStar);
+      put(x0 + 2, y0 + 1, goldStar);
+      put(x0 + 3, y0 + 4, C.windowDark);
+      put(x0 + 5, y0 + 4, C.windowDark);
+      put(x0 + 4, y0 + 5, C.door);
       break;
+    }
     case Lot.Church:
       // steeple with a cross on the top (north) tile, arched window below
       if (!sameUp) {
@@ -2246,21 +2522,35 @@ function drawLotBuilding(
       put(x0 + 4, y0 + 3, accent);
       put(x0 + 2, y0 + 4, accent);
       put(x0 + 4, y0 + 4, accent);
+      // Entrance awning
+      put(x0 + 3, y0 + 3, hexToRgb("#2b5bb8"));
       break;
-    case Lot.PostOffice:
-      put(x0 + 2, y0 + 1, accent); // flag/sign stripe
-      put(x0 + 3, y0 + 1, accent);
-      put(x0 + 4, y0 + 5, C.windowDark);
+    case Lot.PostOffice: {
+      const uspsBlue = hexToRgb("#2255cc");
+      const uspsRed = hexToRgb("#e23b3b");
+      put(x0 + 2, y0 + 1, uspsRed); // red & blue stripe header
+      put(x0 + 3, y0 + 1, uspsBlue);
+      put(x0 + 4, y0 + 1, uspsRed);
+      put(x0 + 5, y0 + 1, uspsBlue);
+      put(x0 + 2, y0 + 4, C.windowDark);
+      put(x0 + 4, y0 + 4, C.windowDark);
+      put(x0 + 3, y0 + 5, C.door);
+      put(x0 + 1, y0 + 6, uspsBlue); // blue drop collection box
       break;
-    case Lot.FireStation:
-      // big garage bays
-      if (!sameLeft) {
-        put(x0 + 2, y0 + 4, accent);
-        put(x0 + 2, y0 + 5, accent);
-        put(x0 + 4, y0 + 4, accent);
-        put(x0 + 4, y0 + 5, accent);
-      }
+    }
+    case Lot.FireStation: {
+      const bayRed = hexToRgb("#b83232");
+      const bayDark = hexToRgb("#6e1f1f");
+      const cautionYellow = hexToRgb("#ffcc00");
+      put(x0 + 3, y0 + 1, bayRed); // red siren roof dome
+      for (let px = 1; px <= 6; px++) put(x0 + px, y0 + 3, cautionYellow); // yellow caution stripe
+      // Twin Fire Engine Bay Doors
+      put(x0 + 2, y0 + 4, bayRed);
+      put(x0 + 2, y0 + 5, bayDark);
+      put(x0 + 5, y0 + 4, bayRed);
+      put(x0 + 5, y0 + 5, bayDark);
       break;
+    }
     case Lot.Factory:
       // smokestacks + sawtooth roof
       if (!sameUp && !sameLeft) {
@@ -2268,7 +2558,7 @@ function drawLotBuilding(
         put(x0 + 1, y0 + 1, accent);
       }
       put(x0 + 2, y0 + 2, accent);
-      put(x0 + 4, y0 + 2, accent);
+      put(x0 + 5, y0 + 2, accent);
       break;
     case Lot.Motel:
       // row of unit doors under a long eave
@@ -2291,23 +2581,27 @@ function drawLotBuilding(
         }
       }
       break;
-    case Lot.Cinema:
-      // the marquee: a lit strip over the entrance with a star bill
+    case Lot.Cinema: {
+      const bulbGold = hexToRgb("#ffee77");
+      const neonRed = hexToRgb("#e83a3a");
       if (!sameLeft) {
-        put(x0 + 1, y0 + 2, accent);
+        for (let px = 1; px <= 5; px++) put(x0 + px, y0 + 1, neonRed);
+        put(x0 + 1, y0 + 2, bulbGold);
         put(x0 + 2, y0 + 2, accent);
-        put(x0 + 3, y0 + 2, accent);
+        put(x0 + 3, y0 + 2, bulbGold);
         put(x0 + 4, y0 + 2, accent);
-        put(x0 + 5, y0 + 2, accent);
+        put(x0 + 5, y0 + 2, bulbGold);
         put(x0 + 2, y0 + 3, C.crosswalk); // the poster bill
+        put(x0 + 4, y0 + 3, bulbGold);
         put(x0 + 3, y0 + 5, C.door);
         put(x0 + 4, y0 + 5, C.door);
       } else {
-        put(x0 + 2, y0 + 2, accent);
-        put(x0 + 4, y0 + 2, accent);
+        put(x0 + 2, y0 + 2, bulbGold);
+        put(x0 + 4, y0 + 2, bulbGold);
         put(x0 + 3, y0 + 4, C.windowDark);
       }
       break;
+    }
     case Lot.HighSchool:
       // brick block with a gym wing stripe + the school sign
       if (!sameLeft && !sameUp) {
@@ -2348,9 +2642,16 @@ function drawLotBuilding(
         }
         // Red warning beacon on top of headhouse
         put(x0 + 3, y0 - 1 < 0 ? 0 : y0 - 1, redLight);
-        // Grain loading spout chute
+        // Grain loading spout chute & overhead conveyor steel truss
         put(x0 + 5, y0 + 2, darkSteel);
         put(x0 + 6, y0 + 3, darkSteel);
+        put(x0 + 7, y0 + 3, lightSteel);
+        // Red railroad grain boxcar parked on siding
+        const boxcarRed = hexToRgb("#96382b");
+        const boxcarRoof = hexToRgb("#70251c");
+        put(x0 + 1, y0 + 7, boxcarRoof);
+        put(x0 + 2, y0 + 7, boxcarRed);
+        put(x0 + 3, y0 + 7, boxcarRed);
         // the OFFICE SHED (§7): a small scale-house at the elevator's foot
         put(x0 + 5, y0 + 5, hexToRgb("#9a8468"));
         put(x0 + 6, y0 + 5, hexToRgb("#9a8468"));
@@ -2566,6 +2867,85 @@ function drawLotBuilding(
       if (!sameRight) put(x0 + 6, y0 + 1, C.iconDark); // sawdust burner
       break;
     }
+    case Lot.Dock: {
+      // Wooden fishing dock: pier planking, mooring pilings, and tied boat slips
+      const wood = hexToRgb("#7e6244");
+      const piling = hexToRgb("#503a27");
+      const boatBlue = hexToRgb("#3270b8");
+      const boatWhite = hexToRgb("#f0f0f0");
+      for (let py = 1; py <= 6; py++) {
+        put(x0 + 3, y0 + py, wood);
+        put(x0 + 4, y0 + py, shade(wood, 0.88));
+      }
+      put(x0 + 2, y0 + 2, piling);
+      put(x0 + 5, y0 + 2, piling);
+      put(x0 + 2, y0 + 5, piling);
+      put(x0 + 5, y0 + 5, piling);
+      // Tied rowing boat
+      put(x0 + 1, y0 + 3, boatBlue);
+      put(x0 + 1, y0 + 4, boatWhite);
+      break;
+    }
+    case Lot.Cemetery: {
+      // Quiet cemetery: rows of granite tombstones, obelisk, and gravel walkways
+      const tombstone = hexToRgb("#9e9e9e");
+      const obelisk = hexToRgb("#c0c0c0");
+      const pathGravel = hexToRgb("#b0b5ba");
+      for (let px = 0; px < TILE_PX; px++) put(x0 + px, y0 + 3, pathGravel);
+      put(x0 + 1, y0 + 1, tombstone);
+      put(x0 + 3, y0 + 1, tombstone);
+      put(x0 + 5, y0 + 1, tombstone);
+      put(x0 + 2, y0 + 5, tombstone);
+      put(x0 + 4, y0 + 5, obelisk);
+      put(x0 + 6, y0 + 5, tombstone);
+      break;
+    }
+    case Lot.Playground: {
+      // Schoolyard playground: red/blue swingset, slide structure, sandbox
+      const redMetal = hexToRgb("#b83232");
+      const blueSlide = hexToRgb("#3270b8");
+      const sand = hexToRgb("#e8d2a0");
+      put(x0 + 1, y0 + 2, redMetal); // swingset frame
+      put(x0 + 2, y0 + 1, redMetal);
+      put(x0 + 3, y0 + 2, redMetal);
+      put(x0 + 5, y0 + 1, blueSlide); // slide top
+      put(x0 + 6, y0 + 3, blueSlide); // slide chute
+      for (let py = 4; py <= 6; py++)
+        for (let px = 2; px <= 5; px++) put(x0 + px, y0 + py, sand); // sandbox
+      break;
+    }
+    case Lot.BallField: {
+      // Baseball diamond: dirt infield, home plate & base chalk lines
+      const dirt = hexToRgb("#d0c0a0");
+      const chalk = hexToRgb("#f0f0f0");
+      for (let py = 2; py <= 5; py++)
+        for (let px = 2; px <= 5; px++) put(x0 + px, y0 + py, dirt);
+      put(x0 + 3, y0 + 5, chalk); // home plate
+      put(x0 + 5, y0 + 3, chalk); // 1st base
+      put(x0 + 3, y0 + 2, chalk); // 2nd base
+      put(x0 + 2, y0 + 3, chalk); // 3rd base
+      break;
+    }
+    case Lot.Parking: {
+      // Commercial strip parking lot: asphalt, yellow stall lines, wheel stops, island tree
+      const asphalt = C.asphalt;
+      const yellowStall = hexToRgb("#e0c34a");
+      const stopGray = hexToRgb("#888888");
+      for (let py = 0; py < TILE_PX; py++)
+        for (let px = 0; px < TILE_PX; px++) put(x0 + px, y0 + py, asphalt);
+      for (let py = 1; py <= 6; py += 2) {
+        put(x0 + 2, y0 + py, yellowStall);
+        put(x0 + 5, y0 + py, yellowStall);
+      }
+      put(x0 + 3, y0 + 6, stopGray);
+      put(x0 + 4, y0 + 6, stopGray);
+      // Landscaping island tree pocket
+      if (!sameLeft && !sameUp) {
+        put(x0 + 1, y0 + 1, hexToRgb("#4c9c28"));
+        put(x0 + 1, y0 + 2, hexToRgb("#326e1c"));
+      }
+      break;
+    }
     default: {
       put(x0 + 2, y0 + 3, accent);
       put(x0 + 3, y0 + 3, accent);
@@ -2630,40 +3010,76 @@ function drawCompoundAssets(
   const ax = x0 + 1 + (h % 5);
   const ay = y0 + 1 + ((h >> 6) % 5);
   const cult = hexToRgb(colorForPlayer(claim.owner));
+  const gold = hexToRgb("#ffd700");
+  const fireOrange = hexToRgb("#ff5500");
+  const fireYellow = hexToRgb("#ffcc00");
+
   switch (claim.archetype) {
     case "dawn": {
-      // bonfire: flame over an effigy post
+      // Final Dawn: Blazing Bonfire, Sacred Effigy Totem & Ritual Stone Ring
       put(ax, ay + 2, C.trunk);
-      put(ax, ay + 1, hexToRgb("#e25822"));
-      put(ax, ay, hexToRgb("#ffb347"));
-      if (claim.stage >= 2) put(ax + 1, ay + 1, hexToRgb("#e25822"));
+      put(ax, ay + 1, fireOrange);
+      put(ax, ay, fireYellow);
+      if (claim.stage >= 2) {
+        put(ax + 1, ay + 1, fireOrange);
+        put(ax - 1, ay + 2, C.rock); // ritual stone ring
+        put(ax + 1, ay + 2, C.rock);
+      }
+      if (claim.stage >= 3) {
+        put(ax, ay - 1 < y0 ? y0 : ay - 1, gold); // golden sun emblem on effigy top
+      }
       break;
     }
     case "radiant": {
-      // geodesic dome (suspiciously nice yurt)
-      put(ax, ay + 1, hexToRgb("#efe6d0"));
-      put(ax + 1, ay + 1, hexToRgb("#efe6d0"));
-      put(ax, ay, shade(hexToRgb("#efe6d0"), 0.85));
-      put(ax + 1, ay, shade(hexToRgb("#efe6d0"), 0.85));
-      if (claim.stage >= 2) put(ax + 2, ay + 1, cult); // prayer flag
+      // Radiant Path: Geodesic Dome, Wellness Canopy & Crystal Energy Spire
+      const glassCyan = hexToRgb("#40e0ff");
+      const violetTent = hexToRgb("#a040ff");
+      put(ax, ay + 1, glassCyan);
+      put(ax + 1, ay + 1, glassCyan);
+      put(ax, ay, shade(glassCyan, 0.85));
+      put(ax + 1, ay, shade(glassCyan, 0.85));
+      if (claim.stage >= 2) {
+        put(ax + 2, ay + 1, violetTent); // wellness canopy
+        put(ax + 2, ay, cult);
+      }
+      if (claim.stage >= 3) {
+        put(ax, ay - 1 < y0 ? y0 : ay - 1, [255, 255, 255]); // energy spire glint
+        put(ax + 1, ay - 1 < y0 ? y0 : ay - 1, glassCyan);
+      }
       break;
     }
     case "circle": {
-      // billboard on posts, gold $ gleam
+      // Prosperity Circle: Executive Billboard, MLM Chart & Gold Coin Vault
       put(ax, ay, cult);
-      put(ax + 1, ay, C.iconAccent);
+      put(ax + 1, ay, gold); // $ gold symbol
       put(ax + 2, ay, cult);
       put(ax, ay + 1, C.trunk);
       put(ax + 2, ay + 1, C.trunk);
+      if (claim.stage >= 2) {
+        put(ax + 1, ay + 1, hexToRgb("#d4af37")); // MLM chart board
+      }
+      if (claim.stage >= 3) {
+        put(ax + 1, ay + 2 > y0 + 7 ? y0 + 7 : ay + 2, gold); // gold coin stack
+        put(ax + 2, ay + 2 > y0 + 7 ? y0 + 7 : ay + 2, gold);
+      }
       break;
     }
     case "visitors": {
-      // crop-circle ring (stage 3 adds the saucer glint)
-      put(ax, ay + 1, C.canopyLight);
-      put(ax + 2, ay + 1, C.canopyLight);
-      put(ax + 1, ay, C.canopyLight);
-      put(ax + 1, ay + 2, C.canopyLight);
-      if (claim.stage >= 3) put(ax + 1, ay + 1, hexToRgb("#9bf6ff"));
+      // The Visitors: Crop Circle, Saucer Beam & Levitating Pod Disc
+      const limeBiolum = hexToRgb("#39ff14");
+      const cyanBeam = hexToRgb("#9bf6ff");
+      put(ax, ay + 1, limeBiolum);
+      put(ax + 2, ay + 1, limeBiolum);
+      put(ax + 1, ay, limeBiolum);
+      put(ax + 1, ay + 2 > y0 + 7 ? y0 + 7 : ay + 2, limeBiolum);
+      if (claim.stage >= 2) {
+        put(ax + 1, ay + 1, cyanBeam);
+      }
+      if (claim.stage >= 3) {
+        put(ax + 1, ay - 1 < y0 ? y0 : ay - 1, hexToRgb("#e0ffff")); // levitating saucer disc
+        put(ax, ay - 1 < y0 ? y0 : ay - 1, cyanBeam);
+        put(ax + 2, ay - 1 < y0 ? y0 : ay - 1, cyanBeam);
+      }
       break;
     }
   }
@@ -2975,13 +3391,18 @@ function drawTrailerHome(
   put(x0 + doorX, y0 + 5, C.door);
   const winX = flip ? 2 : 5;
   put(x0 + winX, y0 + 4, trailerWindow);
-  put(x0 + (flip ? 7 : 0), y0 + 6, C.rock); // propane tank by the hitch end
+  // Twin white propane cylinders by the hitch end
+  const propX = flip ? 7 : 0;
+  put(x0 + propX, y0 + 5, hexToRgb("#e4e8ec")); // cylinder cap
+  put(x0 + propX, y0 + 6, hexToRgb("#a0a8b0")); // cylinder tank
 
-  // awning + junk-yard dressing for trailer fringe
+  // awning + porch chair + junk dressing for trailer fringe
   const awnCol = [hexToRgb("#bf3f3f"), hexToRgb("#3f7fbf"), hexToRgb("#bf9f3f")][pixHash(t, 3) % 3]!;
   put(x0 + doorX - 1, y0 + 3, awnCol);
   put(x0 + doorX, y0 + 3, awnCol);
   put(x0 + doorX + 1, y0 + 3, awnCol);
+  // Lawn folding chair on trailer porch
+  put(x0 + (flip ? doorX - 2 : doorX + 2), y0 + 6, hexToRgb("#3acfe8"));
 
   const junkX = flip ? 6 : 1;
   put(x0 + junkX, y0 + 6, C.iconDark); // tire/junk pile
@@ -3484,10 +3905,10 @@ function pickSpot(
  * (possibly sub-tile) position so they read as little objects, not dots.
  */
 const UNIT_SPRITES = {
-  // Tithe Courier — a walker with a money satchel
-  courier: ["..#...", ".#o#..", ".#o#.*", "##oo#*", ".#o#..", ".#.#.."],
-  // Recruitment Van — a boxy minibus, side view, with glass + wheels
-  van: ["s####s", "#wwww#", "oooooo", "oooooo", "s#ss#s", "..ss.."],
+  // Tithe Courier — a walker with a golden money satchel
+  courier: ["..#...", ".#o#..", ".#o#**", "##oo**", ".#o#..", ".#.#.."],
+  // Recruitment Van — a boxy minibus, side view, with glass + dual wheels
+  van: ["s####s", "#w#ww#", "#oooo#", "oooooo", "s#ss#s", "..ss.."],
   // Agent — a hooded figure (own-side only; invisible to others)
   agent: ["..##..", ".#oo#.", ".#oo#.", ".#oo#.", ".s##s.", "......"],
   // Street Prophet pylon — a speaker on a post, radiating

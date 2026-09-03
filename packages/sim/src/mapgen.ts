@@ -1353,7 +1353,7 @@ function fillFarmBelt(w: World, rng: RngState, town: TownShape): void {
       const ddy = cy + CELL_H / 2 - town.cy;
       if (ddx * ddx + ddy * ddy < inner * inner) continue; // town + spawn ring
       const roll = nextRange(rng, 12);
-      if (roll < 2) continue; // meadow cell — rarer now: the belt reads worked (QA sprint-1)
+      if (roll < 1) continue; // meadow cell — rare: the belt reads contiguous worked land
       const kind: Terrain = roll < 9 ? Terrain.Field : roll < 11 ? Terrain.Pasture : Terrain.Orchard;
       // break the lattice read (QA S1-C): every parcel gets its own extent
       // and offset inside the cell, so edges stop aligning map-wide
@@ -1375,7 +1375,7 @@ function fillFarmBelt(w: World, rng: RngState, town: TownShape): void {
           if (w.biome[t] === Biome.Desert) continue;
           
           const tr = w.terrain[t];
-          if (tr !== Terrain.Grass && tr !== Terrain.Woods) continue; // fields overwrite woods!
+          if (tr !== Terrain.Grass) continue; // farmland only claims open grass; fields wrap around standing timber!
 
           // shoulder from pavement/rail, margin from water
           let blocked = false;

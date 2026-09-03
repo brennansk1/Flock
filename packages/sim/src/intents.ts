@@ -6,7 +6,7 @@
  * netcode and the sim honest about payload shapes.
  */
 
-import type { PlayerId, TileId, DistrictId, Stance } from "./types.js";
+import type { PlayerId, TileId, DistrictId, Stance, CivicDecreeId } from "./types.js";
 
 export const IntentType = {
   SPAWN: "SPAWN",
@@ -31,6 +31,7 @@ export const IntentType = {
   CHAT: "CHAT",
   EMOTE: "EMOTE",
   SURRENDER: "SURRENDER",
+  CIVIC_DECREE: "CIVIC_DECREE",
 } as const;
 
 export type IntentType = (typeof IntentType)[keyof typeof IntentType];
@@ -82,7 +83,8 @@ export type Intent =
   | { t: typeof IntentType.PUBLISH_SCANDAL; player: PlayerId; target: PlayerId }
   | { t: typeof IntentType.CHAT; player: PlayerId; channel: string; msg: string }
   | { t: typeof IntentType.EMOTE; player: PlayerId; emote: number }
-  | { t: typeof IntentType.SURRENDER; player: PlayerId };
+  | { t: typeof IntentType.SURRENDER; player: PlayerId }
+  | { t: typeof IntentType.CIVIC_DECREE; player: PlayerId; decree: CivicDecreeId; tile?: TileId };
 
 /** A network Turn: one tick's worth of validated intents plus the RNG seed slice (§33). */
 export interface Turn {

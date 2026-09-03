@@ -680,7 +680,15 @@ export function renderTown(sim: SimState, opts: RenderOpts = {}): RenderedFrame 
   // ---- pass 2: landmarks + cult buildings as icons ----
   for (let t = 0; t < w.landmark.length; t++) {
     if (w.landmark[t] !== 0) {
-      drawIcon(LANDMARK_ICON[w.landmark[t]!] ?? ICONS.compound, t, w.width, C.landmarkGold, put);
+      const lm = w.landmark[t]!;
+      if (lm === Landmark.RadioTower) {
+        // 2-frame blinking red aviation warning beacon (1.0s cycle)
+        const isBeaconLit = ((tick >> 3) % 2) === 0;
+        const beaconCol = isBeaconLit ? hexToRgb("#ff2222") : hexToRgb("#551111");
+        drawIcon(LANDMARK_ICON[Landmark.RadioTower]!, t, w.width, C.landmarkGold, put, beaconCol);
+      } else {
+        drawIcon(LANDMARK_ICON[lm] ?? ICONS.compound, t, w.width, C.landmarkGold, put);
+      }
     }
   }
   for (const bd of sim.buildings) {
@@ -2460,16 +2468,27 @@ function drawLotBuilding(
       }
       break;
     case Lot.Shop: {
-      // Main Street retail shop with striped canvas awning
+      // Main Street retail shop with flat gravel roof, HVAC chillers, striped awning, and rear service dumpster
       put(x0 + 3, y0 + 5, C.door);
       put(x0 + 2, y0 + 4, hexToRgb("#87ceeb")); // display window
       put(x0 + 4, y0 + 4, hexToRgb("#87ceeb"));
-      // Striped red & white canvas storefront awning
-      const awnA = hexToRgb("#b83232");
+
+      // Rooftop HVAC compressor units & vents
+      put(x0 + 5, y0 + 1, hexToRgb("#687278"));
+      put(x0 + 5, y0 + 2, hexToRgb("#485055"));
+      put(x0 + 2, y0 + 1, hexToRgb("#586066"));
+
+      // Striped awning: 3 colorways (Red, Blue, Green)
+      const awningRoll = pixHash(t, 9) % 3;
+      const awnA = awningRoll === 0 ? hexToRgb("#b83232") : awningRoll === 1 ? hexToRgb("#2b5bb8") : hexToRgb("#2b8c42");
       const awnB = hexToRgb("#f0f0f0");
       for (let px = 1; px <= 6; px++) {
         put(x0 + px, y0 + 3, px % 2 === 0 ? awnA : awnB);
       }
+
+      // Rear service alley dumpster on parcel edge
+      put(x0 + 1, y0 + 6, hexToRgb("#2f4f2f"));
+      put(x0 + 1, y0 + 7, hexToRgb("#203820"));
       break;
     }
     case Lot.Diner: {
@@ -2527,6 +2546,7 @@ function drawLotBuilding(
     case Lot.Sheriff: {
       const goldStar = hexToRgb("#ffd700");
       const policeBlue = hexToRgb("#3070ff");
+      const policeRed = hexToRgb("#e83030");
       put(x0 + 3, y0, policeBlue); // flashing police beacon
       put(x0 + 3, y0 + 1, goldStar); // Sheriff gold star badge emblem
       put(x0 + 4, y0 + 1, goldStar);
@@ -2534,6 +2554,20 @@ function drawLotBuilding(
       put(x0 + 3, y0 + 4, C.windowDark);
       put(x0 + 5, y0 + 4, C.windowDark);
       put(x0 + 4, y0 + 5, C.door);
+
+      // Dedicated police cruisers parked in apron stalls
+      // Cruiser 1 (W)
+      put(x0 + 1, y0 + 6, hexToRgb("#1a1a1a"));
+      put(x0 + 2, y0 + 6, hexToRgb("#f0f0f0")); // white roof
+      put(x0 + 2, y0 + 5, policeRed); // lightbar
+      put(x0 + 1, y0 + 7, hexToRgb("#1a1a1a"));
+      put(x0 + 2, y0 + 7, hexToRgb("#1a1a1a"));
+      // Cruiser 2 (E)
+      put(x0 + 5, y0 + 6, hexToRgb("#1a1a1a"));
+      put(x0 + 6, y0 + 6, hexToRgb("#f0f0f0")); // white roof
+      put(x0 + 6, y0 + 5, policeBlue); // lightbar
+      put(x0 + 5, y0 + 7, hexToRgb("#1a1a1a"));
+      put(x0 + 6, y0 + 7, hexToRgb("#1a1a1a"));
       break;
     }
     case Lot.Church:
@@ -3214,7 +3248,7 @@ function drawHouse(
   const wallColor = wallColors[pixHash(t, 2) % wallColors.length]!;
   const wallShadeColor = shade(wallColor, 0.88);
 
-  const shape = pixHash(t, 34) % 3;
+  const shape = pixHash(t, 34) % 4;
 
   // §8A alignment: a gable fronting an E/W street turns its ridge to run
   // parallel to that street — the roofline follows the plat, and the door
@@ -3346,11 +3380,34 @@ function drawHouse(
       // Window: wing center x=5, y=4
       put(x0 + 5, y0 + 4, houseWindow);
     }
+  } else if (shape === 3) {
+    // ---- Bungalow w/ Full-Width Shaded Veranda (shape 3) ----
+    // Pyramidal hipped roof peak & slopes:
+    put(x0 + 3, y0, shade(roof, 1.15));
+    put(x0 + 4, y0, shade(roof, 1.15));
+    for (let px = 2; px <= 5; px++) put(x0 + px, y0 + 1, shade(roof, 1.05));
+    for (let px = 1; px <= 6; px++) put(x0 + px, y0 + 2, px % 2 === 0 ? roof : shade(roof, 0.92));
+    // Main walls
+    for (let px = 1; px <= 6; px++) {
+      put(x0 + px, y0 + 3, wallShadeColor);
+    }
+    // Full-width shaded veranda porch eave:
+    const porchShade = shade(roof, 0.85);
+    for (let px = 1; px <= 6; px++) put(x0 + px, y0 + 4, porchShade);
+    // Veranda posts, door, window, steps:
+    put(x0 + 1, y0 + 5, wallShadeColor); // corner post W
+    put(x0 + 6, y0 + 5, wallShadeColor); // corner post E
+    const doorX = flip ? 3 : 4;
+    const winX = flip ? 5 : 2;
+    put(x0 + doorX, y0 + 5, C.door);
+    put(x0 + winX, y0 + 5, houseWindow);
+    put(x0 + 3, y0 + 6, hexToRgb("#a0988a")); // front concrete steps
+    put(x0 + 4, y0 + 6, hexToRgb("#a0988a"));
   } else {
-    // ---- Classic Gable (shape 0) (shifted up to show driveway) ----
+    // ---- Classic Gable / Ranch (shape 0) (shifted up to show driveway) ----
     for (let px = 1; px <= 5; px++) {
       put(x0 + px, y0 + 1, shade(roof, 1.1));
-      put(x0 + px, y0 + 2, roof);
+      put(x0 + px, y0 + 2, px % 2 === 0 ? roof : shade(roof, 0.92));
     }
     put(x0 + 2, y0, shade(roof, 1.1));
     put(x0 + 3, y0, shade(roof, 1.1));
@@ -3539,7 +3596,7 @@ function drawBlock(w: World, tx: number, ty: number, x0: number, y0: number, t: 
   }
 }
 
-function drawIcon(bitmap: string[], tile: number, width: number, body: RGB, put: Put): void {
+function drawIcon(bitmap: string[], tile: number, width: number, body: RGB, put: Put, accentCol: RGB = C.iconAccent): void {
   const x0 = (tile % width) * TILE_PX;
   const y0 = ((tile / width) | 0) * TILE_PX;
   for (let py = 0; py < TILE_PX; py++) {
@@ -3553,7 +3610,7 @@ function drawIcon(bitmap: string[], tile: number, width: number, body: RGB, put:
           put(x0 + px, y0 + py, body);
           break;
         case "*":
-          put(x0 + px, y0 + py, C.iconAccent);
+          put(x0 + px, y0 + py, accentCol);
           break;
       }
     }

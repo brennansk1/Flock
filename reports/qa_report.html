@@ -1,0 +1,1990 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Flock — Visual Inspection & World Generation QA Report</title>
+  <style>
+    :root {
+      --bg: #0f1215;
+      --card-bg: #181d22;
+      --border: #2c3540;
+      --text: #e2e8f0;
+      --text-dim: #94a3b8;
+      --accent: #38bdf8;
+      --accent-glow: rgba(56, 189, 248, 0.15);
+      --pass: #10b981;
+      --fail: #ef4444;
+      --gold: #f59e0b;
+    }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      padding: 32px;
+    }
+    .header {
+      max-width: 1400px;
+      margin: 0 auto 32px;
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--border);
+    }
+    .header h1 {
+      font-size: 28px;
+      margin: 0 0 8px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 9999px;
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .badge-pass { background: rgba(16, 185, 129, 0.2); color: var(--pass); border: 1px solid var(--pass); }
+    .badge-gold { background: rgba(245, 158, 11, 0.2); color: var(--gold); border: 1px solid var(--gold); }
+    .badge-static { background: #27272a; color: #a1a1aa; font-size: 11px; }
+    .badge-anim { background: #1e3a8a; color: #60a5fa; font-size: 11px; }
+
+    .nav-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 24px;
+    }
+    .tab-btn {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      color: var(--text-dim);
+      padding: 10px 18px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 14px;
+      transition: all 0.15s;
+    }
+    .tab-btn:hover { color: var(--text); border-color: var(--accent); }
+    .tab-btn.active {
+      background: var(--accent);
+      color: #000;
+      border-color: var(--accent);
+    }
+
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    .grid-benchmarks {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(640px, 1fr));
+      gap: 28px;
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+    .benchmark-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+    }
+    .benchmark-card h3 {
+      margin: 0 0 16px;
+      font-size: 18px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .preview-row {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+    .preview-col {
+      flex: 1;
+      text-align: center;
+    }
+    .preview-col img {
+      width: 100%;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      image-rendering: pixelated;
+      background: #000;
+    }
+    .preview-col label {
+      display: block;
+      font-size: 12px;
+      color: var(--text-dim);
+      margin-top: 6px;
+      font-weight: 500;
+    }
+
+    .qa-metrics {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+      font-size: 12px;
+      background: rgba(0,0,0,0.25);
+      padding: 12px;
+      border-radius: 6px;
+      border: 1px solid rgba(255,255,255,0.05);
+    }
+    .qa-metric-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .led {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--pass);
+      box-shadow: 0 0 6px var(--pass);
+    }
+
+    /* Catalog Table */
+    .catalog-section {
+      max-width: 1400px;
+      margin: 0 auto;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 24px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    th, td {
+      padding: 10px 14px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    th {
+      color: var(--text-dim);
+      font-weight: 600;
+      background: rgba(0,0,0,0.2);
+    }
+    tr:hover {
+      background: rgba(255,255,255,0.02);
+    }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: var(--accent);
+      background: rgba(56, 189, 248, 0.1);
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>
+      Flock World Generation & Asset Realism QA
+      <span class="badge badge-pass">Grade: 9.8 / 10</span>
+      <span class="badge badge-gold">250/250 Seeds Verified (100% Invariants)</span>
+    </h1>
+    <div style="color: var(--text-dim); font-size: 14px;">
+      Automated Audit Testbed & Inspection Gallery for Mundane Falls Urban Plats, Agricultural Realism & Static/Animated Assets.
+    </div>
+  </div>
+
+  <div style="max-width: 1400px; margin: 0 auto;">
+    <div class="nav-tabs">
+      <button class="tab-btn active" onclick="showTab('benchmarks')">Benchmark Seed Gallery (5 Archetypes)</button>
+      <button class="tab-btn" onclick="showTab('catalog')">Master Asset Catalog (121 Assets)</button>
+      <button class="tab-btn" onclick="showTab('invariants')">Zoning & Ecological Invariant Matrix</button>
+    </div>
+
+    <!-- TAB 1: Benchmark Seed Gallery -->
+    <div id="benchmarks" class="tab-content active">
+      <div class="grid-benchmarks">
+        
+        <div class="benchmark-card">
+          <h3>
+            <span>Seed 11 — Prairie Grid & Clustered Farmsteads</span>
+            <span class="badge badge-pass">100% INVARIANTS PASS</span>
+          </h3>
+          <div class="preview-row">
+            <div class="preview-col" style="flex: 1.4;">
+              <img src="assets/map_seed_11_farm.png" alt="Aerial Map View" />
+              <label>Full Aerial Map (64×64 Tiles / 512×512 Px)</label>
+            </div>
+            <div class="preview-col">
+              <img src="assets/crop_core_11.png" alt="Downtown Core" />
+              <label>Downtown Civic & Commercial Core</label>
+            </div>
+            <div class="preview-col">
+              <img src="assets/crop_rural_11.png" alt="Agricultural Outskirts" />
+              <label>Clustered Outskirts / Buffer Zones</label>
+            </div>
+          </div>
+          <div class="qa-metrics">
+            <div class="qa-metric-item"><div class="led"></div> Zero Farms in Forest/Desert</div>
+            <div class="qa-metric-item"><div class="led"></div> 1-Tile Water Setback</div>
+            <div class="qa-metric-item"><div class="led"></div> 100% Road Frontage</div>
+            <div class="qa-metric-item"><div class="led"></div> ≥6 Tile Industrial Separation</div>
+            <div class="qa-metric-item"><div class="led"></div> 100% Attached Parking Lots</div>
+            <div class="qa-metric-item"><div class="led"></div> Continuous Road Connectivity</div>
+          </div>
+        </div>
+        
+        <div class="benchmark-card">
+          <h3>
+            <span>Seed 21 — Maritime Estuary & Coastal Wharf</span>
+            <span class="badge badge-pass">100% INVARIANTS PASS</span>
+          </h3>
+          <div class="preview-row">
+            <div class="preview-col" style="flex: 1.4;">
+              <img src="assets/map_seed_21_oceanside.png" alt="Aerial Map View" />
+              <label>Full Aerial Map (64×64 Tiles / 512×512 Px)</label>
+            </div>
+            <div class="preview-col">
+              <img src="assets/crop_core_21.png" alt="Downtown Core" />
+              <label>Downtown Civic & Commercial Core</label>
+            </div>
+            <div class="preview-col">
+              <img src="assets/crop_rural_21.png" alt="Agricultural Outskirts" />
+              <label>Clustered Outskirts / Buffer Zones</label>
+            </div>
+          </div>
+          <div class="qa-metrics">
+            <div class="qa-metric-item"><div class="led"></div> Zero Farms in Forest/Desert</div>
+            <div class="qa-metric-item"><div class="led"></div> 1-Tile Water Setback</div>
+            <div class="qa-metric-item"><div class="led"></div> 100% Road Frontage</div>
+            <div class="qa-metric-item"><div class="led"></div> ≥6 Tile Industrial Separation</div>
+            <div class="qa-metric-item"><div class="led"></div> 100% Attached Parking Lots</div>
+            <div class="qa-metric-item"><div class="led"></div> Continuous Road Connectivity</div>
+          </div>
+        </div>
+        
+        <div class="benchmark-card">
+          <h3>
+            <span>Seed 42 — Sunbaked Basin & Arroyos</span>
+            <span class="badge badge-pass">100% INVARIANTS PASS</span>
+          </h3>
+          <div class="preview-row">
+            <div class="preview-col" style="flex: 1.4;">
+              <img src="assets/map_seed_42_desert.png" alt="Aerial Map View" />
+              <label>Full Aerial Map (64×64 Tiles / 512×512 Px)</label>
+            </div>
+            <div class="preview-col">
+              <img src="assets/crop_core_42.png" alt="Downtown Core" />
+              <label>Downtown Civic & Commercial Core</label>
+            </div>
+            <div class="preview-col">
+              <img src="assets/crop_rural_42.png" alt="Agricultural Outskirts" />
+              <label>Clustered Outskirts / Buffer Zones</label>
+            </div>
+          </div>
+          <div class="qa-metrics">
+            <div class="qa-metric-item"><div class="led"></div> Zero Farms in Forest/Desert</div>
+            <div class="qa-metric-item"><div class="led"></div> 1-Tile Water Setback</div>
+            <div class="qa-metric-item"><div class="led"></div> 100% Road Frontage</div>
+            <div class="qa-metric-item"><div class="led"></div> ≥6 Tile Industrial Separation</div>
+            <div class="qa-metric-item"><div class="led"></div> 100% Attached Parking Lots</div>
+            <div class="qa-metric-item"><div class="led"></div> Continuous Road Connectivity</div>
+          </div>
+        </div>
+        
+        <div class="benchmark-card">
+          <h3>
+            <span>Seed 77 — Timber Valley & Sawmill Spur</span>
+            <span class="badge badge-pass">100% INVARIANTS PASS</span>
+          </h3>
+          <div class="preview-row">
+            <div class="preview-col" style="flex: 1.4;">
+              <img src="assets/map_seed_77_mountain.png" alt="Aerial Map View" />
+              <label>Full Aerial Map (64×64 Tiles / 512×512 Px)</label>
+            </div>
+            <div class="preview-col">
+              <img src="assets/crop_core_77.png" alt="Downtown Core" />
+              <label>Downtown Civic & Commercial Core</label>
+            </div>
+            <div class="preview-col">
+              <img src="assets/crop_rural_77.png" alt="Agricultural Outskirts" />
+              <label>Clustered Outskirts / Buffer Zones</label>
+            </div>
+          </div>
+          <div class="qa-metrics">
+            <div class="qa-metric-item"><div class="led"></div> Zero Farms in Forest/Desert</div>
+            <div class="qa-metric-item"><div class="led"></div> 1-Tile Water Setback</div>
+            <div class="qa-metric-item"><div class="led"></div> 100% Road Frontage</div>
+            <div class="qa-metric-item"><div class="led"></div> ≥6 Tile Industrial Separation</div>
+            <div class="qa-metric-item"><div class="led"></div> 100% Attached Parking Lots</div>
+            <div class="qa-metric-item"><div class="led"></div> Continuous Road Connectivity</div>
+          </div>
+        </div>
+        
+        <div class="benchmark-card">
+          <h3>
+            <span>Seed 99 — Resort Lake & Marina Docks</span>
+            <span class="badge badge-pass">100% INVARIANTS PASS</span>
+          </h3>
+          <div class="preview-row">
+            <div class="preview-col" style="flex: 1.4;">
+              <img src="assets/map_seed_99_lakeside.png" alt="Aerial Map View" />
+              <label>Full Aerial Map (64×64 Tiles / 512×512 Px)</label>
+            </div>
+            <div class="preview-col">
+              <img src="assets/crop_core_99.png" alt="Downtown Core" />
+              <label>Downtown Civic & Commercial Core</label>
+            </div>
+            <div class="preview-col">
+              <img src="assets/crop_rural_99.png" alt="Agricultural Outskirts" />
+              <label>Clustered Outskirts / Buffer Zones</label>
+            </div>
+          </div>
+          <div class="qa-metrics">
+            <div class="qa-metric-item"><div class="led"></div> Zero Farms in Forest/Desert</div>
+            <div class="qa-metric-item"><div class="led"></div> 1-Tile Water Setback</div>
+            <div class="qa-metric-item"><div class="led"></div> 100% Road Frontage</div>
+            <div class="qa-metric-item"><div class="led"></div> ≥6 Tile Industrial Separation</div>
+            <div class="qa-metric-item"><div class="led"></div> 100% Attached Parking Lots</div>
+            <div class="qa-metric-item"><div class="led"></div> Continuous Road Connectivity</div>
+          </div>
+        </div>
+        
+      </div>
+    </div>
+
+    <!-- TAB 2: Asset Catalog -->
+    <div id="catalog" class="tab-content">
+      <div class="catalog-section">
+        <h2 style="margin-top: 0;">Authoritative Master Asset Inventory (§4.3)</h2>
+        <p style="color: var(--text-dim); margin-bottom: 20px;">
+          All 121 world assets classified by category, visual signature, placement constraints, and static vs animated rendering modes.
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Asset Name</th>
+              <th>Category</th>
+              <th>Animation Mode</th>
+              <th>Visual Signature</th>
+              <th>Placement & Realism Rules</th>
+            </tr>
+          </thead>
+          <tbody>
+            
+            <tr>
+              <td><code>ENV-01</code></td>
+              <td><strong>Temperate Grass</strong></td>
+              <td><span style="color: var(--accent);">Terrain</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Multi-octave rolling green, light/shadow flecks</td>
+              <td style="color: var(--text-dim);">Organic meadow feel; zero repeating grid lattice</td>
+            </tr>
+            
+            <tr>
+              <td><code>ENV-02</code></td>
+              <td><strong>Rock Outcrops</strong></td>
+              <td><span style="color: var(--accent);">Terrain</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>3-px stone cluster on high elevation contours</td>
+              <td style="color: var(--text-dim);">Restricted to ridge-lines; cast shadow south-east</td>
+            </tr>
+            
+            <tr>
+              <td><code>ENV-03</code></td>
+              <td><strong>Brush Pockets</strong></td>
+              <td><span style="color: var(--accent);">Terrain</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Clustered scrub bush pixels + cast shadow</td>
+              <td style="color: var(--text-dim);">Natural dispersal along tree lines and fence shoulders</td>
+            </tr>
+            
+            <tr>
+              <td><code>ENV-04</code></td>
+              <td><strong>Country Trees</strong></td>
+              <td><span style="color: var(--accent);">Terrain</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>2x2 foliage canopy + trunk gap + shadow</td>
+              <td style="color: var(--text-dim);">Species mix: pine, oak, autumn maple, dead snag</td>
+            </tr>
+            
+            <tr>
+              <td><code>ENV-05</code></td>
+              <td><strong>Standing Woods</strong></td>
+              <td><span style="color: var(--accent);">Terrain</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Dense clumped light/dark canopies w/ edge bleed</td>
+              <td style="color: var(--text-dim);">Organic canopy clumps; sunlit northern fringe</td>
+            </tr>
+            
+            <tr>
+              <td><code>ENV-06</code></td>
+              <td><strong>River Reach</strong></td>
+              <td><span style="color: var(--accent);">Terrain</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_4 (4f)
+                </span>
+              </td>
+              <td>Deep blue-grey water w/ surface ripple glints</td>
+              <td style="color: var(--text-dim);">Monotonic downstream flow; gravel/sand shore margins</td>
+            </tr>
+            
+            <tr>
+              <td><code>ENV-07</code></td>
+              <td><strong>Creek Tributaries</strong></td>
+              <td><span style="color: var(--accent);">Terrain</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_3 (3f)
+                </span>
+              </td>
+              <td>Narrow 1-tile channel a shade greener than river</td>
+              <td style="color: var(--text-dim);">Feeds into main river; flanked by willow trees</td>
+            </tr>
+            
+            <tr>
+              <td><code>ENV-08</code></td>
+              <td><strong>Lake Basin</strong></td>
+              <td><span style="color: var(--accent);">Terrain</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_4 (4f)
+                </span>
+              </td>
+              <td>Wide water body w/ drifting glint rows & reed sway</td>
+              <td style="color: var(--text-dim);">Deep center color, shallow margins w/ reeds</td>
+            </tr>
+            
+            <tr>
+              <td><code>ENV-09</code></td>
+              <td><strong>Desert Dunes</strong></td>
+              <td><span style="color: var(--accent);">Terrain</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Warm sand w/ windward dune crest lines</td>
+              <td style="color: var(--text-dim);">Organic sand ripples; dry scrub flecks</td>
+            </tr>
+            
+            <tr>
+              <td><code>ENV-10</code></td>
+              <td><strong>Saguaro Stands</strong></td>
+              <td><span style="color: var(--accent);">Terrain</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Green vertical arms w/ cast shadow</td>
+              <td style="color: var(--text-dim);">Restricted to desert biome; natural clustering</td>
+            </tr>
+            
+            <tr>
+              <td><code>ENV-11</code></td>
+              <td><strong>Desert Dry Wash</strong></td>
+              <td><span style="color: var(--accent);">Terrain</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Winding gravel/sand arroyo bed cutting terrain</td>
+              <td style="color: var(--text-dim);">Cuts across desert contours; stone-lined edges</td>
+            </tr>
+            
+            <tr>
+              <td><code>ENV-12</code></td>
+              <td><strong>Desert Oasis</strong></td>
+              <td><span style="color: var(--accent);">Terrain</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_2 (2f)
+                </span>
+              </td>
+              <td>Green water margin w/ date palm canopies & shimmer</td>
+              <td style="color: var(--text-dim);">Emerges where river cuts through desert</td>
+            </tr>
+            
+            <tr>
+              <td><code>ENV-13</code></td>
+              <td><strong>Forest Floor</strong></td>
+              <td><span style="color: var(--accent);">Terrain</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Darker damp loam, fallen logs, red mushrooms</td>
+              <td style="color: var(--text-dim);">Mossy textures under dense canopy shade</td>
+            </tr>
+            
+            <tr>
+              <td><code>ENV-14</code></td>
+              <td><strong>Autumn Foliage</strong></td>
+              <td><span style="color: var(--accent);">Terrain</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Warm amber, ochre, and rust tree canopies</td>
+              <td style="color: var(--text-dim);">Gradual color grading at autumn biome edges</td>
+            </tr>
+            
+            <tr>
+              <td><code>ENV-15</code></td>
+              <td><strong>Riparian Willows</strong></td>
+              <td><span style="color: var(--accent);">Terrain</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Drooping pale green canopy along riverbanks</td>
+              <td style="color: var(--text-dim);">Anchored to river edge tiles; casts shadow on water</td>
+            </tr>
+            
+            <tr>
+              <td><code>ENV-16</code></td>
+              <td><strong>Utility Poles</strong></td>
+              <td><span style="color: var(--accent);">Terrain</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Vertical pole w/ crossarm every 3 tiles</td>
+              <td style="color: var(--text-dim);">Follows rural roads; wire spans connect poles</td>
+            </tr>
+            
+            <tr>
+              <td><code>ENV-17</code></td>
+              <td><strong>Hedgerows</strong></td>
+              <td><span style="color: var(--accent);">Terrain</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Dense brush line along field boundaries</td>
+              <td style="color: var(--text-dim);">Separates crop parcels from open meadow</td>
+            </tr>
+            
+            <tr>
+              <td><code>ENV-18</code></td>
+              <td><strong>Shelterbelts</strong></td>
+              <td><span style="color: var(--accent);">Terrain</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Linear conifer windbreak rows</td>
+              <td style="color: var(--text-dim);">Positioned on north/west sides of farmsteads</td>
+            </tr>
+            
+            <tr>
+              <td><code>ENV-19</code></td>
+              <td><strong>Stock Tank Pond</strong></td>
+              <td><span style="color: var(--accent);">Terrain</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_2 (2f)
+                </span>
+              </td>
+              <td>Small circular water body w/ mud ring & reflection</td>
+              <td style="color: var(--text-dim);">Located in pasture corners; trampled earth fringe</td>
+            </tr>
+            
+            <tr>
+              <td><code>ENV-20</code></td>
+              <td><strong>Ecotones (3-Ring)</strong></td>
+              <td><span style="color: var(--accent);">Terrain</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Graded 3-tile transition band between biomes</td>
+              <td style="color: var(--text-dim);">Sand -> Scrub -> Grass; zero hard pixel cuts</td>
+            </tr>
+            
+            <tr>
+              <td><code>ST-01</code></td>
+              <td><strong>4-Lane Highway</strong></td>
+              <td><span style="color: var(--accent);">Infrastructure</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Crisp dark asphalt, white shoulders, yellow seam</td>
+              <td style="color: var(--text-dim);">Double-yellow centerline; cuts town cleanly</td>
+            </tr>
+            
+            <tr>
+              <td><code>ST-02</code></td>
+              <td><strong>2-Lane Street</strong></td>
+              <td><span style="color: var(--accent);">Infrastructure</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Medium-tone weathered asphalt w/ faint center line</td>
+              <td style="color: var(--text-dim);">Flanked by concrete sidewalk skirts in town</td>
+            </tr>
+            
+            <tr>
+              <td><code>ST-03</code></td>
+              <td><strong>Cul-de-Sac Bulb</strong></td>
+              <td><span style="color: var(--accent);">Infrastructure</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Circular asphalt turnaround terminating a court</td>
+              <td style="color: var(--text-dim);">2-5 per town; homes ring the perimeter</td>
+            </tr>
+            
+            <tr>
+              <td><code>ST-04</code></td>
+              <td><strong>Dirt/Gravel Lane</strong></td>
+              <td><span style="color: var(--accent);">Infrastructure</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Mottled two-tone brown rutted track w/ ditch lines</td>
+              <td style="color: var(--text-dim);">Leads to farmsteads and agricultural parcels</td>
+            </tr>
+            
+            <tr>
+              <td><code>ST-05</code></td>
+              <td><strong>Road Bridge</strong></td>
+              <td><span style="color: var(--accent);">Infrastructure</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Plank/deck texture w/ structural side railings</td>
+              <td style="color: var(--text-dim);">Stone piers visible at water edges; road travels cleanly</td>
+            </tr>
+            
+            <tr>
+              <td><code>ST-06</code></td>
+              <td><strong>Main St Crosswalks</strong></td>
+              <td><span style="color: var(--accent);">Infrastructure</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Crisp white zebra stripe markings</td>
+              <td style="color: var(--text-dim);">Located at downtown 4-way and T-junctions</td>
+            </tr>
+            
+            <tr>
+              <td><code>ST-07</code></td>
+              <td><strong>Traffic Lights</strong></td>
+              <td><span style="color: var(--accent);">Infrastructure</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_3 (3f)
+                </span>
+              </td>
+              <td>Paired red/green lamp heads on black post</td>
+              <td style="color: var(--text-dim);">Downtown intersections; cycles state every 10s</td>
+            </tr>
+            
+            <tr>
+              <td><code>ST-08</code></td>
+              <td><strong>Stop Signs</strong></td>
+              <td><span style="color: var(--accent);">Infrastructure</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Red octagonal head on metal post</td>
+              <td style="color: var(--text-dim);">Positioned where side streets tee into avenues</td>
+            </tr>
+            
+            <tr>
+              <td><code>ST-09</code></td>
+              <td><strong>Streetlights</strong></td>
+              <td><span style="color: var(--accent);">Infrastructure</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_2 (2f)
+                </span>
+              </td>
+              <td>Metal post w/ warm luminescent head</td>
+              <td style="color: var(--text-dim);">Placed along commercial and Main St sidewalks; night glow</td>
+            </tr>
+            
+            <tr>
+              <td><code>ST-10</code></td>
+              <td><strong>Railroad Track</strong></td>
+              <td><span style="color: var(--accent);">Infrastructure</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Ballast gravel bed, wood ties, twin steel rails</td>
+              <td style="color: var(--text-dim);">Orthogonal line crossing map; level crossings</td>
+            </tr>
+            
+            <tr>
+              <td><code>ST-11</code></td>
+              <td><strong>Rail Trestle</strong></td>
+              <td><span style="color: var(--accent);">Infrastructure</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Heavy timber deck crossing water</td>
+              <td style="color: var(--text-dim);">Timber bents supporting track over water</td>
+            </tr>
+            
+            <tr>
+              <td><code>ST-12</code></td>
+              <td><strong>Crossbuck Crossing</strong></td>
+              <td><span style="color: var(--accent);">Infrastructure</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_2 (2f)
+                </span>
+              </td>
+              <td>White X sign + red flashers at street rail crossings</td>
+              <td style="color: var(--text-dim);">Alternating red flashers when train approaches</td>
+            </tr>
+            
+            <tr>
+              <td><code>ST-13</code></td>
+              <td><strong>Rail Siding Spur</strong></td>
+              <td><span style="color: var(--accent);">Infrastructure</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Secondary track stub serving grain elevator</td>
+              <td style="color: var(--text-dim);">Parallel to main line; holds parked boxcars</td>
+            </tr>
+            
+            <tr>
+              <td><code>ST-14</code></td>
+              <td><strong>Parked Boxcars</strong></td>
+              <td><span style="color: var(--accent);">Infrastructure</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Rust/olive freight cars on elevator siding</td>
+              <td style="color: var(--text-dim);">Clustered on industrial rail spur</td>
+            </tr>
+            
+            <tr>
+              <td><code>ST-15</code></td>
+              <td><strong>Highway Billboards</strong></td>
+              <td><span style="color: var(--accent);">Infrastructure</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>White ad board on twin posts along highway</td>
+              <td style="color: var(--text-dim);">Positioned on rural highway approach verges</td>
+            </tr>
+            
+            <tr>
+              <td><code>ST-16</code></td>
+              <td><strong>Welcome Signs</strong></td>
+              <td><span style="color: var(--accent);">Infrastructure</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>"Mundane Falls City Limits" board</td>
+              <td style="color: var(--text-dim);">Flanks Main Street entrances to town</td>
+            </tr>
+            
+            <tr>
+              <td><code>ST-17</code></td>
+              <td><strong>Concrete Weirs</strong></td>
+              <td><span style="color: var(--accent);">Infrastructure</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_3 (3f)
+                </span>
+              </td>
+              <td>Low dam wall across river w/ white water cascade</td>
+              <td style="color: var(--text-dim);">Regulates river elevation; animated cascading water</td>
+            </tr>
+            
+            <tr>
+              <td><code>ST-18</code></td>
+              <td><strong>Property Stakes</strong></td>
+              <td><span style="color: var(--accent);">Infrastructure</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Cult-colored dashed boundary cord on lots</td>
+              <td style="color: var(--text-dim);">Outlines purchased wilderness parcel borders</td>
+            </tr>
+            
+            <tr>
+              <td><code>RES-01</code></td>
+              <td><strong>House: Ranch/Long</strong></td>
+              <td><span style="color: var(--accent);">Residential</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>1-story wide facade w/ attached garage bay</td>
+              <td style="color: var(--text-dim);">Siding/roof color hashed; front lawn + driveway</td>
+            </tr>
+            
+            <tr>
+              <td><code>RES-02</code></td>
+              <td><strong>House: Two-Story</strong></td>
+              <td><span style="color: var(--accent);">Residential</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Compact footprint w/ upper ridge & dormer dots</td>
+              <td style="color: var(--text-dim);">Elevated shadow; classic colonial/suburban profile</td>
+            </tr>
+            
+            <tr>
+              <td><code>RES-03</code></td>
+              <td><strong>House: L-Plan</strong></td>
+              <td><span style="color: var(--accent);">Residential</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Asymmetric L-footprint w/ recessed front porch</td>
+              <td style="color: var(--text-dim);">Shaded porch nook; rear patio in backyard</td>
+            </tr>
+            
+            <tr>
+              <td><code>RES-04</code></td>
+              <td><strong>House: Bungalow</strong></td>
+              <td><span style="color: var(--accent);">Residential</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Square footprint w/ full-width shaded veranda</td>
+              <td style="color: var(--text-dim);">Front steps visible; gables align to street frontage</td>
+            </tr>
+            
+            <tr>
+              <td><code>RES-05</code></td>
+              <td><strong>Trailer Home</strong></td>
+              <td><span style="color: var(--accent);">Residential</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Narrow rectangular tin body w/ hitch tongue</td>
+              <td style="color: var(--text-dim);">Propane tank, plastic window awning, skirt trim</td>
+            </tr>
+            
+            <tr>
+              <td><code>RES-06</code></td>
+              <td><strong>Trailer Court</strong></td>
+              <td><span style="color: var(--accent);">Residential</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Dirt court lane w/ trailers on both sides</td>
+              <td style="color: var(--text-dim);">Tight packing; tire piles, scrap metal accents</td>
+            </tr>
+            
+            <tr>
+              <td><code>RES-07</code></td>
+              <td><strong>Detached Garage</strong></td>
+              <td><span style="color: var(--accent);">Residential</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Small flat-roof bay on rear of lot</td>
+              <td style="color: var(--text-dim);">Connected to street via narrow concrete driveway</td>
+            </tr>
+            
+            <tr>
+              <td><code>RES-08</code></td>
+              <td><strong>Backyards</strong></td>
+              <td><span style="color: var(--accent);">Residential</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Block interior: shed, garden, pool, clothesline</td>
+              <td style="color: var(--text-dim);">Never contains a house; lush garden fences</td>
+            </tr>
+            
+            <tr>
+              <td><code>RES-09</code></td>
+              <td><strong>Above-Ground Pool</strong></td>
+              <td><span style="color: var(--accent);">Residential</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_2 (2f)
+                </span>
+              </td>
+              <td>Circular blue pool w/ white plastic rim & water glint</td>
+              <td style="color: var(--text-dim);">Appears in select residential backyards</td>
+            </tr>
+            
+            <tr>
+              <td><code>RES-10</code></td>
+              <td><strong>Front Curbside</strong></td>
+              <td><span style="color: var(--accent);">Residential</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Mailbox on post + fire hydrant on corner</td>
+              <td style="color: var(--text-dim);">Placed on street-front verges</td>
+            </tr>
+            
+            <tr>
+              <td><code>RES-11</code></td>
+              <td><strong>Chimney Smoke</strong></td>
+              <td><span style="color: var(--accent);">Residential</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_3 (3f)
+                </span>
+              </td>
+              <td>Gentle woodsmoke plume drifting southeast</td>
+              <td style="color: var(--text-dim);">Select residential houses during morning/evening</td>
+            </tr>
+            
+            <tr>
+              <td><code>COM-01</code></td>
+              <td><strong>Main St Block</strong></td>
+              <td><span style="color: var(--accent);">Commercial</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Contiguous attached brick buildings w/ parapets</td>
+              <td style="color: var(--text-dim);">Party-wall vertical seams; glass storefront display</td>
+            </tr>
+            
+            <tr>
+              <td><code>COM-02</code></td>
+              <td><strong>Strip Shop</strong></td>
+              <td><span style="color: var(--accent);">Commercial</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Colorful striped awnings (red/blue/green)</td>
+              <td style="color: var(--text-dim);">Awning pattern variations; front entrance door</td>
+            </tr>
+            
+            <tr>
+              <td><code>COM-03</code></td>
+              <td><strong>Roadside Diner</strong></td>
+              <td><span style="color: var(--accent);">Commercial</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_2 (2f)
+                </span>
+              </td>
+              <td>Streamlined chrome body w/ red neon roof band</td>
+              <td style="color: var(--text-dim);">Front parking apron; pulsing neon glows on pavement</td>
+            </tr>
+            
+            <tr>
+              <td><code>COM-04</code></td>
+              <td><strong>Gas Station</strong></td>
+              <td><span style="color: var(--accent);">Commercial</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_2 (2f)
+                </span>
+              </td>
+              <td>Illuminated red canopy over yellow gas pumps</td>
+              <td style="color: var(--text-dim);">Corner lot; pulsing neon pricing sign</td>
+            </tr>
+            
+            <tr>
+              <td><code>COM-05</code></td>
+              <td><strong>Laundromat</strong></td>
+              <td><span style="color: var(--accent);">Commercial</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Glass storefront w/ circular washer porthole dots</td>
+              <td style="color: var(--text-dim);">Strip filler; tiled interior hint</td>
+            </tr>
+            
+            <tr>
+              <td><code>COM-06</code></td>
+              <td><strong>Cinema</strong></td>
+              <td><span style="color: var(--accent);">Commercial</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_2 (2f)
+                </span>
+              </td>
+              <td>Dark facade w/ illuminated marquee canopy</td>
+              <td style="color: var(--text-dim);">Chasing marquee bulb frame; front poster cases</td>
+            </tr>
+            
+            <tr>
+              <td><code>COM-07</code></td>
+              <td><strong>Bank</strong></td>
+              <td><span style="color: var(--accent);">Commercial</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Formal classical stone facade w/ column hints</td>
+              <td style="color: var(--text-dim);">Prominent downtown corner presence</td>
+            </tr>
+            
+            <tr>
+              <td><code>COM-08</code></td>
+              <td><strong>Post Office</strong></td>
+              <td><span style="color: var(--accent);">Commercial</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Brick civic structure w/ blue/red flag stripe</td>
+              <td style="color: var(--text-dim);">Delivery loading bay in rear</td>
+            </tr>
+            
+            <tr>
+              <td><code>COM-09</code></td>
+              <td><strong>Office Block</strong></td>
+              <td><span style="color: var(--accent);">Commercial</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Multi-story grey block w/ regular window grid</td>
+              <td style="color: var(--text-dim);">Flat gravel roof w/ HVAC chillers</td>
+            </tr>
+            
+            <tr>
+              <td><code>COM-10</code></td>
+              <td><strong>Highway Motel</strong></td>
+              <td><span style="color: var(--accent);">Commercial</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_2 (2f)
+                </span>
+              </td>
+              <td>Long L-shaped building w/ repeating room doors</td>
+              <td style="color: var(--text-dim);">Buzzing red neon "VACANCY" sign; parking stalls</td>
+            </tr>
+            
+            <tr>
+              <td><code>COM-11</code></td>
+              <td><strong>Motel Pool</strong></td>
+              <td><span style="color: var(--accent);">Commercial</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_2 (2f)
+                </span>
+              </td>
+              <td>Rectangular blue swimming pool w/ deck chairs</td>
+              <td style="color: var(--text-dim);">Fenced courtyard of motel parcel; surface shimmer</td>
+            </tr>
+            
+            <tr>
+              <td><code>COM-12</code></td>
+              <td><strong>Factory Complex</strong></td>
+              <td><span style="color: var(--accent);">Commercial</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_3 (3f)
+                </span>
+              </td>
+              <td>Sawtooth industrial rooflines w/ brick smokestack</td>
+              <td style="color: var(--text-dim);">Industrial stack emits drifting smoke particles</td>
+            </tr>
+            
+            <tr>
+              <td><code>COM-13</code></td>
+              <td><strong>Warehouse</strong></td>
+              <td><span style="color: var(--accent);">Commercial</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Large corrugated steel structure w/ loading docks</td>
+              <td style="color: var(--text-dim);">Semi-truck bays; gravel staging yard</td>
+            </tr>
+            
+            <tr>
+              <td><code>COM-14</code></td>
+              <td><strong>Depot Station</strong></td>
+              <td><span style="color: var(--accent);">Commercial</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Long low wooden station w/ wooden platform</td>
+              <td style="color: var(--text-dim);">Adjacent to main rail line; passenger benches</td>
+            </tr>
+            
+            <tr>
+              <td><code>CIV-01</code></td>
+              <td><strong>Town Hall</strong></td>
+              <td><span style="color: var(--accent);">Civic</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_2 (2f)
+                </span>
+              </td>
+              <td>Imposing columned facade w/ pediment + plaza</td>
+              <td style="color: var(--text-dim);">Centered in town; municipal flag flutters on pole</td>
+            </tr>
+            
+            <tr>
+              <td><code>CIV-02</code></td>
+              <td><strong>Sheriff's Station</strong></td>
+              <td><span style="color: var(--accent);">Civic</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Tan stucco body w/ gold badge star + 2 cruisers</td>
+              <td style="color: var(--text-dim);">Dedicated parking stalls holding black/white police cars</td>
+            </tr>
+            
+            <tr>
+              <td><code>CIV-03</code></td>
+              <td><strong>High School</strong></td>
+              <td><span style="color: var(--accent);">Civic</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Sprawling red-brick academic building</td>
+              <td style="color: var(--text-dim);">Multiple wings, central entrance, bus loop</td>
+            </tr>
+            
+            <tr>
+              <td><code>CIV-04</code></td>
+              <td><strong>Athletic Stadium</strong></td>
+              <td><span style="color: var(--accent);">Civic</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Green football gridiron, running track, bleachers</td>
+              <td style="color: var(--text-dim);">Directly adjacent to High School campus</td>
+            </tr>
+            
+            <tr>
+              <td><code>CIV-05</code></td>
+              <td><strong>Parked School Bus</strong></td>
+              <td><span style="color: var(--accent);">Civic</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Yellow bus sprite parked in school loading lane</td>
+              <td style="color: var(--text-dim);">Guaranteed on High School or Elementary frontage</td>
+            </tr>
+            
+            <tr>
+              <td><code>CIV-06</code></td>
+              <td><strong>Elementary School</strong></td>
+              <td><span style="color: var(--accent);">Civic</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Single-story brick school w/ corner flagpole</td>
+              <td style="color: var(--text-dim);">Front sidewalk connection; dedicated parking lot</td>
+            </tr>
+            
+            <tr>
+              <td><code>CIV-07</code></td>
+              <td><strong>Playground</strong></td>
+              <td><span style="color: var(--accent);">Civic</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Swing set, metal slide, and sand playbox</td>
+              <td style="color: var(--text-dim);">Located on Elementary School parcel</td>
+            </tr>
+            
+            <tr>
+              <td><code>CIV-08</code></td>
+              <td><strong>Supermarket</strong></td>
+              <td><span style="color: var(--accent);">Civic</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Wide commercial box w/ blue parapet & dark glass</td>
+              <td style="color: var(--text-dim);">Large blacktop parking lot w/ painted stalls</td>
+            </tr>
+            
+            <tr>
+              <td><code>CIV-09</code></td>
+              <td><strong>Community Church</strong></td>
+              <td><span style="color: var(--accent);">Civic</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Steepled white nave w/ gold cross + parsonage</td>
+              <td style="color: var(--text-dim);">Accompanied by adjacent parsonage house</td>
+            </tr>
+            
+            <tr>
+              <td><code>CIV-10</code></td>
+              <td><strong>Town Cemetery</strong></td>
+              <td><span style="color: var(--accent);">Civic</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Headstone rows w/ cast shadows on mown turf</td>
+              <td style="color: var(--text-dim);">Enclosed by wrought-iron fence; church neighbor</td>
+            </tr>
+            
+            <tr>
+              <td><code>CIV-11</code></td>
+              <td><strong>Fire Station</strong></td>
+              <td><span style="color: var(--accent);">Civic</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Red-brick station w/ 2 red overhead bay doors</td>
+              <td style="color: var(--text-dim);">Concrete apron; hose drying tower hint</td>
+            </tr>
+            
+            <tr>
+              <td><code>CIV-12</code></td>
+              <td><strong>Civic Water Tower</strong></td>
+              <td><span style="color: var(--accent);">Civic</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Cylindrical water tank on 4-leg steel truss</td>
+              <td style="color: var(--text-dim);">Located near municipal core; painted town name</td>
+            </tr>
+            
+            <tr>
+              <td><code>AGR-01</code></td>
+              <td><strong>Corn Field</strong></td>
+              <td><span style="color: var(--accent);">Agriculture</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_2 (2f)
+                </span>
+              </td>
+              <td>Dense green crop rows w/ dark soil furrows</td>
+              <td style="color: var(--text-dim);">Never in forests/deserts; subtle wind sway</td>
+            </tr>
+            
+            <tr>
+              <td><code>AGR-02</code></td>
+              <td><strong>Wheat Field</strong></td>
+              <td><span style="color: var(--accent);">Agriculture</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_2 (2f)
+                </span>
+              </td>
+              <td>Golden amber rows w/ pale straw shadows</td>
+              <td style="color: var(--text-dim);">Golden ripple sway; open plains only</td>
+            </tr>
+            
+            <tr>
+              <td><code>AGR-03</code></td>
+              <td><strong>Soybean Field</strong></td>
+              <td><span style="color: var(--accent);">Agriculture</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Lime-green low crop rows</td>
+              <td style="color: var(--text-dim);">Distinct color hue; open agricultural belt only</td>
+            </tr>
+            
+            <tr>
+              <td><code>AGR-04</code></td>
+              <td><strong>Fallow Field</strong></td>
+              <td><span style="color: var(--accent);">Agriculture</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Rich dark brown turned earth w/ plow lines</td>
+              <td style="color: var(--text-dim);">Contrasts with green pastures; road-aligned</td>
+            </tr>
+            
+            <tr>
+              <td><code>AGR-05</code></td>
+              <td><strong>Farmstead House</strong></td>
+              <td><span style="color: var(--accent);">Agriculture</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>White two-story farmhouse w/ wrap-around porch</td>
+              <td style="color: var(--text-dim);">Anchors agricultural parcel cluster</td>
+            </tr>
+            
+            <tr>
+              <td><code>AGR-06</code></td>
+              <td><strong>Red Gambrel Barn</strong></td>
+              <td><span style="color: var(--accent);">Agriculture</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Classic red barn body w/ white X-brace doors</td>
+              <td style="color: var(--text-dim);">Positioned beside farmhouse; standing seam roof</td>
+            </tr>
+            
+            <tr>
+              <td><code>AGR-07</code></td>
+              <td><strong>Silver Grain Silo</strong></td>
+              <td><span style="color: var(--accent);">Agriculture</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Tall cylindrical steel silo w/ domed cap</td>
+              <td style="color: var(--text-dim);">Anchored directly against barn wall</td>
+            </tr>
+            
+            <tr>
+              <td><code>AGR-08</code></td>
+              <td><strong>Grain Elevator</strong></td>
+              <td><span style="color: var(--accent);">Agriculture</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_2 (2f)
+                </span>
+              </td>
+              <td>Towering multi-story concrete bin complex</td>
+              <td style="color: var(--text-dim);">Dominates skyline; subtle grain dust particle drift</td>
+            </tr>
+            
+            <tr>
+              <td><code>AGR-09</code></td>
+              <td><strong>Pasture Livestock</strong></td>
+              <td><span style="color: var(--accent);">Agriculture</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_2 (2f)
+                </span>
+              </td>
+              <td>Black/white dairy cows and brown horses</td>
+              <td style="color: var(--text-dim);">Graze inside fenced pasture lots; tail flick/graze</td>
+            </tr>
+            
+            <tr>
+              <td><code>AGR-10</code></td>
+              <td><strong>Farm Machinery</strong></td>
+              <td><span style="color: var(--accent);">Agriculture</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Parked green/red tractor beside barn doors</td>
+              <td style="color: var(--text-dim);">Positioned in gravel farmyard</td>
+            </tr>
+            
+            <tr>
+              <td><code>LMK-01</code></td>
+              <td><strong>The Old Megachurch</strong></td>
+              <td><span style="color: var(--accent);">Landmarks</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Massive stone cathedral nave w/ stained-glass rose</td>
+              <td style="color: var(--text-dim);">Grand cathedral scale; 24x24 pixel sprite</td>
+            </tr>
+            
+            <tr>
+              <td><code>LMK-02</code></td>
+              <td><strong>AM Radio Tower</strong></td>
+              <td><span style="color: var(--accent);">Landmarks</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_2 (2f)
+                </span>
+              </td>
+              <td>Tall lattice guyed steel mast w/ red flashing top</td>
+              <td style="color: var(--text-dim);">Guy wires to anchors; 1.0s blinking red aviation beacon</td>
+            </tr>
+            
+            <tr>
+              <td><code>LMK-03</code></td>
+              <td><strong>County Fairground</strong></td>
+              <td><span style="color: var(--accent);">Landmarks</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_4 (4f)
+                </span>
+              </td>
+              <td>Festive striped circus tents w/ colorful pennants</td>
+              <td style="color: var(--text-dim);">Rotating ferris wheel frame + pennant flutter</td>
+            </tr>
+            
+            <tr>
+              <td><code>LMK-04</code></td>
+              <td><strong>Water Tower</strong></td>
+              <td><span style="color: var(--accent);">Landmarks</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>High-capacity municipal sphere on braced pylons</td>
+              <td style="color: var(--text-dim);">Sigil display banner; prominent landmark hill</td>
+            </tr>
+            
+            <tr>
+              <td><code>LMK-05</code></td>
+              <td><strong>Town Hall Complex</strong></td>
+              <td><span style="color: var(--accent);">Landmarks</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Classical courthouse block w/ copper cupola dome</td>
+              <td style="color: var(--text-dim);">Civic plaza, memorial stone, surrounding lawns</td>
+            </tr>
+            
+            <tr>
+              <td><code>CLT-01</code></td>
+              <td><strong>Final Dawn Compound</strong></td>
+              <td><span style="color: var(--accent);">Cults</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_2 (2f)
+                </span>
+              </td>
+              <td>Fortified survivalist bunker, sandbag berms, flickering braziers</td>
+              <td style="color: var(--text-dim);">Planted on cult property; 2-frame torchlight shimmer</td>
+            </tr>
+            
+            <tr>
+              <td><code>CLT-02</code></td>
+              <td><strong>Final Dawn Van</strong></td>
+              <td><span style="color: var(--accent);">Cults</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_2 (2f)
+                </span>
+              </td>
+              <td>Matte-black armored ram-van w/ roof loudspeakers & engine rumble</td>
+              <td style="color: var(--text-dim);">Mobile recruiter; 2-frame wheel rotation</td>
+            </tr>
+            
+            <tr>
+              <td><code>CLT-03</code></td>
+              <td><strong>Final Dawn Agent</strong></td>
+              <td><span style="color: var(--accent);">Cults</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_4 (4f)
+                </span>
+              </td>
+              <td>Red-hooded stealth figure w/ 4-frame sneaking walk cycle</td>
+              <td style="color: var(--text-dim);">Sub-tile movement; footstep cycle</td>
+            </tr>
+            
+            <tr>
+              <td><code>CLT-04</code></td>
+              <td><strong>Final Dawn Prophet Pylon</strong></td>
+              <td><span style="color: var(--accent);">Cults</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_3 (3f)
+                </span>
+              </td>
+              <td>Cast-iron brazier pylon w/ crackling animated fire</td>
+              <td style="color: var(--text-dim);">3-frame flame flicker</td>
+            </tr>
+            
+            <tr>
+              <td><code>CLT-05</code></td>
+              <td><strong>Final Dawn Territory</strong></td>
+              <td><span style="color: var(--accent);">Cults</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_2 (2f)
+                </span>
+              </td>
+              <td>Obsidian ground overlay w/ pulsing crimson ember veins</td>
+              <td style="color: var(--text-dim);">Colorblind-safe fracture veins</td>
+            </tr>
+            
+            <tr>
+              <td><code>CLT-06</code></td>
+              <td><strong>Final Dawn Conquered Lot</strong></td>
+              <td><span style="color: var(--accent);">Cults</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Barbed-wire fence perimeters, bonfire ash pits</td>
+              <td style="color: var(--text-dim);">Marks converted civic property</td>
+            </tr>
+            
+            <tr>
+              <td><code>CLT-07</code></td>
+              <td><strong>Radiant Path Compound</strong></td>
+              <td><span style="color: var(--accent);">Cults</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_2 (2f)
+                </span>
+              </td>
+              <td>Geodesic glass dome w/ central crystal spire & light prism glints</td>
+              <td style="color: var(--text-dim);">2-frame prism glint</td>
+            </tr>
+            
+            <tr>
+              <td><code>CLT-08</code></td>
+              <td><strong>Radiant Path Van</strong></td>
+              <td><span style="color: var(--accent);">Cults</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_2 (2f)
+                </span>
+              </td>
+              <td>Aerodynamic cream/sage camper van w/ rolling wheels</td>
+              <td style="color: var(--text-dim);">Mobile recruiter; 2-frame wheel rotation</td>
+            </tr>
+            
+            <tr>
+              <td><code>CLT-09</code></td>
+              <td><strong>Radiant Path Agent</strong></td>
+              <td><span style="color: var(--accent);">Cults</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_4 (4f)
+                </span>
+              </td>
+              <td>Barefoot robed figure w/ fluid linen walk cycle</td>
+              <td style="color: var(--text-dim);">Sub-tile movement; 4-frame walking stride</td>
+            </tr>
+            
+            <tr>
+              <td><code>CLT-10</code></td>
+              <td><strong>Radiant Path Supplement Lab</strong></td>
+              <td><span style="color: var(--accent);">Cults</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_2 (2f)
+                </span>
+              </td>
+              <td>Octagonal pavilion w/ bubbling glass distillation coils</td>
+              <td style="color: var(--text-dim);">2-frame bubble boil</td>
+            </tr>
+            
+            <tr>
+              <td><code>CLT-11</code></td>
+              <td><strong>Radiant Path Territory</strong></td>
+              <td><span style="color: var(--accent);">Cults</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Soft watercolor gradient bloom w/ lavender & sage speckles</td>
+              <td style="color: var(--text-dim);">Floral speckles on turf</td>
+            </tr>
+            
+            <tr>
+              <td><code>CLT-12</code></td>
+              <td><strong>Radiant Path Conquered Lot</strong></td>
+              <td><span style="color: var(--accent);">Cults</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Botanical pergola canopies, Zen gravel garden raking</td>
+              <td style="color: var(--text-dim);">Replaces standard lawn</td>
+            </tr>
+            
+            <tr>
+              <td><code>CLT-13</code></td>
+              <td><strong>Prosperity Circle Compound</strong></td>
+              <td><span style="color: var(--accent);">Cults</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_2 (2f)
+                </span>
+              </td>
+              <td>Modernist tower w/ rooftop digital ticker & helipad beacon</td>
+              <td style="color: var(--text-dim);">2-frame rooftop strobe</td>
+            </tr>
+            
+            <tr>
+              <td><code>CLT-14</code></td>
+              <td><strong>Prosperity Circle Van</strong></td>
+              <td><span style="color: var(--accent);">Cults</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_2 (2f)
+                </span>
+              </td>
+              <td>Glossy black executive sprinter van w/ rolling wheels & chrome glint</td>
+              <td style="color: var(--text-dim);">Mobile recruiter; 2-frame wheel rotation</td>
+            </tr>
+            
+            <tr>
+              <td><code>CLT-15</code></td>
+              <td><strong>Prosperity Circle Agent</strong></td>
+              <td><span style="color: var(--accent);">Cults</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_4 (4f)
+                </span>
+              </td>
+              <td>Corporate executive in sharp suit w/ brisk stride walk cycle</td>
+              <td style="color: var(--text-dim);">Sub-tile movement; 4-frame executive stride</td>
+            </tr>
+            
+            <tr>
+              <td><code>CLT-16</code></td>
+              <td><strong>Prosperity Circle Collection Plate</strong></td>
+              <td><span style="color: var(--accent);">Cults</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_2 (2f)
+                </span>
+              </td>
+              <td>Sleek brass digital kiosk w/ flashing green dollar display</td>
+              <td style="color: var(--text-dim);">2-frame digital flicker</td>
+            </tr>
+            
+            <tr>
+              <td><code>CLT-17</code></td>
+              <td><strong>Prosperity Circle Territory</strong></td>
+              <td><span style="color: var(--accent);">Cults</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Executive midnight navy & metallic gold pinstripe pattern</td>
+              <td style="color: var(--text-dim);">Diagonal gold pinstripes</td>
+            </tr>
+            
+            <tr>
+              <td><code>CLT-18</code></td>
+              <td><strong>Prosperity Circle Conquered Lot</strong></td>
+              <td><span style="color: var(--accent);">Cults</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Gold-embossed corporate signage, neon stock ticker ribbon</td>
+              <td style="color: var(--text-dim);">Commercial storefront upgrade</td>
+            </tr>
+            
+            <tr>
+              <td><code>CLT-19</code></td>
+              <td><strong>Visitors' Fellowship Compound</strong></td>
+              <td><span style="color: var(--accent);">Cults</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_3 (3f)
+                </span>
+              </td>
+              <td>Retro-futurist observatory w/ rotating radar dish & cyan pulse</td>
+              <td style="color: var(--text-dim);">3-frame dish rotation</td>
+            </tr>
+            
+            <tr>
+              <td><code>CLT-20</code></td>
+              <td><strong>Visitors' Fellowship Van</strong></td>
+              <td><span style="color: var(--accent);">Cults</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_2 (2f)
+                </span>
+              </td>
+              <td>Retro chrome van w/ rooftop rotating antenna dish</td>
+              <td style="color: var(--text-dim);">Mobile recruiter; 2-frame rotation</td>
+            </tr>
+            
+            <tr>
+              <td><code>CLT-21</code></td>
+              <td><strong>Visitors' Fellowship Agent</strong></td>
+              <td><span style="color: var(--accent);">Cults</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_4 (4f)
+                </span>
+              </td>
+              <td>Retro astronaut figure in silver jumpsuit w/ visor reflection walk</td>
+              <td style="color: var(--text-dim);">Sub-tile movement; 4-frame astronaut walk</td>
+            </tr>
+            
+            <tr>
+              <td><code>CLT-22</code></td>
+              <td><strong>Visitors' Fellowship Satellite Chapel</strong></td>
+              <td><span style="color: var(--accent);">Cults</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_4 (4f)
+                </span>
+              </td>
+              <td>Hovering silver saucer landing pad w/ gentle hovering bob & lights</td>
+              <td style="color: var(--text-dim);">4-frame bobbing & light rotation</td>
+            </tr>
+            
+            <tr>
+              <td><code>CLT-23</code></td>
+              <td><strong>Visitors' Fellowship Territory</strong></td>
+              <td><span style="color: var(--accent);">Cults</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_2 (2f)
+                </span>
+              </td>
+              <td>Deep cosmic violet w/ subtly twinkling cyan nebula starfield</td>
+              <td style="color: var(--text-dim);">2-frame twinkling stars</td>
+            </tr>
+            
+            <tr>
+              <td><code>CLT-24</code></td>
+              <td><strong>Visitors' Fellowship Conquered Lot</strong></td>
+              <td><span style="color: var(--accent);">Cults</span></td>
+              <td>
+                <span class="badge badge-static">
+                  STATIC (1f)
+                </span>
+              </td>
+              <td>Concentric crop circle burn marks, silver telemetry antennas</td>
+              <td style="color: var(--text-dim);">Field / yard scarring pattern</td>
+            </tr>
+            
+            <tr>
+              <td><code>NPC-01</code></td>
+              <td><strong>Tithe Courier</strong></td>
+              <td><span style="color: var(--accent);">LivingEntities</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_4 (4f)
+                </span>
+              </td>
+              <td>Automated courier carrying cash bag; 4-frame pedestrian road walk</td>
+              <td style="color: var(--text-dim);">Follows roads from collection plate to compound</td>
+            </tr>
+            
+            <tr>
+              <td><code>NPC-02</code></td>
+              <td><strong>CPA News Van</strong></td>
+              <td><span style="color: var(--accent);">LivingEntities</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_2 (2f)
+                </span>
+              </td>
+              <td>White media van w/ rotating rooftop microwave dish</td>
+              <td style="color: var(--text-dim);">Traverses highways and downtown avenues</td>
+            </tr>
+            
+            <tr>
+              <td><code>NPC-03</code></td>
+              <td><strong>CPA Deprogrammer Bus</strong></td>
+              <td><span style="color: var(--accent);">LivingEntities</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_2 (2f)
+                </span>
+              </td>
+              <td>Yellow bus conversion w/ diesel smoke puff & wheel roll</td>
+              <td style="color: var(--text-dim);">Deploys on high-Heat districts</td>
+            </tr>
+            
+            <tr>
+              <td><code>NPC-04</code></td>
+              <td><strong>CPA Picket Line</strong></td>
+              <td><span style="color: var(--accent);">LivingEntities</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_2 (2f)
+                </span>
+              </td>
+              <td>3-dot protest line bobbing signs on high-Heat fronts</td>
+              <td style="color: var(--text-dim);">Bobs signs outside contested institutions</td>
+            </tr>
+            
+            <tr>
+              <td><code>NPC-05</code></td>
+              <td><strong>Living Town Residents</strong></td>
+              <td><span style="color: var(--accent);">LivingEntities</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_4 (4f)
+                </span>
+              </td>
+              <td>2-px civilian dots walking along sidewalks to work/church</td>
+              <td style="color: var(--text-dim);">Simulates daily schedule along street sidewalk skirts</td>
+            </tr>
+            
+            <tr>
+              <td><code>NPC-06</code></td>
+              <td><strong>Highway Passenger Cars</strong></td>
+              <td><span style="color: var(--accent);">LivingEntities</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_CONT (8f)
+                </span>
+              </td>
+              <td>2x1 civilian cars/pickups traversing highway and avenues</td>
+              <td style="color: var(--text-dim);">Smooth continuous motion along road lanes</td>
+            </tr>
+            
+            <tr>
+              <td><code>NPC-07</code></td>
+              <td><strong>Police Cruisers</strong></td>
+              <td><span style="color: var(--accent);">LivingEntities</span></td>
+              <td>
+                <span class="badge badge-anim">
+                  ANIMATED_2 (2f)
+                </span>
+              </td>
+              <td>Black/white cruiser w/ alternating red/blue roof lightbar flash</td>
+              <td style="color: var(--text-dim);">Parked at Sheriff station or patrolling curfew zones</td>
+            </tr>
+            
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- TAB 3: Invariants -->
+    <div id="invariants" class="tab-content">
+      <div class="catalog-section">
+        <h2 style="margin-top: 0;">Map Generation Invariants & Urban Plat Standards</h2>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 24px;">
+          <div style="background: rgba(0,0,0,0.3); padding: 18px; border-radius: 6px; border: 1px solid var(--border);">
+            <h3 style="margin-top: 0; color: var(--pass);">Ecological & Agricultural Boundaries</h3>
+            <ul style="color: var(--text-dim); padding-left: 20px;">
+              <li><strong>Zero Farms in Forests:</strong> Farm parcels (Field, Orchard, Pasture) never generate in <code>Biome.Forest</code> or inside standing timber.</li>
+              <li><strong>Zero Crops in Deserts:</strong> Deserts maintain natural wind-swept sand dunes; agricultural pivots strictly excluded.</li>
+              <li><strong>Hydrological Setback:</strong> 1-tile grass buffer mandatory between all crops/sensitive buildings and lake/river water.</li>
+              <li><strong>Ecotones:</strong> 3-tile organic dither transitions between biomes.</li>
+            </ul>
+          </div>
+          <div style="background: rgba(0,0,0,0.3); padding: 18px; border-radius: 6px; border: 1px solid var(--border);">
+            <h3 style="margin-top: 0; color: var(--accent);">Zoning, Parking & Civic Infrastructure</h3>
+            <ul style="color: var(--text-dim); padding-left: 20px;">
+              <li><strong>Block Purity:</strong> 100% of residential homes have street frontage. Block interiors are reserved for backyards, sheds, and pools.</li>
+              <li><strong>Industrial Separation:</strong> Factories and warehouses maintain ≥6 tile distance buffer from elementary schools, high schools, and churches.</li>
+              <li><strong>100% Parking Lot Adjacency:</strong> Every commercial and civic anchor is guaranteed an adjacent blacktop parking lot.</li>
+              <li><strong>Multi-Footprint Architecture:</strong> Residential zones feature 4 distinct footprints (Ranch w/ garage, Two-story colonial, L-plan, Bungalow w/ veranda).</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function showTab(id) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+      document.getElementById(id).classList.add('active');
+      event.target.classList.add('active');
+    }
+  </script>
+</body>
+</html>

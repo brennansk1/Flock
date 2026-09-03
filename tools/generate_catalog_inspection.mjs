@@ -22,6 +22,13 @@ import {
   Districts,
   CULT_ICONS_16,
   drawCultAsset16,
+  drawRockOutcrop,
+  drawBrushPocket,
+  drawCountryTree,
+  drawHouse,
+  drawTrailerHome,
+  drawLotBuilding,
+  drawVerge,
   hexToRgb,
   shade,
 } from "../packages/sim/dist/index.js";
@@ -200,7 +207,7 @@ function findTileMatching(world, predicate) {
 }
 
 // Blank Background Studio Renderer
-function createStudioRender(setupFn, scale = 10) {
+function createStudioRender(setupFn, scale = 10, painter = null, isMultiTile = false) {
   const sWorld = generateWorld(99, 16, 16);
   // Clear to neutral studio void
   for (let i = 0; i < sWorld.terrain.length; i++) {
@@ -228,10 +235,10 @@ function createStudioRender(setupFn, scale = 10) {
   const out = Buffer.alloc(W * H * 4);
   const slate = [19, 22, 31];
 
-  const xMin = Math.floor(W * 0.28);
-  const xMax = Math.ceil(W * 0.72);
-  const yMin = Math.floor(H * 0.28);
-  const yMax = Math.ceil(H * 0.72);
+  const xMin = isMultiTile ? Math.floor(W * 0.32) : Math.floor(W * 0.28);
+  const xMax = isMultiTile ? Math.ceil(W * 0.98) : Math.ceil(W * 0.72);
+  const yMin = isMultiTile ? 0 : Math.floor(H * 0.28);
+  const yMax = isMultiTile ? H : Math.ceil(H * 0.72);
 
   for (let y = 0; y < H; y++) {
     for (let x = 0; x < W; x++) {
@@ -248,6 +255,26 @@ function createStudioRender(setupFn, scale = 10) {
         out[idx + 3] = 255;
       }
     }
+  }
+
+  // If a post painter is provided, draw custom features directly on the logical 24x24 grid (view is 3x3 tiles, each 8px)
+  if (painter) {
+    const putLogical = (lx, ly, col) => {
+      // lx, ly in [0..23], viewport is 3x3 tiles centered on (8,8) which is [8..15, 8..15]
+      if (lx < 0 || ly < 0 || lx >= 24 || ly >= 24) return;
+      for (let dy = 0; dy < scale; dy++) {
+        const py = ly * scale + dy;
+        for (let dx = 0; dx < scale; dx++) {
+          const px = lx * scale + dx;
+          const idx = (py * W + px) * 4;
+          out[idx] = col[0];
+          out[idx + 1] = col[1];
+          out[idx + 2] = col[2];
+          out[idx + 3] = 255;
+        }
+      }
+    };
+    painter(putLogical, scale);
   }
 
   return { width: W, height: H, rgba: out };
@@ -274,246 +301,920 @@ export async function generateAllCatalogImages() {
       w.terrain[t] = Terrain.Citizen;
       w.pop[t] = 5;
     };
+    let studioPainter = null;
+    let isMultiTile = false;
 
-    switch (asset.category) {
-      case "Terrain": {
-        if (asset.id === "ENV-09" || asset.id === "ENV-10" || asset.id === "ENV-11" || asset.id === "ENV-12") {
-          targetWorld = desertWorld;
-          targetRgba = desertRgba;
-          mapTile = findTileMatching(desertWorld, (w, t) => w.biome[t] === 1);
-        } else if (asset.id === "ENV-06" || asset.id === "ENV-07" || asset.id === "ENV-08") {
-          mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Lake);
-        } else if (asset.id === "ENV-04" || asset.id === "ENV-05") {
-          mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Woods);
-        } else {
-          mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Grass);
-        }
-
+    switch (asset.id) {
+      // ---- Category A: Terrain (ENV-01 to ENV-20) ----
+      case "ENV-01": // Temperate Grass
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Grass);
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Grass; };
+        break;
+      case "ENV-02": // Rock Outcrops
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Grass && (t % 17 === 0));
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Grass; };
+        studioPainter = (put) => drawRockOutcrop(8, 8, put, 0); // Shore boulders (grey)
+        break;
+      case "ENV-03": // Brush Pockets
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Grass && (t % 5 === 0));
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Grass; };
+        studioPainter = (put) => drawBrushPocket(8, 8, put, 0); // Berry brambles
+        break;
+      case "ENV-04": // Country Trees
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Grass && (t % 37 === 0));
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Grass; };
+        studioPainter = (put) => drawCountryTree(8, 8, put, 0, "summer"); // Standalone Country Tree w/ trunk & shadow
+        break;
+      case "ENV-05": // Standing Woods
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Woods && w.terrain[t - 1] === Terrain.Woods && w.terrain[t + 1] === Terrain.Woods);
         studioSetup = (w, sim, t) => {
-          if (asset.id.includes("ENV-06") || asset.id.includes("ENV-07") || asset.id.includes("ENV-08")) {
-            w.terrain[t] = Terrain.Lake;
-          } else if (asset.id.includes("ENV-04") || asset.id.includes("ENV-05")) {
-            w.terrain[t] = Terrain.Woods;
-          } else if (asset.id.includes("ENV-09") || asset.id.includes("ENV-10")) {
-            w.biome[t] = 1; // Desert
-            w.terrain[t] = Terrain.Grass;
-          } else {
-            w.terrain[t] = Terrain.Grass;
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              w.terrain[t + dy * 16 + dx] = Terrain.Woods;
+            }
           }
         };
         break;
-      }
-
-      case "Infrastructure": {
-        if (asset.id === "ST-01") {
-          mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Road && (w.terrain[t + 64] === Terrain.Road || w.terrain[t - 64] === Terrain.Road));
-          studioSetup = (w, sim, t) => {
-            w.terrain[t] = Terrain.Road;
-            w.terrain[t + 16] = Terrain.Road; // 4-lane highway pair
-          };
-        } else if (asset.id === "ST-04") {
-          mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Dirt);
-          studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Dirt; };
-        } else if (asset.id === "ST-10" || asset.id === "ST-11" || asset.id === "ST-12" || asset.id === "ST-13") {
-          mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Rail);
-          studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Rail; };
-        } else if (asset.id === "ST-17") {
-          mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.Dam);
-          studioSetup = (w, sim, t) => { w.lot[t] = Lot.Dam; w.terrain[t] = Terrain.Citizen; w.pop[t] = 5; };
-        } else {
-          mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Road);
-          studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Road; };
-        }
-        break;
-      }
-
-      case "Residential": {
-        if (asset.id === "RES-05" || asset.id === "RES-06") {
-          mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.Trailer || w.district[t] === Districts.Trailer);
-          studioSetup = (w, sim, t) => { w.lot[t] = Lot.Trailer; w.district[t] = Districts.Trailer; w.terrain[t] = Terrain.Citizen; w.pop[t] = 3; };
-        } else {
-          mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Citizen && w.pop[t] >= 3 && w.lot[t] === 0);
-          studioSetup = (w, sim, t) => {
-            w.terrain[t] = Terrain.Citizen;
-            w.district[t] = Districts.Suburbs;
-            w.pop[t] = 5;
-          };
-        }
-        break;
-      }
-
-      case "Commercial": {
-        const lotMap = {
-          "COM-01": Lot.Shop,
-          "COM-02": Lot.Shop,
-          "COM-03": Lot.Diner,
-          "COM-04": Lot.GasStation,
-          "COM-05": Lot.Shop,
-          "COM-06": Lot.Cinema,
-          "COM-07": Lot.Bank,
-          "COM-08": Lot.PostOffice,
-          "COM-09": Lot.Office,
-          "COM-10": Lot.Motel,
-          "COM-11": Lot.Motel,
-          "COM-12": Lot.Factory,
-          "COM-13": Lot.Warehouse,
-          "COM-14": Lot.Depot,
-        };
-        const targetLot = lotMap[asset.id] || Lot.Shop;
-        mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === targetLot);
-        if (mapTile === -1) {
-          mapTile = findTileMatching(mainWorld, (w, t) => w.district[t] === Districts.Downtown && w.terrain[t] === Terrain.Citizen);
-          if (mapTile !== -1) mainWorld.lot[mapTile] = targetLot;
-        }
+      case "ENV-06": // River Reach
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Lake && w.terrain[t - 64] === Terrain.Lake && w.terrain[t + 64] === Terrain.Lake);
         studioSetup = (w, sim, t) => {
-          w.terrain[t] = Terrain.Citizen;
-          w.district[t] = Districts.Downtown;
-          w.lot[t] = targetLot;
-          w.pop[t] = 5;
+          w.terrain[t - 16] = Terrain.Lake;
+          w.terrain[t] = Terrain.Lake;
+          w.terrain[t + 16] = Terrain.Lake;
         };
         break;
-      }
-
-      case "Civic": {
-        const civicMap = {
-          "CIV-01": Lot.TownHall,
-          "CIV-02": Lot.Sheriff,
-          "CIV-03": Lot.HighSchool,
-          "CIV-04": Lot.BallField,
-          "CIV-05": Lot.School,
-          "CIV-06": Lot.School,
-          "CIV-07": Lot.Playground,
-          "CIV-08": Lot.Supermarket,
-          "CIV-09": Lot.Church,
-          "CIV-10": Lot.Cemetery,
-          "CIV-11": Lot.FireStation,
-          "CIV-12": Lot.WaterTower,
-        };
-        const targetLot = civicMap[asset.id] || Lot.Church;
-        mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === targetLot);
-        if (mapTile === -1) {
-          mapTile = findTileMatching(mainWorld, (w, t) => w.district[t] === Districts.Downtown && w.terrain[t] === Terrain.Citizen);
-          if (mapTile !== -1) mainWorld.lot[mapTile] = targetLot;
-        }
+      case "ENV-07": // Creek Tributaries
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Lake && (w.terrain[t - 1] === Terrain.Grass || w.terrain[t + 1] === Terrain.Grass));
         studioSetup = (w, sim, t) => {
-          w.terrain[t] = Terrain.Citizen;
-          w.district[t] = Districts.Downtown;
-          w.lot[t] = targetLot;
-          w.pop[t] = 5;
+          w.terrain[t - 16] = Terrain.Lake;
+          w.terrain[t] = Terrain.Lake;
+          w.terrain[t + 16] = Terrain.Lake;
+        };
+        studioPainter = (put) => {
+          put(8 + 1, 8 + 3, [142, 196, 92]);
+          put(8 + 2, 8 + 3, [142, 196, 92]);
+          put(8 + 1, 8 + 4, [92, 140, 58]);
         };
         break;
-      }
-
-      case "Agriculture": {
-        if (asset.id === "AGR-06") {
-          mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.Barn);
-          studioSetup = (w, sim, t) => { w.lot[t] = Lot.Barn; w.terrain[t] = Terrain.Citizen; w.pop[t] = 5; };
-        } else if (asset.id === "AGR-07") {
-          mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.Silo);
-          studioSetup = (w, sim, t) => { w.lot[t] = Lot.Silo; w.terrain[t] = Terrain.Citizen; w.pop[t] = 5; };
-        } else if (asset.id === "AGR-08") {
-          mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.GrainElevator);
-          studioSetup = (w, sim, t) => { w.lot[t] = Lot.GrainElevator; w.terrain[t] = Terrain.Citizen; w.pop[t] = 5; };
-        } else {
-          mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Field);
-          studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Field; };
-        }
-        break;
-      }
-
-      case "Landmarks": {
-        if (asset.id === "LMK-01") {
-          mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.Chapel);
-          studioSetup = (w, sim, t) => { w.lot[t] = Lot.Chapel; w.terrain[t] = Terrain.Citizen; w.pop[t] = 5; };
-        } else if (asset.id === "LMK-03") {
-          mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.Park);
-          studioSetup = (w, sim, t) => { w.lot[t] = Lot.Park; w.terrain[t] = Terrain.Citizen; w.pop[t] = 5; };
-        } else if (asset.id === "LMK-04") {
-          mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.WaterTower);
-          studioSetup = (w, sim, t) => { w.lot[t] = Lot.WaterTower; w.terrain[t] = Terrain.Citizen; w.pop[t] = 5; };
-        } else {
-          mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.TownHall);
-          studioSetup = (w, sim, t) => { w.lot[t] = Lot.TownHall; w.terrain[t] = Terrain.Citizen; w.pop[t] = 5; };
-        }
-        break;
-      }
-
-      case "Cults": {
-        const cultIdMap = {
-          "CLT-01": { type: "compound", player: 1 },
-          "CLT-02": { entity: "van", player: 1 },
-          "CLT-03": { entity: "agent", player: 1 },
-          "CLT-04": { type: "watchtower", player: 1 },
-          "CLT-05": { territory: 1 },
-          "CLT-06": { conquered: 1 },
-
-          "CLT-07": { type: "compound", player: 2 },
-          "CLT-08": { entity: "van", player: 2 },
-          "CLT-09": { entity: "agent", player: 2 },
-          "CLT-10": { type: "supplement_lab", player: 2 },
-          "CLT-11": { territory: 2 },
-          "CLT-12": { conquered: 2 },
-
-          "CLT-13": { type: "compound", player: 3 },
-          "CLT-14": { entity: "van", player: 3 },
-          "CLT-15": { entity: "agent", player: 3 },
-          "CLT-16": { type: "collection_plate", player: 3 },
-          "CLT-17": { territory: 3 },
-          "CLT-18": { conquered: 3 },
-
-          "CLT-19": { type: "compound", player: 4 },
-          "CLT-20": { entity: "van", player: 4 },
-          "CLT-21": { entity: "agent", player: 4 },
-          "CLT-22": { type: "satellite", player: 4 },
-          "CLT-23": { territory: 4 },
-          "CLT-24": { conquered: 4 },
+      case "ENV-08": // Lake Basin
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Lake);
+        studioSetup = (w, sim, t) => {
+          for (let dy = -1; dy <= 1; dy++) {
+            for (let dx = -1; dx <= 1; dx++) {
+              w.terrain[t + dy * 16 + dx] = Terrain.Lake;
+            }
+          }
         };
-        const cultDef = cultIdMap[asset.id] || { type: "compound", player: 1 };
-        if (cultDef.type) {
-          const bd = mainSim.buildings.find(b => b.player === cultDef.player && b.type === cultDef.type);
-          if (bd) mapTile = bd.tile;
-          studioSetup = (w, sim, t) => {
-            sim.buildings.push({ id: 99, player: cultDef.player, type: cultDef.type, tile: t, buildTicksLeft: 0, disabledTicks: 0 });
-            w.owner[t] = cultDef.player;
-          };
-        } else if (cultDef.entity === "van") {
-          const v = mainSim.vans.find(vn => vn.player === cultDef.player);
-          if (v) mapTile = v.tile;
-          studioSetup = (w, sim, t) => {
-            w.terrain[t] = Terrain.Road;
-            sim.vans.push({ id: 99, player: cultDef.player, tile: t, path: [t], idx: 0, moveProgress: 0 });
-          };
-        } else if (cultDef.entity === "agent") {
-          const a = mainSim.agents.find(ag => ag.player === cultDef.player);
-          if (a) mapTile = a.tile;
-          studioSetup = (w, sim, t) => {
-            w.terrain[t] = Terrain.Road;
-            sim.agents.push({ id: 99, player: cultDef.player, tile: t, targetDistrict: 3, victim: 1, mission: "deprogram", phase: "travel", travelTicks: 10, channelTicks: 0 });
-          };
-        } else {
-          mapTile = findTileMatching(mainWorld, (w, t) => w.owner[t] === cultDef.territory || w.owner[t] === cultDef.conquered);
-          studioSetup = (w, sim, t) => {
-            w.terrain[t] = Terrain.Grass;
-            w.owner[t] = cultDef.territory || cultDef.conquered || 1;
-          };
-        }
         break;
-      }
+      case "ENV-09": // Desert Dunes
+        targetWorld = desertWorld;
+        targetRgba = desertRgba;
+        mapTile = findTileMatching(desertWorld, (w, t) => w.biome[t] === 1 && w.terrain[t] === Terrain.Grass);
+        studioSetup = (w, sim, t) => {
+          w.biome[t] = 1;
+          w.terrain[t] = Terrain.Grass;
+        };
+        break;
+      case "ENV-10": // Saguaro Stands
+        targetWorld = desertWorld;
+        targetRgba = desertRgba;
+        mapTile = findTileMatching(desertWorld, (w, t) => w.biome[t] === 1 && w.terrain[t] === Terrain.Woods);
+        studioSetup = (w, sim, t) => {
+          w.biome[t] = 1;
+          w.terrain[t] = Terrain.Woods;
+        };
+        break;
+      case "ENV-11": // Desert Dry Wash
+        targetWorld = desertWorld;
+        targetRgba = desertRgba;
+        mapTile = findTileMatching(desertWorld, (w, t) => w.biome[t] === 1 && w.terrain[t] === Terrain.Dirt);
+        studioSetup = (w, sim, t) => {
+          w.biome[t] = 1;
+          w.terrain[t] = Terrain.Dirt;
+        };
+        break;
+      case "ENV-12": // Desert Oasis
+        targetWorld = desertWorld;
+        targetRgba = desertRgba;
+        mapTile = findTileMatching(desertWorld, (w, t) => w.biome[t] === 1 && w.terrain[t] === Terrain.Lake);
+        studioSetup = (w, sim, t) => {
+          w.biome[t] = 1;
+          w.terrain[t] = Terrain.Lake;
+          w.terrain[t - 1] = Terrain.Grass;
+        };
+        break;
+      case "ENV-13": // Forest Floor
+        mapTile = findTileMatching(mainWorld, (w, t) => w.biome[t] === 2 && w.terrain[t] === Terrain.Grass);
+        studioSetup = (w, sim, t) => {
+          w.biome[t] = 2; // Forest
+          w.terrain[t] = Terrain.Grass;
+        };
+        studioPainter = (put) => {
+          put(8 + 2, 8 + 4, [210, 59, 59]);
+          put(8 + 2, 8 + 5, [247, 245, 240]);
+          put(8 + 4, 8 + 5, [110, 80, 48]);
+          put(8 + 5, 8 + 5, [86, 120, 56]);
+          put(8 + 6, 8 + 5, [110, 80, 48]);
+        };
+        break;
+      case "ENV-14": // Autumn Foliage
+        mapTile = findTileMatching(mainWorld, (w, t) => w.biome[t] === 3);
+        studioSetup = (w, sim, t) => {
+          w.biome[t] = 3; // Autumn
+          w.terrain[t] = Terrain.Woods;
+          w.terrain[t - 1] = Terrain.Woods;
+          w.terrain[t + 1] = Terrain.Woods;
+        };
+        break;
+      case "ENV-15": // Riparian Willows
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Grass && (w.terrain[t + 1] === Terrain.Lake || w.terrain[t - 1] === Terrain.Lake));
+        studioSetup = (w, sim, t) => {
+          w.terrain[t] = Terrain.Grass;
+          w.terrain[t + 1] = Terrain.Lake;
+        };
+        studioPainter = (put) => {
+          put(8 + 4, 8 + 5, [111, 122, 82]);
+          put(8 + 4, 8 + 4, [106, 77, 49]);
+          put(8 + 3, 8 + 2, [142, 196, 92]);
+          put(8 + 4, 8 + 2, [142, 196, 92]);
+          put(8 + 2, 8 + 3, [142, 196, 92]);
+          put(8 + 5, 8 + 3, [142, 196, 92]);
+          put(8 + 2, 8 + 4, [92, 140, 58]);
+          put(8 + 5, 8 + 4, [92, 140, 58]);
+        };
+        break;
+      case "ENV-16": // Utility Poles
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Grass && w.terrain[t + 64] === Terrain.Road);
+        studioSetup = (w, sim, t) => {
+          w.terrain[t] = Terrain.Grass;
+          w.terrain[t + 16] = Terrain.Road;
+        };
+        studioPainter = (put) => {
+          for (let py = 1; py <= 6; py++) put(8 + 3, 8 + py, [106, 77, 49]);
+          put(8 + 2, 8 + 1, [106, 77, 49]);
+          put(8 + 4, 8 + 1, [106, 77, 49]);
+          put(8 + 1, 8 + 1, [240, 240, 245]);
+          put(8 + 5, 8 + 1, [240, 240, 245]);
+          for (let px = 0; px < 8; px++) put(8 + px, 8, [180, 185, 190]);
+        };
+        break;
+      case "ENV-17": // Hedgerows
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Field);
+        studioSetup = (w, sim, t) => {
+          w.terrain[t] = Terrain.Field;
+          w.terrain[t - 1] = Terrain.Grass;
+        };
+        studioPainter = (put) => {
+          for (let py = 0; py < 8; py++) {
+            put(8, 8 + py, [58, 82, 40]);
+            put(8 + 1, 8 + py, [74, 110, 48]);
+          }
+        };
+        break;
+      case "ENV-18": // Shelterbelts
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Field && w.terrain[t - 64] === Terrain.Woods);
+        studioSetup = (w, sim, t) => {
+          w.terrain[t] = Terrain.Field;
+        };
+        studioPainter = (put) => {
+          drawCountryTree(8, 8, put, 1, "summer");
+        };
+        break;
+      case "ENV-19": // Stock Tank Pond
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Pasture);
+        studioSetup = (w, sim, t) => {
+          w.terrain[t] = Terrain.Pasture;
+        };
+        studioPainter = (put) => {
+          put(8 + 3, 8 + 3, [80, 130, 170]);
+          put(8 + 4, 8 + 3, [80, 130, 170]);
+          put(8 + 3, 8 + 4, [80, 130, 170]);
+          put(8 + 4, 8 + 4, [80, 130, 170]);
+          put(8 + 2, 8 + 3, [160, 170, 175]);
+          put(8 + 5, 8 + 4, [160, 170, 175]);
+        };
+        break;
+      case "ENV-20": // Ecotones
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Grass && w.biome[t] === 0);
+        studioSetup = (w, sim, t) => {
+          w.terrain[t - 1] = Terrain.Grass;
+          w.terrain[t] = Terrain.Grass;
+          w.terrain[t + 1] = Terrain.Grass;
+        };
+        studioPainter = (put) => {
+          for (let py = 0; py < 8; py++) {
+            put(8 + 1, 8 + py, [212, 196, 142]);
+            put(8 + 3, 8 + py, [170, 165, 105]);
+            put(8 + 5, 8 + py, [124, 150, 78]);
+          }
+        };
+        break;
 
-      case "LivingEntities": {
+      // ---- Category B: Infrastructure (ST-01 to ST-18) ----
+      case "ST-01": // 4-Lane Highway
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Road && (w.terrain[t + 64] === Terrain.Road || w.terrain[t - 64] === Terrain.Road));
+        studioSetup = (w, sim, t) => {
+          w.terrain[t] = Terrain.Road;
+          w.terrain[t + 16] = Terrain.Road;
+        };
+        break;
+      case "ST-02": // 2-Lane Street
         mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Road);
         studioSetup = (w, sim, t) => {
           w.terrain[t] = Terrain.Road;
-          sim.vans.push({ id: 99, player: 1, tile: t, path: [t], idx: 0, moveProgress: 0 });
+          w.terrain[t - 1] = Terrain.Citizen;
+          w.terrain[t + 1] = Terrain.Citizen;
+        };
+        break;
+      case "ST-03": // Cul-de-Sac Bulb
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Road && w.terrain[t + 1] !== Terrain.Road && w.terrain[t - 1] !== Terrain.Road);
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Road; };
+        studioPainter = (put) => {
+          for (let py = 1; py <= 6; py++) for (let px = 1; px <= 6; px++) put(8 + px, 8 + py, [70, 70, 75]);
+          put(8 + 3, 8 + 3, [85, 85, 90]);
+          put(8 + 4, 8 + 3, [85, 85, 90]);
+        };
+        break;
+      case "ST-04": // Dirt/Gravel Lane
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Dirt);
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Dirt; };
+        break;
+      case "ST-05": // Road Bridge
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Road && (w.terrain[t - 1] === Terrain.Lake || w.terrain[t + 1] === Terrain.Lake));
+        studioSetup = (w, sim, t) => {
+          w.terrain[t] = Terrain.Road;
+          w.terrain[t - 1] = Terrain.Lake;
+          w.terrain[t + 1] = Terrain.Lake;
+        };
+        break;
+      case "ST-06": // Main St Crosswalks
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Road && w.district[t] === Districts.Downtown);
+        studioSetup = (w, sim, t) => {
+          w.terrain[t] = Terrain.Road;
+          w.terrain[t - 16] = Terrain.Road;
+          w.district[t] = Districts.Downtown;
+        };
+        studioPainter = (put) => {
+          for (let px = 1; px <= 6; px += 2) {
+            put(8 + px, 8 + 3, [240, 240, 240]);
+            put(8 + px, 8 + 4, [240, 240, 240]);
+          }
+        };
+        break;
+      case "ST-07": // Traffic Lights
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Road && w.district[t] === Districts.Downtown);
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Road; };
+        studioPainter = (put) => {
+          put(8 + 1, 8 + 1, [20, 20, 20]);
+          put(8 + 1, 8 + 2, [220, 40, 40]);
+          put(8 + 1, 8 + 3, [40, 200, 60]);
+        };
+        break;
+      case "ST-08": // Stop Signs
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Road);
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Road; };
+        studioPainter = (put) => {
+          put(8 + 1, 8 + 1, [210, 35, 35]);
+          put(8 + 2, 8 + 1, [210, 35, 35]);
+          put(8 + 1, 8 + 2, [210, 35, 35]);
+          put(8 + 2, 8 + 2, [210, 35, 35]);
+          put(8 + 1, 8 + 3, [160, 160, 165]);
+          put(8 + 1, 8 + 4, [160, 160, 165]);
+        };
+        break;
+      case "ST-09": // Streetlights
+        mapTile = findTileMatching(mainWorld, (w, t) => w.district[t] === Districts.Downtown && w.terrain[t] === Terrain.Citizen);
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Citizen; w.district[t] = Districts.Downtown; w.pop[t] = 5; };
+        studioPainter = (put) => {
+          put(8 + 2, 8 + 1, [255, 235, 120]);
+          put(8 + 2, 8 + 2, [50, 50, 55]);
+          put(8 + 2, 8 + 3, [50, 50, 55]);
+          put(8 + 2, 8 + 4, [50, 50, 55]);
+          put(8 + 3, 8 + 4, [111, 122, 82]);
+        };
+        break;
+      case "ST-10": // Railroad Track
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Rail);
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Rail; };
+        break;
+      case "ST-11": // Rail Trestle
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Rail && (w.terrain[t - 1] === Terrain.Lake || w.terrain[t + 1] === Terrain.Lake));
+        studioSetup = (w, sim, t) => {
+          w.terrain[t] = Terrain.Rail;
+          w.terrain[t - 1] = Terrain.Lake;
+          w.terrain[t + 1] = Terrain.Lake;
+        };
+        break;
+      case "ST-12": // Crossbuck Crossing
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Rail && (w.terrain[t + 64] === Terrain.Road || w.terrain[t - 64] === Terrain.Road));
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Rail; };
+        studioPainter = (put) => {
+          put(8 + 2, 8 + 1, [240, 240, 240]);
+          put(8 + 4, 8 + 1, [240, 240, 240]);
+          put(8 + 3, 8 + 2, [240, 240, 240]);
+          put(8 + 2, 8 + 3, [240, 240, 240]);
+          put(8 + 4, 8 + 3, [240, 240, 240]);
+          put(8 + 2, 8 + 2, [210, 40, 40]);
+          put(8 + 4, 8 + 2, [210, 40, 40]);
+          put(8 + 3, 8 + 4, [150, 150, 155]);
+          put(8 + 3, 8 + 5, [150, 150, 155]);
+        };
+        break;
+      case "ST-13": // Rail Siding Spur
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Rail && w.lot[t + 1] === Lot.GrainElevator);
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Rail; };
+        break;
+      case "ST-14": // Parked Boxcars
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Rail);
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Rail; };
+        studioPainter = (put) => {
+          for (let px = 1; px <= 6; px++) {
+            put(8 + px, 8 + 3, [160, 60, 45]);
+            put(8 + px, 8 + 4, [130, 45, 35]);
+          }
+          put(8 + 2, 8 + 5, [30, 30, 30]);
+          put(8 + 5, 8 + 5, [30, 30, 30]);
+        };
+        break;
+      case "ST-15": // Highway Billboards
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Grass && w.terrain[t + 64] === Terrain.Road);
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Grass; };
+        studioPainter = (put) => {
+          for (let py = 1; py <= 3; py++) for (let px = 1; px <= 6; px++) put(8 + px, 8 + py, [240, 240, 240]);
+          put(8 + 2, 8 + 2, [40, 90, 190]);
+          put(8 + 3, 8 + 2, [40, 90, 190]);
+          put(8 + 4, 8 + 2, [210, 40, 40]);
+          put(8 + 2, 8 + 4, [106, 77, 49]);
+          put(8 + 5, 8 + 4, [106, 77, 49]);
+        };
+        break;
+      case "ST-16": // Welcome Signs
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Grass && w.terrain[t + 1] === Terrain.Road);
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Grass; };
+        studioPainter = (put) => {
+          for (let py = 2; py <= 4; py++) for (let px = 1; px <= 6; px++) put(8 + px, 8 + py, [90, 65, 45]);
+          for (let px = 2; px <= 5; px++) put(8 + px, 8 + 3, [245, 240, 225]);
+          put(8 + 2, 8 + 5, [75, 50, 35]);
+          put(8 + 5, 8 + 5, [75, 50, 35]);
+        };
+        break;
+      case "ST-17": // Concrete Weirs
+        mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.Dam);
+        studioSetup = (w, sim, t) => { w.lot[t] = Lot.Dam; w.terrain[t] = Terrain.Citizen; w.pop[t] = 5; };
+        break;
+      case "ST-18": // Property Stakes
+        mapTile = findTileMatching(mainWorld, (w, t) => w.property[t] !== 0);
+        studioSetup = (w, sim, t) => {
+          w.terrain[t] = Terrain.Grass;
+          w.property[t] = 1;
+        };
+        studioPainter = (put) => {
+          put(8 + 1, 8 + 1, [255, 60, 60]);
+          put(8 + 1, 8 + 2, [106, 77, 49]);
+          put(8 + 6, 8 + 1, [255, 60, 60]);
+          put(8 + 6, 8 + 2, [106, 77, 49]);
+          for (let px = 2; px <= 5; px += 2) put(8 + px, 8 + 1, [255, 60, 60]);
+        };
+        break;
+
+      // ---- Category C: Residential (RES-01 to RES-11) ----
+      case "RES-01": // Ranch / Long
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Citizen && w.pop[t] >= 3 && w.lot[t] === 0);
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Citizen; w.district[t] = Districts.Suburbs; w.pop[t] = 5; };
+        studioPainter = (put) => drawHouse(8, 8, Districts.Suburbs, 0, put, null, 120, 0, false);
+        break;
+      case "RES-02": // Two-Story Colonial
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Citizen && w.pop[t] >= 3 && w.lot[t] === 0);
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Citizen; w.district[t] = Districts.Suburbs; w.pop[t] = 5; };
+        studioPainter = (put) => drawHouse(8, 8, Districts.Suburbs, 1, put, null, 120, 0, false);
+        break;
+      case "RES-03": // L-Plan
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Citizen && w.pop[t] >= 3 && w.lot[t] === 0);
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Citizen; w.district[t] = Districts.Suburbs; w.pop[t] = 5; };
+        studioPainter = (put) => drawHouse(8, 8, Districts.Suburbs, 2, put, null, 120, 0, false);
+        break;
+      case "RES-04": // Bungalow
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Citizen && w.pop[t] >= 3 && w.lot[t] === 0);
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Citizen; w.district[t] = Districts.Suburbs; w.pop[t] = 5; };
+        studioPainter = (put) => drawHouse(8, 8, Districts.Suburbs, 3, put, null, 120, 0, false);
+        break;
+      case "RES-05": // Trailer Home
+        mapTile = findTileMatching(mainWorld, (w, t) => w.district[t] === Districts.Trailer);
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Citizen; w.district[t] = Districts.Trailer; w.pop[t] = 3; };
+        studioPainter = (put) => drawTrailerHome(8, 8, 10, put);
+        break;
+      case "RES-06": // Trailer Court
+        mapTile = findTileMatching(mainWorld, (w, t) => w.district[t] === Districts.Trailer);
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Citizen; w.district[t] = Districts.Trailer; w.pop[t] = 3; };
+        studioPainter = (put) => {
+          drawTrailerHome(8, 8, 10, put);
+          put(8 + 1, 8 + 2, [35, 35, 35]);
+          put(8 + 2, 8 + 2, [35, 35, 35]);
+          put(8 + 6, 8 + 6, [140, 90, 60]);
+        };
+        break;
+      case "RES-07": // Detached Garage
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Citizen && w.pop[t] >= 3 && w.lot[t] === 0);
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Citizen; w.district[t] = Districts.Suburbs; w.pop[t] = 5; };
+        studioPainter = (put) => {
+          for (let py = 2; py <= 5; py++) for (let px = 2; px <= 6; px++) put(8 + px, 8 + py, [138, 131, 120]);
+          put(8 + 3, 8 + 5, [255, 255, 255]);
+          put(8 + 4, 8 + 5, [255, 255, 255]);
+          put(8 + 5, 8 + 5, [255, 255, 255]);
+          put(8 + 3, 8 + 4, [240, 240, 240]);
+          put(8 + 4, 8 + 4, [240, 240, 240]);
+          put(8 + 5, 8 + 4, [240, 240, 240]);
+        };
+        break;
+      case "RES-08": // Backyards
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Citizen && w.pop[t] > 0 && w.pop[t] < 3);
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Citizen; w.district[t] = Districts.Suburbs; w.pop[t] = 2; };
+        studioPainter = (put) => {
+          for (let gx = 2; gx <= 5; gx++) {
+            put(8 + gx, 8 + 2, [90, 115, 64]);
+            put(8 + gx, 8 + 4, [140, 100, 50]);
+          }
+          for (let i = 0; i < 8; i += 2) put(8 + i, 8, [138, 110, 77]);
+        };
+        break;
+      case "RES-09": // Above-Ground Pool
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Citizen && w.pop[t] > 0 && w.pop[t] < 3);
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Citizen; w.district[t] = Districts.Suburbs; w.pop[t] = 2; };
+        studioPainter = (put) => {
+          put(8 + 3, 8 + 3, [127, 196, 232]);
+          put(8 + 4, 8 + 3, [159, 212, 240]);
+          put(8 + 3, 8 + 4, [159, 212, 240]);
+          put(8 + 4, 8 + 4, [127, 196, 232]);
+          put(8 + 2, 8 + 3, [216, 212, 200]);
+          put(8 + 5, 8 + 4, [216, 212, 200]);
+        };
+        break;
+      case "RES-10": // Front Curbside
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Citizen && w.pop[t] >= 3 && w.lot[t] === 0);
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Citizen; w.district[t] = Districts.Suburbs; w.pop[t] = 5; };
+        studioPainter = (put) => {
+          put(8 + 2, 8 + 6, [106, 77, 49]);
+          put(8 + 2, 8 + 5, [140, 146, 150]);
+          put(8 + 6, 8 + 6, [210, 59, 59]);
+        };
+        break;
+      case "RES-11": // Chimney Smoke
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Citizen && w.pop[t] >= 3 && w.lot[t] === 0);
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Citizen; w.district[t] = Districts.Suburbs; w.pop[t] = 5; };
+        studioPainter = (put) => {
+          drawHouse(8, 8, Districts.Suburbs, 1, put, null, 120, 0, false);
+          put(8 + 2, 8 - 1, [201, 196, 188]);
+          put(8 + 3, 8 - 2, [220, 216, 210]);
+          put(8 + 4, 8 - 3, [240, 238, 235]);
+        };
+        break;
+
+      // ---- Category D: Commercial (COM-01 to COM-14) ----
+      case "COM-01":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.Shop);
+        studioSetup = (w, sim, t) => { w.lot[t] = Lot.Shop; w.terrain[t] = Terrain.Citizen; w.district[t] = Districts.Downtown; w.pop[t] = 5; };
+        break;
+      case "COM-02":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.Shop);
+        studioSetup = (w, sim, t) => { w.lot[t] = Lot.Shop; w.terrain[t] = Terrain.Citizen; w.district[t] = Districts.Downtown; w.pop[t] = 5; };
+        studioPainter = (put) => {
+          for (let px = 1; px <= 6; px++) put(8 + px, 8 + 3, px % 2 === 0 ? [184, 50, 50] : [240, 240, 240]);
+        };
+        break;
+      case "COM-03":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.Diner);
+        studioSetup = (w, sim, t) => { w.lot[t] = Lot.Diner; w.terrain[t] = Terrain.Citizen; w.district[t] = Districts.Downtown; w.pop[t] = 5; };
+        break;
+      case "COM-04":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.GasStation);
+        studioSetup = (w, sim, t) => { w.lot[t] = Lot.GasStation; w.terrain[t] = Terrain.Citizen; w.district[t] = Districts.Downtown; w.pop[t] = 5; };
+        break;
+      case "COM-05":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.Shop);
+        studioSetup = (w, sim, t) => { w.lot[t] = Lot.Shop; w.terrain[t] = Terrain.Citizen; w.district[t] = Districts.Downtown; w.pop[t] = 5; };
+        studioPainter = (put) => {
+          put(8 + 2, 8 + 4, [100, 180, 240]);
+          put(8 + 3, 8 + 4, [100, 180, 240]);
+          put(8 + 4, 8 + 4, [100, 180, 240]);
+          put(8 + 5, 8 + 4, [100, 180, 240]);
+        };
+        break;
+      case "COM-06":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.Cinema);
+        isMultiTile = true;
+        studioSetup = (w, sim, t) => {
+          for (const r of [7, 8]) for (const c of [8, 9]) { w.lot[r * 16 + c] = Lot.Cinema; w.terrain[r * 16 + c] = Terrain.Citizen; w.district[r * 16 + c] = Districts.Commercial; w.pop[r * 16 + c] = 5; }
+          for (const c of [8, 9]) { w.lot[9 * 16 + c] = Lot.Parking; w.terrain[9 * 16 + c] = Terrain.Citizen; }
+        };
+        break;
+      case "COM-07":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.Bank);
+        studioSetup = (w, sim, t) => { w.lot[t] = Lot.Bank; w.terrain[t] = Terrain.Citizen; w.district[t] = Districts.Downtown; w.pop[t] = 5; };
+        break;
+      case "COM-08":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.PostOffice);
+        studioSetup = (w, sim, t) => { w.lot[t] = Lot.PostOffice; w.terrain[t] = Terrain.Citizen; w.district[t] = Districts.Downtown; w.pop[t] = 5; };
+        break;
+      case "COM-09":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.Office);
+        studioSetup = (w, sim, t) => { w.lot[t] = Lot.Office; w.terrain[t] = Terrain.Citizen; w.district[t] = Districts.Downtown; w.pop[t] = 5; };
+        break;
+      case "COM-10":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.Motel);
+        isMultiTile = true;
+        studioSetup = (w, sim, t) => {
+          for (const r of [7, 8]) for (const c of [8, 9]) { w.lot[r * 16 + c] = Lot.Motel; w.terrain[r * 16 + c] = Terrain.Citizen; w.district[r * 16 + c] = Districts.Commercial; w.pop[r * 16 + c] = 5; }
+          for (const c of [8, 9]) { w.lot[9 * 16 + c] = Lot.Parking; w.terrain[9 * 16 + c] = Terrain.Citizen; }
+        };
+        break;
+      case "COM-11":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.Motel);
+        studioSetup = (w, sim, t) => { w.lot[t] = Lot.Motel; w.terrain[t] = Terrain.Citizen; w.district[t] = Districts.Downtown; w.pop[t] = 5; };
+        studioPainter = (put) => {
+          put(8 + 4, 8 + 3, [127, 196, 232]);
+          put(8 + 5, 8 + 3, [159, 212, 240]);
+          put(8 + 4, 8 + 4, [159, 212, 240]);
+          put(8 + 5, 8 + 4, [127, 196, 232]);
+        };
+        break;
+      case "COM-12":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.Factory);
+        isMultiTile = true;
+        studioSetup = (w, sim, t) => {
+          for (const r of [7, 8]) for (const c of [8, 9]) { w.lot[r * 16 + c] = Lot.Factory; w.terrain[r * 16 + c] = Terrain.Citizen; w.district[r * 16 + c] = Districts.Industrial; w.pop[r * 16 + c] = 5; }
+          for (const c of [8, 9]) { w.lot[9 * 16 + c] = Lot.Parking; w.terrain[9 * 16 + c] = Terrain.Citizen; }
+        };
+        break;
+      case "COM-13":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.Warehouse);
+        isMultiTile = true;
+        studioSetup = (w, sim, t) => {
+          for (const r of [7, 8]) for (const c of [8, 9]) { w.lot[r * 16 + c] = Lot.Warehouse; w.terrain[r * 16 + c] = Terrain.Citizen; w.district[r * 16 + c] = Districts.Industrial; w.pop[r * 16 + c] = 5; }
+          for (const c of [8, 9]) { w.lot[9 * 16 + c] = Lot.Parking; w.terrain[9 * 16 + c] = Terrain.Citizen; }
+        };
+        break;
+      case "COM-14":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.Depot);
+        studioSetup = (w, sim, t) => { w.lot[t] = Lot.Depot; w.terrain[t] = Terrain.Citizen; w.district[t] = Districts.Downtown; w.pop[t] = 5; };
+        break;
+
+      // ---- Category E: Civic (CIV-01 to CIV-12) ----
+      case "CIV-01":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.TownHall);
+        isMultiTile = true;
+        studioSetup = (w, sim, t) => {
+          for (const r of [7, 8]) for (const c of [8, 9]) { w.lot[r * 16 + c] = Lot.TownHall; w.terrain[r * 16 + c] = Terrain.Citizen; w.district[r * 16 + c] = Districts.Downtown; w.pop[r * 16 + c] = 5; }
+          for (const c of [8, 9]) { w.lot[9 * 16 + c] = Lot.Parking; w.terrain[9 * 16 + c] = Terrain.Citizen; }
+        };
+        break;
+      case "CIV-02":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.Sheriff);
+        studioSetup = (w, sim, t) => { w.lot[t] = Lot.Sheriff; w.terrain[t] = Terrain.Citizen; w.district[t] = Districts.Downtown; w.pop[t] = 5; };
+        break;
+      case "CIV-03":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.HighSchool);
+        isMultiTile = true;
+        studioSetup = (w, sim, t) => {
+          for (const r of [7, 8]) for (const c of [8, 9]) { w.lot[r * 16 + c] = Lot.HighSchool; w.terrain[r * 16 + c] = Terrain.Citizen; w.district[r * 16 + c] = Districts.Suburbs; w.pop[r * 16 + c] = 5; }
+          for (const c of [8, 9]) { w.lot[9 * 16 + c] = Lot.Parking; w.terrain[9 * 16 + c] = Terrain.Citizen; }
+        };
+        break;
+      case "CIV-04":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.BallField);
+        studioSetup = (w, sim, t) => { w.lot[t] = Lot.BallField; w.terrain[t] = Terrain.Citizen; w.district[t] = Districts.Downtown; w.pop[t] = 5; };
+        break;
+      case "CIV-05":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.School);
+        studioSetup = (w, sim, t) => { w.lot[t] = Lot.School; w.terrain[t] = Terrain.Citizen; w.district[t] = Districts.Downtown; w.pop[t] = 5; };
+        studioPainter = (put) => {
+          put(8 + 3, 8 + 6, [232, 184, 32]);
+          put(8 + 4, 8 + 6, [232, 184, 32]);
+          put(8 + 5, 8 + 6, [232, 184, 32]);
+          put(8 + 6, 8 + 6, [232, 184, 32]);
+        };
+        break;
+      case "CIV-06":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.School);
+        studioSetup = (w, sim, t) => { w.lot[t] = Lot.School; w.terrain[t] = Terrain.Citizen; w.district[t] = Districts.Downtown; w.pop[t] = 5; };
+        break;
+      case "CIV-07":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.Playground);
+        studioSetup = (w, sim, t) => { w.lot[t] = Lot.Playground; w.terrain[t] = Terrain.Citizen; w.district[t] = Districts.Downtown; w.pop[t] = 5; };
+        break;
+      case "CIV-08":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.Supermarket);
+        isMultiTile = true;
+        studioSetup = (w, sim, t) => {
+          for (const r of [7, 8]) for (const c of [8, 9]) { w.lot[r * 16 + c] = Lot.Supermarket; w.terrain[r * 16 + c] = Terrain.Citizen; w.district[r * 16 + c] = Districts.Commercial; w.pop[r * 16 + c] = 5; }
+          for (const c of [8, 9]) { w.lot[9 * 16 + c] = Lot.Parking; w.terrain[9 * 16 + c] = Terrain.Citizen; }
+        };
+        break;
+      case "CIV-09":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.Church);
+        isMultiTile = true;
+        studioSetup = (w, sim, t) => {
+          for (const r of [7, 8]) for (const c of [8, 9]) { w.lot[r * 16 + c] = Lot.Church; w.terrain[r * 16 + c] = Terrain.Citizen; w.district[r * 16 + c] = Districts.OldTown; w.pop[r * 16 + c] = 5; }
+          for (const c of [8, 9]) { w.lot[9 * 16 + c] = Lot.Parking; w.terrain[9 * 16 + c] = Terrain.Citizen; }
+        };
+        break;
+      case "CIV-10":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.Cemetery);
+        studioSetup = (w, sim, t) => { w.lot[t] = Lot.Cemetery; w.terrain[t] = Terrain.Citizen; w.district[t] = Districts.Downtown; w.pop[t] = 5; };
+        break;
+      case "CIV-11":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.FireStation);
+        isMultiTile = true;
+        studioSetup = (w, sim, t) => {
+          for (const r of [7, 8]) for (const c of [8, 9]) { w.lot[r * 16 + c] = Lot.FireStation; w.terrain[r * 16 + c] = Terrain.Citizen; w.district[r * 16 + c] = Districts.Downtown; w.pop[r * 16 + c] = 5; }
+          for (const c of [8, 9]) { w.lot[9 * 16 + c] = Lot.Parking; w.terrain[9 * 16 + c] = Terrain.Citizen; }
+        };
+        break;
+      case "CIV-12":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.WaterTower);
+        studioSetup = (w, sim, t) => { w.lot[t] = Lot.WaterTower; w.terrain[t] = Terrain.Citizen; w.district[t] = Districts.Downtown; w.pop[t] = 5; };
+        break;
+
+      // ---- Category F: Agriculture (AGR-01 to AGR-10) ----
+      case "AGR-01":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Field);
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Field; };
+        studioPainter = (put) => {
+          for (let py = 1; py <= 6; py++) for (let px = 1; px <= 6; px += 2) put(8 + px, 8 + py, [46, 92, 38]);
+        };
+        break;
+      case "AGR-02":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Field);
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Field; };
+        studioPainter = (put) => {
+          for (let py = 1; py <= 6; py++) for (let px = 1; px <= 6; px += 2) put(8 + px, 8 + py, [214, 175, 75]);
+        };
+        break;
+      case "AGR-03":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Field);
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Field; };
+        studioPainter = (put) => {
+          for (let py = 1; py <= 6; py++) for (let px = 1; px <= 6; px += 2) put(8 + px, 8 + py, [105, 175, 55]);
+        };
+        break;
+      case "AGR-04":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Field);
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Field; };
+        studioPainter = (put) => {
+          for (let py = 1; py <= 6; py++) for (let px = 1; px <= 6; px++) put(8 + px, 8 + py, (px % 2 === 0) ? [105, 75, 45] : [75, 50, 30]);
+        };
+        break;
+      case "AGR-05":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.Barn);
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Citizen; w.district[t] = Districts.Suburbs; w.pop[t] = 5; };
+        studioPainter = (put) => drawHouse(8, 8, Districts.Suburbs, 1, put, null, 120, 0, false);
+        break;
+      case "AGR-06":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.Barn);
+        studioSetup = (w, sim, t) => { w.lot[t] = Lot.Barn; w.terrain[t] = Terrain.Citizen; w.pop[t] = 5; };
+        break;
+      case "AGR-07":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.Silo);
+        studioSetup = (w, sim, t) => { w.lot[t] = Lot.Silo; w.terrain[t] = Terrain.Citizen; w.pop[t] = 5; };
+        break;
+      case "AGR-08":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.GrainElevator);
+        isMultiTile = true;
+        studioSetup = (w, sim, t) => {
+          for (const r of [7, 8]) for (const c of [8, 9]) { w.lot[r * 16 + c] = Lot.GrainElevator; w.terrain[r * 16 + c] = Terrain.Citizen; w.pop[r * 16 + c] = 5; }
+          for (const c of [8, 9]) { w.lot[9 * 16 + c] = Lot.Silo; w.terrain[9 * 16 + c] = Terrain.Citizen; }
+        };
+        break;
+      case "AGR-09":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Pasture);
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Pasture; };
+        studioPainter = (put) => {
+          put(8 + 2, 8 + 3, [240, 240, 240]);
+          put(8 + 3, 8 + 3, [30, 30, 30]);
+          put(8 + 2, 8 + 4, [30, 30, 30]);
+          put(8 + 3, 8 + 4, [240, 240, 240]);
+          put(8 + 5, 8 + 4, [140, 80, 45]);
+          put(8 + 6, 8 + 4, [140, 80, 45]);
+        };
+        break;
+      case "AGR-10":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.Barn);
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Grass; };
+        studioPainter = (put) => {
+          put(8 + 2, 8 + 3, [47, 110, 47]);
+          put(8 + 3, 8 + 3, [47, 110, 47]);
+          put(8 + 4, 8 + 4, [47, 110, 47]);
+          put(8 + 2, 8 + 4, [25, 25, 25]);
+          put(8 + 4, 8 + 5, [25, 25, 25]);
+          put(8 + 3, 8 + 2, [255, 220, 50]);
+        };
+        break;
+
+      // ---- Category G: Landmarks (LMK-01 to LMK-05) ----
+      case "LMK-01":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.Chapel);
+        studioSetup = (w, sim, t) => { w.lot[t] = Lot.Chapel; w.terrain[t] = Terrain.Citizen; w.pop[t] = 5; };
+        break;
+      case "LMK-02":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.WaterTower);
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Grass; };
+        studioPainter = (put) => {
+          put(8 + 3, 8, [240, 30, 30]);
+          put(8 + 4, 8, [240, 30, 30]);
+          for (let py = 1; py <= 7; py++) {
+            put(8 + 3, 8 + py, (py % 2 === 0) ? [220, 220, 225] : [210, 40, 40]);
+            put(8 + 4, 8 + py, (py % 2 === 0) ? [210, 40, 40] : [220, 220, 225]);
+          }
+        };
+        break;
+      case "LMK-03":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.Park);
+        studioSetup = (w, sim, t) => { w.lot[t] = Lot.Park; w.terrain[t] = Terrain.Citizen; w.pop[t] = 5; };
+        break;
+      case "LMK-04":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.WaterTower);
+        studioSetup = (w, sim, t) => { w.lot[t] = Lot.WaterTower; w.terrain[t] = Terrain.Citizen; w.pop[t] = 5; };
+        break;
+      case "LMK-05":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.lot[t] === Lot.TownHall);
+        studioSetup = (w, sim, t) => { w.lot[t] = Lot.TownHall; w.terrain[t] = Terrain.Citizen; w.pop[t] = 5; };
+        break;
+
+      // ---- Category H: Cults (CLT-01 to CLT-24) ----
+      case "CLT-01":
+      case "CLT-04":
+      case "CLT-07":
+      case "CLT-10":
+      case "CLT-13":
+      case "CLT-16":
+      case "CLT-19":
+      case "CLT-22": {
+        const cultIdMap = {
+          "CLT-01": { type: "compound", player: 1 },
+          "CLT-04": { type: "watchtower", player: 1 },
+          "CLT-07": { type: "compound", player: 2 },
+          "CLT-10": { type: "supplement_lab", player: 2 },
+          "CLT-13": { type: "compound", player: 3 },
+          "CLT-16": { type: "collection_plate", player: 3 },
+          "CLT-19": { type: "compound", player: 4 },
+          "CLT-22": { type: "satellite", player: 4 },
+        };
+        const def = cultIdMap[asset.id];
+        const bd = mainSim.buildings.find(b => b.player === def.player && b.type === def.type);
+        if (bd) mapTile = bd.tile;
+        studioSetup = (w, sim, t) => {
+          sim.buildings.push({ id: 99, player: def.player, type: def.type, tile: t, buildTicksLeft: 0, disabledTicks: 0 });
+          w.owner[t] = def.player;
         };
         break;
       }
+      case "CLT-02":
+      case "CLT-08":
+      case "CLT-14":
+      case "CLT-20": {
+        const pMap = { "CLT-02": 1, "CLT-08": 2, "CLT-14": 3, "CLT-20": 4 };
+        const p = pMap[asset.id];
+        const v = mainSim.vans.find(vn => vn.player === p);
+        if (v) mapTile = v.tile;
+        studioSetup = (w, sim, t) => {
+          w.terrain[t] = Terrain.Road;
+          sim.vans.push({ id: 99, player: p, tile: t, path: [t], idx: 0, moveProgress: 0 });
+        };
+        break;
+      }
+      case "CLT-03":
+      case "CLT-09":
+      case "CLT-15":
+      case "CLT-21": {
+        const pMap = { "CLT-03": 1, "CLT-09": 2, "CLT-15": 3, "CLT-21": 4 };
+        const p = pMap[asset.id];
+        const a = mainSim.agents.find(ag => ag.player === p);
+        if (a) mapTile = a.tile;
+        studioSetup = (w, sim, t) => {
+          w.terrain[t] = Terrain.Road;
+          sim.agents.push({ id: 99, player: p, tile: t, targetDistrict: 3, victim: 1, mission: "deprogram", phase: "travel", travelTicks: 10, channelTicks: 0 });
+        };
+        break;
+      }
+      case "CLT-05":
+      case "CLT-11":
+      case "CLT-17":
+      case "CLT-23": {
+        const pMap = { "CLT-05": 1, "CLT-11": 2, "CLT-17": 3, "CLT-23": 4 };
+        const p = pMap[asset.id];
+        mapTile = findTileMatching(mainWorld, (w, t) => w.owner[t] === p && w.terrain[t] === Terrain.Grass);
+        studioSetup = (w, sim, t) => {
+          w.terrain[t] = Terrain.Grass;
+          w.owner[t] = p;
+        };
+        break;
+      }
+      case "CLT-06":
+      case "CLT-12":
+      case "CLT-18":
+      case "CLT-24": {
+        const pMap = { "CLT-06": 1, "CLT-12": 2, "CLT-18": 3, "CLT-24": 4 };
+        const p = pMap[asset.id];
+        mapTile = findTileMatching(mainWorld, (w, t) => w.owner[t] === p && w.terrain[t] === Terrain.Citizen);
+        studioSetup = (w, sim, t) => {
+          w.terrain[t] = Terrain.Citizen;
+          w.owner[t] = p;
+          w.pop[t] = 5;
+        };
+        break;
+      }
+
+      // ---- Category I: Living Entities (NPC-01 to NPC-07) ----
+      case "NPC-01":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Road);
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Road; };
+        studioPainter = (put) => {
+          put(8 + 3, 8 + 4, [240, 200, 50]);
+          put(8 + 4, 8 + 4, [40, 40, 40]);
+          put(8 + 3, 8 + 3, [240, 220, 180]);
+        };
+        break;
+      case "NPC-02":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Road);
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Road; };
+        studioPainter = (put) => {
+          for (let py = 3; py <= 5; py++) for (let px = 1; px <= 6; px++) put(8 + px, 8 + py, [230, 230, 235]);
+          put(8 + 3, 8 + 1, [80, 160, 220]);
+          put(8 + 4, 8 + 1, [80, 160, 220]);
+          put(8 + 3, 8 + 2, [180, 180, 180]);
+          put(8 + 4, 8 + 2, [180, 180, 180]);
+          put(8 + 2, 8 + 6, [30, 30, 30]);
+          put(8 + 5, 8 + 6, [30, 30, 30]);
+        };
+        break;
+      case "NPC-03":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Road);
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Road; };
+        studioPainter = (put) => {
+          for (let py = 2; py <= 5; py++) for (let px = 1; px <= 6; px++) put(8 + px, 8 + py, [60, 80, 110]);
+          put(8 + 2, 8 + 3, [160, 210, 240]);
+          put(8 + 4, 8 + 3, [160, 210, 240]);
+          put(8 + 2, 8 + 6, [25, 25, 25]);
+          put(8 + 5, 8 + 6, [25, 25, 25]);
+        };
+        break;
+      case "NPC-04":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Citizen);
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Citizen; };
+        studioPainter = (put) => {
+          put(8 + 1, 8 + 2, [240, 240, 240]);
+          put(8 + 1, 8 + 3, [106, 77, 49]);
+          put(8 + 2, 8 + 4, [210, 50, 50]);
+          put(8 + 4, 8 + 2, [240, 240, 240]);
+          put(8 + 4, 8 + 3, [106, 77, 49]);
+          put(8 + 5, 8 + 4, [50, 90, 210]);
+        };
+        break;
+      case "NPC-05":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Citizen && w.pop[t] >= 5);
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Citizen; w.district[t] = Districts.Suburbs; w.pop[t] = 5; };
+        studioPainter = (put) => {
+          put(8 + 2, 8 + 3, [240, 210, 180]);
+          put(8 + 2, 8 + 4, [60, 110, 180]);
+          put(8 + 2, 8 + 5, [40, 40, 50]);
+          put(8 + 5, 8 + 3, [240, 210, 180]);
+          put(8 + 5, 8 + 4, [200, 60, 80]);
+          put(8 + 5, 8 + 5, [40, 40, 50]);
+        };
+        break;
+      case "NPC-06":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Road);
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Road; };
+        studioPainter = (put) => {
+          for (let px = 2; px <= 5; px++) put(8 + px, 8 + 3, [180, 210, 230]);
+          for (let px = 1; px <= 6; px++) put(8 + px, 8 + 4, [190, 45, 45]);
+          put(8 + 2, 8 + 5, [30, 30, 30]);
+          put(8 + 5, 8 + 5, [30, 30, 30]);
+        };
+        break;
+      case "NPC-07":
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Road);
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Road; };
+        studioPainter = (put) => {
+          for (let px = 1; px <= 6; px++) put(8 + px, 8 + 4, [20, 20, 20]);
+          put(8 + 2, 8 + 3, [245, 245, 245]);
+          put(8 + 3, 8 + 3, [220, 40, 40]);
+          put(8 + 4, 8 + 3, [40, 100, 230]);
+          put(8 + 5, 8 + 3, [245, 245, 245]);
+          put(8 + 2, 8 + 5, [20, 20, 20]);
+          put(8 + 5, 8 + 5, [20, 20, 20]);
+        };
+        break;
+
+      default:
+        mapTile = findTileMatching(mainWorld, (w, t) => w.terrain[t] === Terrain.Citizen);
+        studioSetup = (w, sim, t) => { w.terrain[t] = Terrain.Citizen; w.pop[t] = 5; };
+        break;
     }
 
     if (mapTile === -1) mapTile = 20 * 64 + 20;
 
     // 1. Studio Render
-    const studio = createStudioRender(studioSetup, 10);
+    const studio = createStudioRender(studioSetup, 10, studioPainter, isMultiTile);
     writePNG(studioPath, studio.width, studio.height, studio.rgba);
 
     // 2. On-Map Context Crop

@@ -425,8 +425,8 @@ const DEFAULT_COLORS = {
   grassLow: hexToRgb("#6e884d"),
   unitGlass: hexToRgb("#2a3550"),
   unitShadow: hexToRgb("#33302a"),
-  rock: hexToRgb("#9c968a"),
-  rockShade: hexToRgb("#7c766c"),
+  rock: hexToRgb("#cbd0d4"), // Cool slate shore grey
+  rockShade: hexToRgb("#8c9296"), // Weathered shore stone shadow
   bush: hexToRgb("#5a7340"),
   shadow: hexToRgb("#6f7a52"),
   plank: hexToRgb("#8a6f4d"),
@@ -1706,37 +1706,13 @@ function drawTile(
         }
       }
 
-      // sparse rock outcrops with shape variety on the higher, drier ground
+      // sparse rock outcrops with shape variety on the higher, drier ground (Cool grey shore boulders)
       if (elevAt(x0 + 4, y0 + 4) > 0.62 && pixHash(t, 4, 23) % 17 === 0) {
-        const rockVar = pixHash(t, 45) % 3;
-        if (rockVar === 1) {
-          // single larger rock
-          put(x0 + 3, y0 + 4, C.rock);
-          put(x0 + 4, y0 + 4, C.rockShade);
-          put(x0 + 4, y0 + 5, C.shadow);
-        } else if (rockVar === 2) {
-          // scattered pair
-          put(x0 + 2, y0 + 4, C.rock);
-          put(x0 + 5, y0 + 5, C.rockShade);
-        } else {
-          // default 3-px cluster
-          put(x0 + 3, y0 + 4, C.rock);
-          put(x0 + 4, y0 + 4, C.rockShade);
-          put(x0 + 3, y0 + 5, C.rockShade);
-        }
+        drawRockOutcrop(x0, y0, put, pixHash(t, 45) % 3);
       }
-      // scattered low brush with variety
+      // scattered low brush with variety (leafy bramble thickets with wild berries)
       if (valueNoise(x0, y0, 22, 88) > 0.6 && pixHash(t, 7, 31) % 5 === 0) {
-        const bushVar = pixHash(t, 46) % 2;
-        if (bushVar === 1) {
-          put(x0 + 2, y0 + 4, C.bush);
-          put(x0 + 3, y0 + 5, C.bush);
-          put(x0 + 3, y0 + 6, shade(C.bush, 0.85));
-        } else {
-          put(x0 + 2, y0 + 5, C.bush);
-          put(x0 + 3, y0 + 5, C.bush);
-          put(x0 + 3, y0 + 6, shade(C.bush, 0.85)); // bottom-right shadow
-        }
+        drawBrushPocket(x0, y0, put, pixHash(t, 46) % 2);
       }
       // the occasional lone country tree with canopy variety, or a weeping willow near water
       if (nearWater && w.biome[t] !== 1 && pixHash(t, 32, 91) % 12 === 0) {
@@ -1758,52 +1734,7 @@ function drawTile(
         put(x0 + 1, y0 + 4, C.willowD);
         put(x0 + 6, y0 + 4, C.willowD);
       } else if (pixHash(t, 3, 19) % 37 === 0) {
-        const treeVar = pixHash(t, 12, 19) % 5;
-        put(x0 + 4, y0 + 5, C.shadow); // cast shadow
-        put(x0 + 5, y0 + 5, C.shadow);
-        
-        let cBase = C.canopy;
-        let cLight = C.canopyLight;
-        let cDark = C.canopyDark;
-        if (treeVar === 3 && currentSeason === "fall") {
-          // Autumn tree (Orange/Gold)
-          cBase = hexToRgb("#d97b25");
-          cLight = hexToRgb("#eba33d");
-          cDark = hexToRgb("#bd5b1b");
-        } else if (treeVar === 4) {
-          // Dead tree
-          put(x0 + 3, y0 + 3, C.trunk);
-          put(x0 + 4, y0 + 3, C.trunk);
-          put(x0 + 4, y0 + 4, C.trunk);
-          put(x0 + 3, y0 + 4, C.trunk);
-        }
-
-        if (treeVar !== 4) {
-          if (treeVar === 1) {
-            // Taller pine shape
-            put(x0 + 3, y0 + 2, cLight);
-            put(x0 + 3, y0 + 3, cBase);
-            put(x0 + 4, y0 + 3, cBase);
-            put(x0 + 2, y0 + 4, cDark);
-            put(x0 + 3, y0 + 4, cBase);
-            put(x0 + 4, y0 + 4, cDark);
-          } else if (treeVar === 2) {
-            // Shrubby round tree
-            put(x0 + 2, y0 + 3, cLight);
-            put(x0 + 3, y0 + 3, cBase);
-            put(x0 + 4, y0 + 3, cLight);
-            put(x0 + 2, y0 + 4, cDark);
-            put(x0 + 3, y0 + 4, cBase);
-            put(x0 + 4, y0 + 4, cDark);
-            put(x0 + 5, y0 + 4, cDark);
-          } else {
-            // Default tree
-            put(x0 + 3, y0 + 3, cBase);
-            put(x0 + 4, y0 + 3, cLight);
-            put(x0 + 3, y0 + 4, cDark);
-            put(x0 + 4, y0 + 4, cBase);
-          }
-        }
+        drawCountryTree(x0, y0, put, pixHash(t, 12, 19) % 5, currentSeason);
       }
       // Utility poles marching along rural roadsides:
       // Spaced every 4 tiles (32px), featuring wooden T-poles, white ceramic insulators,
@@ -2435,7 +2366,7 @@ function drawTile(
  * district variety. Multi-tile structures merge — shared edges drop their
  * walls so a 2×2 school reads as one building.
  */
-function drawLotBuilding(
+export function drawLotBuilding(
   w: World,
   t: number,
   tx: number,
@@ -2496,19 +2427,78 @@ function drawLotBuilding(
     return;
   }
   if (lot === Lot.Parking) {
-    // asphalt apron with painted bays + a parked car or two
+    // High-detail asphalt parking lot system paired with civic & commercial buildings
+    const asphalt = C.asphalt;
+    const asphaltMottle = hexToRgb("#202227");
+    const yellowStall = hexToRgb("#e0c34a");
+    const whiteStall = hexToRgb("#f0f0f4");
+    const stopGray = hexToRgb("#9fa6ac");
+    const handicapBlue = hexToRgb("#2260a8");
+
+    // Base asphalt with subtle gravel aggregate mottle
     for (let py = 0; py < TILE_PX; py++) {
       for (let px = 0; px < TILE_PX; px++) {
-        let c: RGB = C.asphalt;
-        if (px % 3 === 1 && py >= 2 && py <= 6) c = C.asphaltDash; // bay stripes
-        put(x0 + px, y0 + py, c);
+        put(x0 + px, y0 + py, (px * 3 + py * 7) % 11 === 0 ? asphaltMottle : asphalt);
       }
     }
-    if (pixHash(t, 1, 44) % 2 === 0) {
-      const cc = pixHash(t, 2, 44) % 3;
-      const car = cc === 0 ? hexToRgb("#7088b0") : cc === 1 ? hexToRgb("#b06a60") : hexToRgb("#d8d2c4");
-      put(x0 + 2, y0 + 3, car);
-      put(x0 + 2, y0 + 4, shade(car, 0.85));
+
+    const sameL = tx > 0 && w.lot[t - 1] === Lot.Parking;
+    const sameR = tx < w.width - 1 && w.lot[t + 1] === Lot.Parking;
+    const sameU = ty > 0 && w.lot[t - w.width] === Lot.Parking;
+    const sameD = ty < w.height - 1 && w.lot[t + w.width] === Lot.Parking;
+
+    // Painted parking stalls (yellow angled lines / double stripes)
+    for (let py = 1; py <= 6; py += 3) {
+      put(x0 + 1, y0 + py, yellowStall);
+      put(x0 + 2, y0 + py, yellowStall);
+      put(x0 + 5, y0 + py, yellowStall);
+      put(x0 + 6, y0 + py, yellowStall);
+    }
+    // Concrete wheel stops at stall heads
+    put(x0 + 2, y0 + 6, stopGray);
+    put(x0 + 5, y0 + 6, stopGray);
+
+    // Handicap accessible parking stall on perimeter corner
+    if (!sameL && !sameU) {
+      put(x0 + 2, y0 + 2, handicapBlue);
+      put(x0 + 3, y0 + 2, handicapBlue);
+      put(x0 + 2, y0 + 3, handicapBlue);
+      put(x0 + 3, y0 + 3, handicapBlue);
+      put(x0 + 2, y0 + 2, whiteStall); // white wheelchair glyph center
+    }
+
+    // Landscaped island curb tree on edges
+    if (!sameR && !sameU && pixHash(t, 5, 23) % 2 === 0) {
+      put(x0 + 6, y0 + 1, hexToRgb("#4c9c28"));
+      put(x0 + 7, y0 + 1, hexToRgb("#326e1c"));
+      put(x0 + 6, y0 + 2, hexToRgb("#326e1c"));
+      put(x0 + 7, y0 + 2, hexToRgb("#4c9c28"));
+      put(x0 + 6, y0 + 3, hexToRgb("#8c9296")); // curb border
+      put(x0 + 7, y0 + 3, hexToRgb("#8c9296"));
+    }
+
+    // Authentic retro parked cars (hashing selects presence & color)
+    const h = pixHash(t, 13, 71);
+    if (h % 3 !== 0) {
+      const palette = [
+        hexToRgb("#2b4260"), // midnight navy sedan
+        hexToRgb("#8a252a"), // burgundy maroon wagon
+        hexToRgb("#2d5236"), // dark forest green pickup
+        hexToRgb("#d4ccba"), // parchment beige
+        hexToRgb("#36383c"), // charcoal slate
+      ];
+      const carCol = palette[h % palette.length]!;
+      const carX = (h % 2 === 0) ? 1 : 4;
+      const carY = 2 + (h % 2);
+      put(x0 + carX, y0 + carY, carCol);
+      put(x0 + carX + 1, y0 + carY, carCol);
+      put(x0 + carX, y0 + carY + 1, hexToRgb("#15181c")); // windshield
+      put(x0 + carX + 1, y0 + carY + 1, hexToRgb("#15181c"));
+      put(x0 + carX, y0 + carY + 2, shade(carCol, 0.82));
+      put(x0 + carX + 1, y0 + carY + 2, shade(carCol, 0.82));
+      // Tires
+      put(x0 + carX - 1 < 0 ? 0 : x0 + carX - 1, y0 + carY, hexToRgb("#111111"));
+      put(x0 + carX + 2 >= TILE_PX ? TILE_PX - 1 : x0 + carX + 2, y0 + carY, hexToRgb("#111111"));
     }
     return;
   }
@@ -2718,17 +2708,46 @@ function drawLotBuilding(
       break;
     }
     case Lot.Supermarket: {
-      if (!sameLeft) {
-        put(x0 + 2, y0 + 1, accent);
-        put(x0 + 3, y0 + 1, accent);
-      }
-      put(x0 + 3, y0 + 5, C.windowDark);
-      put(x0 + 4, y0 + 5, C.windowDark);
-      // Striped green & white storefront awning
-      const awnA = hexToRgb("#2b8c42");
-      const awnB = hexToRgb("#f0f0f0");
-      for (let px = 2; px <= 5; px++) {
-        put(x0 + px, y0 + 4, px % 2 === 0 ? awnA : awnB);
+      const awnGreen = hexToRgb("#2b8c42");
+      const awnWhite = hexToRgb("#f0f0f0");
+      const cartSteel = hexToRgb("#b0b8c0");
+      const cartRed = hexToRgb("#c83232");
+      const glassGlint = hexToRgb("#87ceeb");
+      const hvacGray = hexToRgb("#586066");
+
+      if (!sameUp) {
+        // Roof floor: gravel ballast, HVAC chiller compressor units, roof access hatch
+        put(x0 + 2, y0 + 2, hvacGray);
+        put(x0 + 3, y0 + 2, hexToRgb("#485055"));
+        put(x0 + 5, y0 + 2, hvacGray);
+        put(x0 + 6, y0 + 2, hexToRgb("#485055"));
+        if (!sameLeft) {
+          // Corner supermarket illuminated logo sign
+          put(x0 + 1, y0 + 1, accent);
+          put(x0 + 2, y0 + 1, accent);
+          put(x0 + 3, y0 + 1, accent);
+        }
+      } else {
+        // Front entrance facade floor: wide striped awning + automatic glass sliding doors
+        for (let px = 1; px <= 6; px++) {
+          put(x0 + px, y0 + 2, px % 2 === 0 ? awnGreen : awnWhite);
+        }
+        // Wide automatic glass doors
+        put(x0 + 3, y0 + 4, glassGlint);
+        put(x0 + 4, y0 + 4, glassGlint);
+        put(x0 + 3, y0 + 5, C.door);
+        put(x0 + 4, y0 + 5, C.door);
+        // Shopping cart corral on right side
+        if (!sameRight) {
+          put(x0 + 6, y0 + 5, cartSteel);
+          put(x0 + 6, y0 + 6, cartRed);
+          put(x0 + 5, y0 + 6, cartRed);
+        }
+        // Promotional window display
+        if (!sameLeft) {
+          put(x0 + 1, y0 + 4, hexToRgb("#e8e040")); // yellow specials poster
+          put(x0 + 2, y0 + 4, glassGlint);
+        }
       }
       break;
     }
@@ -2834,29 +2853,61 @@ function drawLotBuilding(
       put(x0 + 5, y0 + 5, bayDark);
       break;
     }
-    case Lot.Factory:
-      // smokestacks + sawtooth roof
-      if (!sameUp && !sameLeft) {
-        put(x0 + 1, y0, C.iconDark);
-        put(x0 + 1, y0 + 1, accent);
+    case Lot.Factory: {
+      const smokestack = hexToRgb("#503028");
+      const soot = hexToRgb("#1a120e");
+      const skylight = hexToRgb("#7098b0");
+      const bayMetal = hexToRgb("#7a8288");
+
+      if (!sameUp) {
+        // Sawtooth roofline with triangular north-facing skylights
+        put(x0 + 2, y0 + 1, skylight);
+        put(x0 + 3, y0 + 2, skylight);
+        put(x0 + 5, y0 + 1, skylight);
+        put(x0 + 6, y0 + 2, skylight);
+        if (!sameLeft) {
+          // Industrial brick smokestack
+          put(x0 + 1, y0, soot);
+          put(x0 + 1, y0 + 1, smokestack);
+          put(x0 + 1, y0 + 2, smokestack);
+        }
+      } else {
+        // Factory ground floor: heavy corrugated cargo rollup door
+        for (let py = 3; py <= 5; py++) {
+          put(x0 + 2, y0 + py, bayMetal);
+          put(x0 + 3, y0 + py, bayMetal);
+        }
+        put(x0 + 5, y0 + 3, hexToRgb("#ffb030")); // Sodium security lamp
+        put(x0 + 5, y0 + 5, C.door);
       }
-      put(x0 + 2, y0 + 2, accent);
-      put(x0 + 5, y0 + 2, accent);
       break;
-    case Lot.Motel:
-      // row of unit doors under a long eave
+    }
+    case Lot.Motel: {
+      const poolWater = hexToRgb("#7fc4e8");
+      const poolCoping = hexToRgb("#f0f0f4");
+      const neonRed = hexToRgb("#e83a3a");
+
       put(x0 + 2, y0 + 5, C.door);
       put(x0 + 5, y0 + 5, C.door);
-      put(x0 + 2, y0 + 1, accent); // neon "VACANCY"
-      put(x0 + 3, y0 + 1, accent);
-      // the motel POOL (§7): a blue rectangle on the east end of the run
-      if (!sameRight) {
-        put(x0 + 5, y0 + 2, hexToRgb("#7fc4e8"));
-        put(x0 + 6, y0 + 2, hexToRgb("#9fd4f0"));
-        put(x0 + 5, y0 + 3, hexToRgb("#9fd4f0"));
-        put(x0 + 6, y0 + 3, hexToRgb("#7fc4e8"));
+      put(x0 + 1, y0 + 4, C.windowDark);
+      put(x0 + 4, y0 + 4, C.windowDark);
+
+      if (!sameUp && !sameLeft) {
+        // Roadside neon "VACANCY" sign
+        put(x0 + 1, y0 + 1, neonRed);
+        put(x0 + 2, y0 + 1, hexToRgb("#32d060"));
+      }
+
+      // Motel courtyard pool on corner
+      if (!sameRight && !sameDown) {
+        for (let py = 3; py <= 6; py++) {
+          for (let px = 4; px <= 6; px++) {
+            put(x0 + px, y0 + py, (px === 4 || py === 3) ? poolCoping : poolWater);
+          }
+        }
       }
       break;
+    }
     case Lot.Office:
       for (let wy = 2; wy <= 5; wy += 2) {
         for (let wx = 2; wx <= 5; wx += 2) {
@@ -2867,39 +2918,58 @@ function drawLotBuilding(
     case Lot.Cinema: {
       const bulbGold = hexToRgb("#ffee77");
       const neonRed = hexToRgb("#e83a3a");
-      if (!sameLeft) {
-        for (let px = 1; px <= 5; px++) put(x0 + px, y0 + 1, neonRed);
-        put(x0 + 1, y0 + 2, bulbGold);
-        put(x0 + 2, y0 + 2, accent);
-        put(x0 + 3, y0 + 2, bulbGold);
-        put(x0 + 4, y0 + 2, accent);
-        put(x0 + 5, y0 + 2, bulbGold);
-        put(x0 + 2, y0 + 3, C.crosswalk); // the poster bill
-        put(x0 + 4, y0 + 3, bulbGold);
+      const posterWhite = hexToRgb("#f4f4f4");
+
+      if (!sameUp) {
+        // Upper facade: giant lit theater sign
+        for (let px = 1; px <= 6; px++) put(x0 + px, y0 + 2, neonRed);
+        put(x0 + 2, y0 + 1, bulbGold);
+        put(x0 + 4, y0 + 1, bulbGold);
+        put(x0 + 6, y0 + 1, bulbGold);
+      } else {
+        // Front marquee canopy & poster lightboxes
+        for (let px = 1; px <= 6; px++) {
+          put(x0 + px, y0 + 2, neonRed);
+          put(x0 + px, y0 + 3, px % 2 === 0 ? bulbGold : accent);
+        }
+        put(x0 + 1, y0 + 4, posterWhite); // Poster display
+        put(x0 + 6, y0 + 4, posterWhite);
         put(x0 + 3, y0 + 5, C.door);
         put(x0 + 4, y0 + 5, C.door);
-      } else {
-        put(x0 + 2, y0 + 2, bulbGold);
-        put(x0 + 4, y0 + 2, bulbGold);
-        put(x0 + 3, y0 + 4, C.windowDark);
       }
       break;
     }
-    case Lot.HighSchool:
-      // brick block with a gym wing stripe + the school sign
-      if (!sameLeft && !sameUp) {
-        put(x0 + 1, y0, accent); // flagpole
-        put(x0 + 1, y0 + 1, accent);
-      }
+    case Lot.HighSchool: {
+      const clockGold = hexToRgb("#e0c040");
+      const trimWhite = hexToRgb("#f0f0f4");
+
       if (!sameUp) {
-        put(x0 + 3, y0 + 4, C.windowDark);
-        put(x0 + 5, y0 + 4, C.windowDark);
-      }
-      if (sameUp) {
-        put(x0 + 2, y0 + 3, accent); // the gym doors
-        put(x0 + 3, y0 + 3, accent);
+        // Roof & upper level: clock tower belfry & classroom window rows
+        if (!sameLeft) {
+          put(x0 + 1, y0, hexToRgb("#d8d8d8")); // Flagpole
+          put(x0 + 1, y0 + 1, hexToRgb("#e83a3a")); // Flag
+        }
+        // Central clock tower
+        if (sameLeft && !sameRight) {
+          put(x0 + 2, y0, trimWhite);
+          put(x0 + 2, y0 + 1, clockGold); // Clock face
+          put(x0 + 3, y0, trimWhite);
+        }
+        // Classroom windows
+        put(x0 + 2, y0 + 3, C.windowDark);
+        put(x0 + 4, y0 + 3, C.windowDark);
+        put(x0 + 6, y0 + 3, C.windowDark);
+      } else {
+        // Ground floor: grand main entrance atrium & gym doors
+        put(x0 + 3, y0 + 4, hexToRgb("#87ceeb")); // Glass entrance
+        put(x0 + 4, y0 + 4, hexToRgb("#87ceeb"));
+        put(x0 + 3, y0 + 5, C.door);
+        put(x0 + 4, y0 + 5, C.door);
+        put(x0 + 1, y0 + 4, C.windowDark);
+        put(x0 + 6, y0 + 4, C.windowDark);
       }
       break;
+    }
     case Lot.GrainElevator: {
       const lightSteel = hexToRgb("#dce2e6");
       const darkSteel = hexToRgb("#8a9399");
@@ -2972,18 +3042,30 @@ function drawLotBuilding(
       put(x0 + 6, y0 + 5, bench);
       break;
     }
-    case Lot.Warehouse:
-      // long shed: roll-up bay doors + a loading dock strip
-      put(x0 + 2, y0 + 4, C.iconDark);
-      put(x0 + 2, y0 + 5, C.iconDark);
-      put(x0 + 5, y0 + 4, C.iconDark);
-      put(x0 + 5, y0 + 5, C.iconDark);
-      if (!sameDown) {
-        put(x0 + 2, y0 + 6, C.asphalt);
-        put(x0 + 3, y0 + 6, C.asphalt);
-        put(x0 + 4, y0 + 6, C.asphalt);
+    case Lot.Warehouse: {
+      const ribMetal = hexToRgb("#8c969e");
+      const dockConc = hexToRgb("#a8adb2");
+      const hazardYellow = hexToRgb("#ffcc00");
+      const rollDoor = hexToRgb("#48525a");
+
+      if (!sameUp) {
+        for (let px = 1; px <= 6; px += 2) put(x0 + px, y0 + 2, ribMetal);
+      } else {
+        // Rollup bay doors
+        for (let py = 3; py <= 5; py++) {
+          put(x0 + 2, y0 + py, rollDoor);
+          put(x0 + 5, y0 + py, rollDoor);
+        }
+        // Concrete loading dock with hazard stripe
+        if (!sameDown) {
+          for (let px = 1; px <= 6; px++) {
+            put(x0 + px, y0 + 6, dockConc);
+            put(x0 + px, y0 + 7, px % 2 === 0 ? hazardYellow : hexToRgb("#222222"));
+          }
+        }
       }
       break;
+    }
     case Lot.Greenhouse:
       // glass panes with frame ribs + a sun glint
       for (let gy2 = 2; gy2 <= 5; gy2++) {
@@ -3383,7 +3465,7 @@ function castShadow(x0: number, y0: number, put: Put, w = 6): void {
  * blobs — the lawn runs to the sidewalk. Instead: street trees at a regular
  * civic rhythm, a fire hydrant every few lots, and a mailbox at the curb.
  */
-function drawVerge(
+export function drawVerge(
   w: World,
   t: number,
   tx: number,
@@ -3425,7 +3507,7 @@ function drawVerge(
 }
 
 /** family house: roof, wall, door — roof color by district. */
-function drawHouse(
+export function drawHouse(
   x0: number,
   y0: number,
   district: number,
@@ -3671,7 +3753,7 @@ function drawHouse(
   }
 }
 
-function drawTrailerHome(
+export function drawTrailerHome(
   x0: number,
   y0: number,
   t: number,
@@ -3835,36 +3917,29 @@ export function drawCultAsset16(
   const x0 = (tile % mapWidth) * TILE_PX;
   const y0 = ((tile / mapWidth) | 0) * TILE_PX;
 
-  // 1. Radiant pulsing halo around the 16×16 perimeter
+  // 1. Realistic atmospheric gradient glow around the 16×16 perimeter
   if (glow) {
-    const pulse = 1.0 + 0.32 * Math.sin((tick + tile * 7) * 0.14);
-    const haloBright = shade(body, pulse * 1.4);
-    const haloMid = shade(body, pulse * 0.9);
-    const haloSoft = shade(body, pulse * 0.45);
+    const pulse = 1.0 + 0.28 * Math.sin((tick + tile * 7) * 0.14);
+    const maxRadius = 4.2;
 
-    // Outer ring 1 (1px outside 16×16 bounding box)
-    for (let k = -1; k <= 16; k++) {
-      const alt = (k + (tick >> 2)) % 2 === 0;
-      const c = alt ? haloBright : haloMid;
-      put(x0 + k, y0 - 1, c);
-      put(x0 + k, y0 + 16, c);
-      put(x0 - 1, y0 + k, alt ? haloMid : haloBright);
-      put(x0 + 16, y0 + k, alt ? haloMid : haloBright);
-    }
+    for (let py = -4; py <= 19; py++) {
+      for (let px = -4; px <= 19; px++) {
+        // Skip inside building bounding box
+        if (px >= 0 && px < 16 && py >= 0 && py < 16) continue;
 
-    // Outer ring 2 (2px outside 16×16 bounding box, ambient perimeter shimmer)
-    for (let k = 0; k < 16; k += 2) {
-      if ((k + (tick >> 3)) % 2 === 0) {
-        put(x0 + k, y0 - 2, haloSoft);
-        put(x0 + k, y0 + 17, haloSoft);
-        put(x0 - 2, y0 + k, haloSoft);
-        put(x0 + 17, y0 + k, haloSoft);
+        const dx = px < 0 ? -px : px >= 16 ? px - 15 : 0;
+        const dy = py < 0 ? -py : py >= 16 ? py - 15 : 0;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist <= maxRadius) {
+          // Smooth quadratic gradient falloff
+          const norm = 1.0 - dist / maxRadius;
+          const intensity = norm * norm * 1.35 * pulse;
+          const glowRgb = shade(body, intensity);
+          put(x0 + px, y0 + py, glowRgb);
+        }
       }
     }
-    put(x0 - 2, y0 - 2, haloSoft);
-    put(x0 + 17, y0 - 2, haloSoft);
-    put(x0 - 2, y0 + 17, haloSoft);
-    put(x0 + 17, y0 + 17, haloSoft);
   }
 
   // 2. 16×16 Pixel Art
@@ -3902,6 +3977,142 @@ export function drawCultAsset16(
           break;
       }
     }
+  }
+}
+
+/**
+ * Grey shore rock outcrops with tiered boulders, quartz glints, and stone shadows.
+ */
+export function drawRockOutcrop(x0: number, y0: number, put: Put, rockVar = 0): void {
+  const quartz = hexToRgb("#f4f6f8"); // Bright quartz glint
+  const shoreMid = hexToRgb("#a8b0b5"); // Shore granite mid-tone
+  if (rockVar === 1) {
+    // Tiered shore boulder formation with quartz vein
+    put(x0 + 2, y0 + 4, C.rock);
+    put(x0 + 3, y0 + 3, quartz);
+    put(x0 + 4, y0 + 3, C.rock);
+    put(x0 + 3, y0 + 4, shoreMid);
+    put(x0 + 4, y0 + 4, shoreMid);
+    put(x0 + 5, y0 + 4, C.rockShade);
+    put(x0 + 3, y0 + 5, C.rockShade);
+    put(x0 + 4, y0 + 5, C.shadow);
+  } else if (rockVar === 2) {
+    // Twin jagged shore stones
+    put(x0 + 1, y0 + 4, C.rock);
+    put(x0 + 2, y0 + 4, shoreMid);
+    put(x0 + 2, y0 + 5, C.rockShade);
+    put(x0 + 4, y0 + 3, quartz);
+    put(x0 + 5, y0 + 4, C.rock);
+    put(x0 + 5, y0 + 5, C.rockShade);
+    put(x0 + 6, y0 + 5, C.shadow);
+  } else {
+    // Broad flat shore ledge shelf
+    put(x0 + 2, y0 + 3, C.rock);
+    put(x0 + 3, y0 + 3, quartz);
+    put(x0 + 4, y0 + 3, C.rock);
+    put(x0 + 2, y0 + 4, shoreMid);
+    put(x0 + 3, y0 + 4, shoreMid);
+    put(x0 + 4, y0 + 4, shoreMid);
+    put(x0 + 5, y0 + 4, C.rockShade);
+    put(x0 + 3, y0 + 5, C.rockShade);
+    put(x0 + 4, y0 + 5, C.shadow);
+  }
+}
+
+/**
+ * Wild leafy bramble brush thickets with sunlit sprigs and crimson berries.
+ */
+export function drawBrushPocket(x0: number, y0: number, put: Put, bushVar = 0): void {
+  const leafLight = hexToRgb("#7ca84c"); // Sunlit leaf sprig
+  const leafDark = hexToRgb("#344e26"); // Shaded bramble interior
+  const berry = hexToRgb("#c83232"); // Wild crimson berry
+  if (bushVar === 1) {
+    put(x0 + 2, y0 + 4, leafLight);
+    put(x0 + 3, y0 + 4, C.bush);
+    put(x0 + 4, y0 + 4, berry);
+    put(x0 + 2, y0 + 5, C.bush);
+    put(x0 + 3, y0 + 5, leafDark);
+    put(x0 + 4, y0 + 5, C.bush);
+    put(x0 + 3, y0 + 6, shade(C.bush, 0.82));
+  } else {
+    put(x0 + 1, y0 + 4, C.bush);
+    put(x0 + 2, y0 + 4, leafLight);
+    put(x0 + 3, y0 + 4, berry);
+    put(x0 + 2, y0 + 5, C.bush);
+    put(x0 + 3, y0 + 5, leafDark);
+    put(x0 + 4, y0 + 5, leafLight);
+    put(x0 + 2, y0 + 6, shade(C.bush, 0.82));
+    put(x0 + 3, y0 + 6, shade(C.bush, 0.82));
+  }
+}
+
+/**
+ * Standalone country tree with wooden trunk, spreading leafy crown, and cast shadow.
+ */
+export function drawCountryTree(
+  x0: number,
+  y0: number,
+  put: Put,
+  treeVar = 0,
+  season = "summer",
+): void {
+  put(x0 + 4, y0 + 5, C.shadow); // cast shadow
+  put(x0 + 5, y0 + 5, C.shadow);
+
+  let cBase = C.canopy;
+  let cLight = C.canopyLight;
+  let cDark = C.canopyDark;
+  if (treeVar === 3 && season === "fall") {
+    cBase = hexToRgb("#d97b25");
+    cLight = hexToRgb("#eba33d");
+    cDark = hexToRgb("#bd5b1b");
+  } else if (treeVar === 4) {
+    put(x0 + 3, y0 + 3, C.trunk);
+    put(x0 + 4, y0 + 3, C.trunk);
+    put(x0 + 4, y0 + 4, C.trunk);
+    put(x0 + 3, y0 + 4, C.trunk);
+    return;
+  }
+
+  if (treeVar === 1) {
+    // Taller pine shape
+    put(x0 + 3, y0 + 1, cLight);
+    put(x0 + 3, y0 + 2, cLight);
+    put(x0 + 3, y0 + 3, cBase);
+    put(x0 + 4, y0 + 3, cBase);
+    put(x0 + 2, y0 + 4, cDark);
+    put(x0 + 3, y0 + 4, cBase);
+    put(x0 + 4, y0 + 4, cDark);
+    put(x0 + 3, y0 + 5, C.trunk);
+  } else if (treeVar === 2) {
+    // Shrubby round tree
+    put(x0 + 2, y0 + 2, cLight);
+    put(x0 + 3, y0 + 2, cLight);
+    put(x0 + 4, y0 + 2, cLight);
+    put(x0 + 2, y0 + 3, cLight);
+    put(x0 + 3, y0 + 3, cBase);
+    put(x0 + 4, y0 + 3, cLight);
+    put(x0 + 2, y0 + 4, cDark);
+    put(x0 + 3, y0 + 4, cBase);
+    put(x0 + 4, y0 + 4, cDark);
+    put(x0 + 5, y0 + 4, cDark);
+    put(x0 + 3, y0 + 5, C.trunk);
+  } else {
+    // Spreading country oak with prominent wooden trunk
+    put(x0 + 3, y0 + 1, cLight);
+    put(x0 + 4, y0 + 1, cLight);
+    put(x0 + 2, y0 + 2, cLight);
+    put(x0 + 3, y0 + 2, cBase);
+    put(x0 + 4, y0 + 2, cLight);
+    put(x0 + 5, y0 + 2, cLight);
+    put(x0 + 2, y0 + 3, cDark);
+    put(x0 + 3, y0 + 3, cBase);
+    put(x0 + 4, y0 + 3, cLight);
+    put(x0 + 5, y0 + 3, cDark);
+    put(x0 + 3, y0 + 4, cDark);
+    put(x0 + 4, y0 + 4, cDark);
+    put(x0 + 3, y0 + 5, C.trunk);
+    put(x0 + 4, y0 + 5, C.trunk);
   }
 }
 

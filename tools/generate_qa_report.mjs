@@ -151,19 +151,51 @@ const CULT_SHOTS_DIR = join(SHOTS_DIR, "cult");
 mkdirSync(CULT_SHOTS_DIR, { recursive: true });
 
 function renderStudioCultAsset(bitmap, bodyCol, accentCol, bgRgb, scale = 12) {
-  const LOG_SIZE = 26; // 16x16 asset in center (offset 5,5) with 5px glowing halo margin
+  const LOG_SIZE = 28; // 16x16 asset in center (offset 6,6) with 6px glowing margin
   const dstW = LOG_SIZE * scale;
   const dstH = LOG_SIZE * scale;
   const rgba = Buffer.alloc(dstW * dstH * 4);
 
-  // Fill background
-  for (let i = 0; i < dstW * dstH; i++) {
-    rgba[i * 4] = bgRgb[0];
-    rgba[i * 4 + 1] = bgRgb[1];
-    rgba[i * 4 + 2] = bgRgb[2];
-    rgba[i * 4 + 3] = 255;
+  const boxMin = 6 * scale;
+  const boxMax = 22 * scale;
+  const glowRadius = 5.5 * scale;
+
+  // 1. Render realistic atmospheric gradient glow across the background
+  for (let py = 0; py < dstH; py++) {
+    for (let px = 0; px < dstW; px++) {
+      const idx = (py * dstW + px) * 4;
+
+      // Distance from pixel to 16x16 building bounding box
+      const dx = px < boxMin ? boxMin - px : px >= boxMax ? px - boxMax + 1 : 0;
+      const dy = py < boxMin ? boxMin - py : py >= boxMax ? py - boxMax + 1 : 0;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist > 0 && dist <= glowRadius) {
+        // Smooth exponential-quadratic gradient falloff
+        const norm = 1.0 - dist / glowRadius;
+        const alpha = Math.pow(norm, 1.85) * 0.88;
+
+        rgba[idx] = Math.min(255, Math.round((1 - alpha) * bgRgb[0] + alpha * bodyCol[0]));
+        rgba[idx + 1] = Math.min(255, Math.round((1 - alpha) * bgRgb[1] + alpha * bodyCol[1]));
+        rgba[idx + 2] = Math.min(255, Math.round((1 - alpha) * bgRgb[2] + alpha * bodyCol[2]));
+        rgba[idx + 3] = 255;
+      } else if (dist === 0) {
+        // Inside building footprint: start with body tint
+        rgba[idx] = bodyCol[0];
+        rgba[idx + 1] = bodyCol[1];
+        rgba[idx + 2] = bodyCol[2];
+        rgba[idx + 3] = 255;
+      } else {
+        // Outside glow radius: pure studio background
+        rgba[idx] = bgRgb[0];
+        rgba[idx + 1] = bgRgb[1];
+        rgba[idx + 2] = bgRgb[2];
+        rgba[idx + 3] = 255;
+      }
+    }
   }
 
+  // 2. Put function for crisp 16x16 asset pixels
   const put = (gx, gy, col) => {
     if (gx < 0 || gy < 0 || gx >= LOG_SIZE || gy >= LOG_SIZE) return;
     for (let dy = 0; dy < scale; dy++) {
@@ -179,12 +211,13 @@ function renderStudioCultAsset(bitmap, bodyCol, accentCol, bgRgb, scale = 12) {
     }
   };
 
-  // Center offset wrapper (offset by 5px so 16x16 asset + 2px halo fits 26x26)
+  // Center offset wrapper (offset by 6px so 16x16 asset fits in 28x28)
   const offsetPut = (px, py, col) => {
-    put(px + 5, py + 5, col);
+    put(px + 6, py + 6, col);
   };
 
-  drawCultAsset16(bitmap, 0, 100, bodyCol, offsetPut, accentCol, 120, true);
+  // Draw 16x16 pixel art (pass glow=false since realistic gradient glow is already rendered)
+  drawCultAsset16(bitmap, 0, 100, bodyCol, offsetPut, accentCol, 120, false);
   return { width: dstW, height: dstH, rgba };
 }
 

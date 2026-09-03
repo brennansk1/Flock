@@ -862,6 +862,181 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
   };
 
   /**
+   * PROCEDURAL LOT PARCEL SYSTEM:
+   * Stamps a multi-tile building footprint PAIRED with an integrated asphalt parking lot,
+   * entrance driveway, and optional auxiliary grounds (e.g. ballfield, playground, cemetery).
+   */
+  const stampParcel = (
+    lotKind: number,
+    bW: number,
+    bH: number,
+    pW: number,
+    pH: number,
+    pSide: "south" | "north" | "east" | "west",
+    district: number,
+    workers: number,
+    auxLot = 0,
+    auxW = 0,
+    auxH = 0,
+    auxSide: "east" | "west" | "south" | "north" = "east",
+    tries = 100
+  ): boolean => {
+    let totalW = bW;
+    let totalH = bH;
+    let bx = 0, by = 0;
+    let px = 0, py = 0;
+    let ax = 0, ay = 0;
+
+    if (pSide === "south") {
+      totalH = bH + pH;
+      totalW = Math.max(bW, pW);
+      bx = 0; by = 0;
+      px = 0; py = bH;
+    } else if (pSide === "north") {
+      totalH = bH + pH;
+      totalW = Math.max(bW, pW);
+      bx = 0; by = pH;
+      px = 0; py = 0;
+    } else if (pSide === "east") {
+      totalW = bW + pW;
+      totalH = Math.max(bH, pH);
+      bx = 0; by = 0;
+      px = bW; py = 0;
+    } else { // west
+      totalW = bW + pW;
+      totalH = Math.max(bH, pH);
+      bx = pW; by = 0;
+      px = 0; py = 0;
+    }
+
+    if (auxLot > 0 && auxW > 0 && auxH > 0) {
+      if (auxSide === "east") {
+        ax = totalW; ay = 0;
+        totalW += auxW;
+        totalH = Math.max(totalH, auxH);
+      } else if (auxSide === "south") {
+        ax = 0; ay = totalH;
+        totalH += auxH;
+        totalW = Math.max(totalW, auxW);
+      }
+    }
+
+    for (let attempt = 0; attempt < tries; attempt++) {
+      const originX = town.cx - town.r + nextRange(rng, town.r * 2);
+      const originY = town.cy - town.r + nextRange(rng, town.r * 2);
+      let ok = true;
+
+      // 1. Verify every tile in parcel is in bounds, citizen terrain, target district (or unzoned), and empty lot
+      for (let dy = 0; dy < totalH && ok; dy++) {
+        for (let dx = 0; dx < totalW && ok; dx++) {
+          const xx = originX + dx;
+          const yy = originY + dy;
+          if (xx < 1 || yy < 1 || xx >= width - 1 || yy >= w.height - 1) ok = false;
+          else {
+            const t = yy * width + xx;
+            if (w.terrain[t] !== Terrain.Citizen || w.lot[t] !== 0) ok = false;
+            // District matching: at least the building core should match district
+            if (dx >= bx && dx < bx + bW && dy >= by && dy < by + bH) {
+              if (w.district[t] !== district) ok = false;
+            }
+          }
+        }
+      }
+      if (!ok) continue;
+
+      // 2. Road frontage check: parcel must touch a road on at least one side
+      let frontage = false;
+      for (let dx = 0; dx < totalW && !frontage; dx++) {
+        const below = (originY + totalH) * width + originX + dx;
+        const above = (originY - 1) * width + originX + dx;
+        if (originY + totalH < w.height && w.terrain[below] === Terrain.Road) frontage = true;
+        if (originY - 1 >= 0 && w.terrain[above] === Terrain.Road) frontage = true;
+      }
+      for (let dy = 0; dy < totalH && !frontage; dy++) {
+        const left = (originY + dy) * width + originX - 1;
+        const right = (originY + dy) * width + originX + totalW;
+        if (originX - 1 >= 0 && w.terrain[left] === Terrain.Road) frontage = true;
+        if (originX + totalW < width && w.terrain[right] === Terrain.Road) frontage = true;
+      }
+      if (!frontage) continue;
+
+      // 3. Hydrological setback: parcel must not touch lake/water
+      const dirs: [number, number][] = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+      for (let dy = 0; dy < totalH && ok; dy++) {
+        for (let dx = 0; dx < totalW && ok; dx++) {
+          const xx = originX + dx;
+          const yy = originY + dy;
+          for (const [ox, oy] of dirs) {
+            const nx = xx + ox;
+            const ny = yy + oy;
+            if (nx < 0 || ny < 0 || nx >= width || ny >= w.height) continue;
+            if (w.terrain[ny * width + nx] === Terrain.Lake) ok = false;
+          }
+        }
+      }
+      if (!ok) continue;
+
+      // 4. Zoning separation: industrial vs sensitive
+      const isIndustrial = district === Districts.Industrial || lotKind === Lot.Factory || lotKind === Lot.Warehouse;
+      const isSensitive = lotKind === Lot.School || lotKind === Lot.HighSchool || lotKind === Lot.Church || lotKind === Lot.Chapel;
+      if (isIndustrial || isSensitive) {
+        for (let dy = -6; dy <= totalH + 6 && ok; dy++) {
+          for (let dx = -6; dx <= totalW + 6 && ok; dx++) {
+            const nx = originX + dx;
+            const ny = originY + dy;
+            if (nx < 0 || ny < 0 || nx >= width || ny >= w.height) continue;
+            const nt = ny * width + nx;
+            const nLot = w.lot[nt];
+            const nDist = w.district[nt];
+            if (isIndustrial) {
+              if (nLot === Lot.School || nLot === Lot.HighSchool || nLot === Lot.Church || nLot === Lot.Chapel) ok = false;
+            } else if (isSensitive) {
+              if (nLot === Lot.Factory || nLot === Lot.Warehouse || nDist === Districts.Industrial) ok = false;
+            }
+          }
+        }
+      }
+      if (!ok) continue;
+
+      // Passed all checks! Now stamp the parcel components:
+      // A. Building footprint
+      for (let dy = 0; dy < bH; dy++) {
+        for (let dx = 0; dx < bW; dx++) {
+          const t = (originY + by + dy) * width + (originX + bx + dx);
+          w.lot[t] = lotKind;
+          w.terrain[t] = Terrain.Citizen;
+          w.pop[t] = Math.min(15, Math.max(2, Math.floor(workers / (bW * bH))));
+        }
+      }
+
+      // B. Paired Parking Lot
+      for (let dy = 0; dy < pH; dy++) {
+        for (let dx = 0; dx < pW; dx++) {
+          const t = (originY + py + dy) * width + (originX + px + dx);
+          w.lot[t] = Lot.Parking;
+          w.terrain[t] = Terrain.Citizen;
+          w.pop[t] = 0;
+        }
+      }
+
+      // C. Auxiliary grounds (if any)
+      if (auxLot > 0 && auxW > 0 && auxH > 0) {
+        for (let dy = 0; dy < auxH; dy++) {
+          for (let dx = 0; dx < auxW; dx++) {
+            const t = (originY + ay + dy) * width + (originX + ax + dx);
+            w.lot[t] = auxLot;
+            w.terrain[t] = Terrain.Citizen;
+            w.pop[t] = 1;
+          }
+        }
+      }
+
+      return true;
+    }
+    return false;
+  };
+
+  /**
    * KEYSTONE GUARANTEE: some civic anchors exist in every real town — and the
    * civics engine (§13 rev.) depends on them being present. Try the preferred
    * district first, then fall back through others, then force-place on any
@@ -873,15 +1048,31 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
     hLots: number,
     districts: number[],
     workers: number,
+    parkingDepth = 1,
+    auxLot = 0,
+    auxW = 0,
+    auxH = 0
   ): void => {
+    // 1. Try procedural parcel with paired parking
+    if (parkingDepth > 0) {
+      for (const d of districts) {
+        for (const side of ["south", "east", "north", "west"] as const) {
+          const pW = (side === "south" || side === "north") ? wLots : parkingDepth;
+          const pH = (side === "south" || side === "north") ? parkingDepth : hLots;
+          if (stampParcel(lotKind, wLots, hLots, pW, pH, side, d, workers, auxLot, auxW, auxH)) return;
+        }
+      }
+    }
+    // 2. Try standalone building footprint
     for (const d of districts) {
       if (stamp(lotKind, wLots, hLots, d, workers)) return;
     }
-    // shrink to 1×1 and try again before brute force
+    // 3. Fallback: 2x1 or 1x1
     for (const d of districts) {
+      if (stamp(lotKind, Math.min(2, wLots), 1, d, workers)) return;
       if (stamp(lotKind, 1, 1, d, workers)) return;
     }
-    // force-place: first road-fronting, lot-free citizen tile in raster order
+    // 4. Force-place: first road-fronting, lot-free citizen tile in raster order
     for (let t = 0; t < w.terrain.length; t++) {
       if (w.terrain[t] !== Terrain.Citizen || w.lot[t] !== 0) continue;
       let fronted = false;
@@ -896,44 +1087,48 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
   };
 
   const D = Districts;
-  // KEYSTONES first — they claim ground before the flavor lots do, and they
-  // are BIG: the civic anchors read at map scale (§2 rev. 3).
-  keystone(Lot.Supermarket, 3, 2, [D.Commercial, D.Downtown], 12); // the grocery
-  keystone(Lot.Sheriff, 2, 1, [D.Downtown, D.Commercial], 6); // the police station
-  keystone(Lot.School, 3, 2, [D.College, D.Suburbs, D.ResHigh], 16); // elementary
-  keystone(Lot.HighSchool, 3, 2, [D.College, D.Suburbs, D.ResHigh], 20);
-  keystone(Lot.Church, 1, 2, [D.OldTown, D.Suburbs, D.Downtown], 6);
-  keystone(Lot.FireStation, 2, 2, [D.Downtown, D.Commercial], 8);
-  keystone(Lot.GasStation, 2, 1, [D.Commercial, D.Trailer], 4);
+  // KEYSTONES first — placed as expansive multi-tile parcels paired with parking lots!
+  keystone(Lot.Supermarket, 2, 2, [D.Commercial, D.Downtown], 14, 1); // 2x2 grocery store + 2x1 parking lot
+  keystone(Lot.Sheriff, 2, 1, [D.Downtown, D.Commercial], 6, 1); // 2x1 police station + 2x1 cruiser parking
+  keystone(Lot.HighSchool, 2, 2, [D.College, D.Suburbs, D.ResHigh], 20, 1, Lot.BallField, 2, 2); // 2x2 academic + 2x1 parking + 2x2 athletic field
+  keystone(Lot.School, 2, 2, [D.College, D.Suburbs, D.ResHigh], 16, 1, Lot.Playground, 1, 2); // 2x2 elementary + 2x1 parking + 1x2 playground
+  keystone(Lot.Church, 2, 2, [D.OldTown, D.Suburbs, D.Downtown], 8, 1, Lot.Cemetery, 2, 1); // 2x2 church + 1x2 parking + 2x1 cemetery
+  keystone(Lot.FireStation, 2, 2, [D.Downtown, D.Commercial], 8, 1); // 2x2 firehouse + 2x1 response apron
+  keystone(Lot.GasStation, 2, 1, [D.Commercial, D.Trailer], 4, 0);
 
-  // Downtown: civic core. Every real Main Street has a town hall (landmark),
-  // bank, post office.
-  stamp(Lot.Office, 2, 2, D.Downtown, 16);
+  // Downtown: civic core. Every real Main Street has a town hall, offices, bank, post office.
+  stampParcel(Lot.Office, 2, 2, 2, 1, "south", D.Downtown, 16);
   stamp(Lot.Bank, 1, 1, D.Downtown, 6);
   stamp(Lot.PostOffice, 1, 1, D.Downtown, 5);
   stamp(Lot.Diner, 1, 1, D.Downtown, 6);
-  for (let i = 0; i < 3; i++) stamp(Lot.Shop, 1, 1, D.Downtown, 4 + nextRange(rng, 3));
+  for (let i = 0; i < 4; i++) stamp(Lot.Shop, 1, 1, D.Downtown, 4 + nextRange(rng, 3));
   // the town green: a civic square in the heart of downtown
   stamp(Lot.Park, 2, 2, D.Downtown, 1, 90);
-  // Commercial strip: shops, diner, cinema, offices along Main Street
-  stamp(Lot.Cinema, 2, 1, D.Commercial, 8);
+
+  // Commercial strip: cinema, motel, diner, shops along Main Street
+  stampParcel(Lot.Cinema, 2, 2, 2, 1, "south", D.Commercial, 10);
+  stampParcel(Lot.Motel, 2, 2, 2, 1, "south", D.Commercial, 8);
   stamp(Lot.Diner, 1, 1, D.Commercial, 6);
   stamp(Lot.Office, 2, 1, D.Commercial, 10);
-  for (let i = 0; i < 5; i++) stamp(Lot.Shop, 1, 1, D.Commercial, 4 + nextRange(rng, 3));
-  // Industrial quarter: the works — factory + warehouses + a yard
-  stamp(Lot.Factory, 3, 2, D.Industrial, 14);
-  keystone(Lot.Warehouse, 3, 1, [D.Industrial, D.Trailer, D.Commercial], 6);
+  for (let i = 0; i < 6; i++) stamp(Lot.Shop, 1, 1, D.Commercial, 4 + nextRange(rng, 3));
+
+  // Industrial quarter: the works — 2x2 factory + warehouses + truck yard
+  stampParcel(Lot.Factory, 2, 2, 2, 1, "south", D.Industrial, 16);
+  keystone(Lot.Warehouse, 2, 2, [D.Industrial, D.Trailer, D.Commercial], 8, 1);
   stamp(Lot.Warehouse, 2, 1, D.Industrial, 6);
   stamp(Lot.GasStation, 1, 1, D.Industrial, 3);
   stamp(Lot.Substation, 1, 1, D.Industrial, 1);
+
   // College quarter
   stamp(Lot.Library, 1, 1, D.College, 5);
   stamp(Lot.Shop, 1, 1, D.College, 4);
-  stamp(Lot.BallField, 2, 2, D.College, 1, 70); // the school ballpark
+  stamp(Lot.BallField, 2, 2, D.College, 1, 70);
+
   // Old Town: chapel + diner + the old churchyard
   stamp(Lot.Chapel, 1, 1, D.OldTown, 4);
   stamp(Lot.Diner, 1, 1, D.OldTown, 5);
   stamp(Lot.Cemetery, 2, 2, D.OldTown, 1, 70);
+
   // Suburbs (low-density): corner shops, a second church, parks, playground
   stamp(Lot.Shop, 1, 1, D.Suburbs, 4);
   stamp(Lot.Church, 1, 2, D.Suburbs, 5);
@@ -1417,8 +1612,8 @@ function layoutHighwaysAndTown(w: World, rng: RngState, rScale = 1): TownShape {
   // but stays capped so the countryside around it never disappears.
   // a smaller, denser footprint leaves a wide ring of open country around town
   // — room for cults to place compounds and assets strategically.
-  const base = Math.min(width, height) * 0.26 * rScale;
-  const r = Math.max(15, Math.min(Math.floor(Math.min(width, height) * 0.3), Math.floor(base)));
+  const base = Math.min(width, height) * 0.28 * rScale;
+  const r = Math.max(16, Math.min(Math.floor(Math.min(width, height) * 0.32), Math.floor(base)));
 
   // lumpy boundary: 12 spokes, radius 0.62r–1.05r, cosine-interpolated
   const SPOKES = 12;
@@ -1740,7 +1935,7 @@ function layoutFarms(w: World, rng: RngState, town: TownShape): void {
  */
 function fillFarmBelt(w: World, rng: RngState, town: TownShape): void {
   const { width, height } = w;
-  const inner = town.r + 8;
+  const inner = town.r + 3;
   const CELL_W = 11;
   const CELL_H = 9;
   for (let cy = 2; cy < height - 2; cy += CELL_H) {

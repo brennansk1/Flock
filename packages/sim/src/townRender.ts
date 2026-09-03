@@ -88,6 +88,183 @@ const COMPOUND_ICONS: Record<Archetype, string[]> = {
   ],
 };
 
+/**
+ * 16×16 (2×2 tiles) Cult Asset Bitmaps.
+ * Pixel codes:
+ *  '.' = transparent (ground/halo visible)
+ *  '#' = dark structural outline / deep shadow
+ *  'o' = primary faction body color
+ *  'O' = bright highlight of faction color
+ *  'x' = structural material (concrete / steel / brass / glass)
+ *  '*' = radiant animated archetype emission (fire/crystal/ticker/beam)
+ *  '+' = intense white/glint specular reflection
+ *  '-' = shaded underside
+ */
+export const CULT_ICONS_16: Record<string, string[]> = {
+  compound_dawn: [
+    "..**........**..", // 0: Corner flame braziers emitting sparks
+    ".+**+......+**+.", // 1: Hot glowing coal embers
+    "################", // 2: Heavy parapet steel battlements
+    "#oo##oo##oo##oo#", // 3: Slit firing ports
+    "#oooooooooooooo#", // 4: Reinforced concrete command bunker
+    "#oo#xxxxxxxx#oo#", // 5: Steel blast shield with heavy bolts
+    "#oo#x*o**o*x#oo#", // 6: Crimson sunburst / final dawn sigil
+    "#oo#xxxxxxxx#oo#", // 7: Steel armor plate
+    "################", // 8: Mid-level reinforced masonry belt
+    "#xxxx######xxxx#", // 9: Sandbag defensive berms
+    "#xxxx#oooo#xxxx#", // 10: Hydraulic vault blast door
+    "#xxxx#oooo#xxxx#", // 11: Vault door lower hinge
+    "################", // 12: Reinforced concrete sill
+    ".#xx########xx#.", // 13: Sloped foundation buttresses
+    "..############..", // 14: Barbed-wire apron footing
+    "................", // 15:
+  ],
+  compound_radiant: [
+    ".......++.......", // 0: Apex crystal beam glint
+    "......+**+......", // 1: Radiant crystal spire top
+    "......#**#......", // 2: Faceted crystal spire
+    ".....##**##.....", // 3: Crystal mount collar
+    "....#oooooo#....", // 4: Faceted geodesic glass dome
+    "...#o#oooo#o#...", // 5: Geodesic structural struts
+    "..#oo#oooo#oo#..", // 6: Light refraction panes
+    ".#oooo#oo#oooo#.", // 7: Mid-level glass canopy
+    "################", // 8: Titanium tension ring
+    "#xoxoxoxoxoxoxx#", // 9: Botanical terrace planters with herbs
+    "#o#oooooooooo#o#", // 10: Greenhouse gallery windows
+    "#o#xx##oo##xx#o#", // 11: Grand arched colonnade entrance
+    "################", // 12: Polished marble terrace
+    ".#xxxxxxxxxxxx#.", // 13: Radial curved marble steps (tier 1)
+    "..#xxxxxxxxxx#..", // 14: Radial curved marble steps (tier 2)
+    "...##########...", // 15: Zen pebble apron
+  ],
+  compound_circle: [
+    ".....######.....", // 0: Rooftop helipad perimeter
+    "....#x+**+x#....", // 1: Helipad deck with blinking beacon
+    "....#x*##*x#....", // 2: Helipad 'H' marking
+    "....#xxxxxx#....", // 3: Penthouse mechanical floor
+    "...############...", // 4: Upper setback cornice
+    "..#xoxxoxxoxxox#..", // 5: Tinted navy glass with gold mullions
+    "..#xoxxoxxoxxox#..", // 6: Executive suites
+    "..#xoxxoxxoxxox#..", // 7: Executive suites
+    "..#************#..", // 8: Illuminated stock ticker ribbon
+    "..#xoxxoxxoxxox#..", // 9: Corporate trading floor
+    "..#xoxxoxxoxxox#..", // 10: Trading floor lower tier
+    "..#x#oooooooo#x#..", // 11: Double-height glass atrium
+    "..#x#oo####oo#x#..", // 12: Revolving brass entrance doors
+    ".################.", // 13: Polished black granite plinth
+    ".#xxxxxxxxxxxxxx#.", // 14: Corporate plaza flags & pavers
+    "##################", // 15: Plaza base
+  ],
+  compound_visitors: [
+    "....+******+....", // 0: Parabolic microwave radar dish rim
+    ".....#****#.....", // 1: Concentric receiver dish
+    "......#**#......", // 2: Focal feed horn
+    ".......##.......", // 3: Rotating gantry turret
+    "....########....", // 4: Spherical observatory dome top
+    "...#oooooooo#...", // 5: Observatory dome shell
+    "..#oo#+**+#oo#..", // 6: Telescope aperture emitting cyan pulse
+    "..#oooooooooo#..", // 7: Observatory dome lower rim
+    ".################.", // 8: Saucer fuselage upper rim
+    "#o*o*o*o*o*o*o*o#", // 9: Ring of flashing telemetry indicator pods
+    "#oooooooooooooo#", // 10: Pressurized science lab deck
+    ".#xx########xx#.", // 11: Saucer bevel underside
+    "..#x#..##..#x#..", // 12: Hydraulic landing strut legs
+    "..#x#..##..#x#..", // 13: Strut pads & umbilical
+    ".###........###.", // 14: Heavy landing footpads
+    "................", // 15: Scorched crop landing ring
+  ],
+  watchtower: [
+    "......+**+......", // 0: Peak beacon / flame
+    ".....######.....", // 1: Sniper platform roof
+    "....#oo**oo#....", // 2: Observation deck slits & lantern
+    "....#oooooo#....", // 3: Enclosed guard room
+    ".....######.....", // 4: Guard deck railing
+    ".....#xxxx#.....", // 5: Braced platform mount
+    "....#x#..#x#....", // 6: A-frame lattice legs
+    "....#x#..#x#....", // 7: Lattice legs
+    "...#x#....#x#...", // 8: Cross-braced structural steel
+    "...#x#*..*#x#...", // 9: Faction pennants flying
+    "..#x#......#x#..", // 10: Expanding base stance
+    "..#x#..xx..#x#..", // 11: Central ladder
+    ".#x#...xx...#x#.", // 12: Access ladder
+    ".#x#...xx...#x#.", // 13: Base ladder
+    "###..........###", // 14: Concrete pad anchor footings
+    "................", // 15:
+  ],
+  collection_plate: [
+    ".....######.....", // 0: Baroque pediment
+    "....#+****+#....", // 1: Glowing denomination marquee ($$$)
+    "...#xxxxxxxx#...", // 2: Polished brass canopy
+    "..#x#oooooo#x#..", // 3: Upper digital screen
+    "..#x#o+**+o#x#..", // 4: Active transaction hologram
+    "..#x#oooooo#x#..", // 5: Display console
+    "..#x#xxxxxx#x#..", // 6: Keypad & biometric scanner
+    "..#x#oooooo#x#..", // 7: Illuminated collection hopper
+    "..#x#oooooo#x#..", // 8: Vault safe body
+    "..#x#xxxxxx#x#..", // 9: Heavy safe hinges & dial
+    ".#x#........#x#.", // 10: Velvet rope stanchions
+    ".#*#..####..#*#.", // 11: Brass stanchion balls
+    "################", // 12: Velvet runner carpet
+    ".#xxxxxxxxxxxx#.", // 13: Polished brass threshold
+    "..############..", // 14: Foundation plinth
+    "................", // 15:
+  ],
+  broadcast_tower: [
+    ".......**.......", // 0: Red warning beacon
+    ".......##.......", // 1: Mast tip
+    "......#**#......", // 2: Microwave dipole radiator
+    ".....#o##o#.....", // 3: High-gain directional array
+    "......####......", // 4: Mast junction
+    ".....#x##x#.....", // 5: Diamond lattice frame
+    "....#x#..#x#....", // 6: Expanding mast section
+    "...#x#....#x#...", // 7: Guy-wire attachment collar
+    "..#x#..##..#x#..", // 8: Center waveguide conduit
+    ".#x#...##...#x#.", // 9: Tower lattice struts
+    "#x#....##....#x#", // 10: Wide base spread
+    "#x#....##....#x#", // 11: Equipment shack roof
+    "#x#..######..#x#", // 12: Transmitter shelter
+    "#x#..#oooo#..#x#", // 13: Equipment shelter door & lights
+    "###..######..###", // 14: Concrete anchor footings
+    "................", // 15:
+  ],
+  supplement_lab: [
+    "......####......", // 0: Copper cupola vent
+    ".....#+**+#.....", // 1: Distillation condenser spire
+    "....#xxxxxx#....", // 2: Glass pavilion roof cap
+    "...#xoooooox#...", // 3: Multi-faceted glass roof
+    "..#xooooooooox#..", // 4: Steamer glass panels
+    ".################.", // 5: Octagonal eave ring
+    "#xoxoxoxoxoxoxox#", // 6: Alembic cooling coils & glass tubing
+    "#o#+**+####+**+#o#", // 7: Bubbling distillation vats
+    "#o#****#oo#****#o#", // 8: Glowing elixir distillation
+    "#o#+**+####+**+#o#", // 9: Glowing collection flasks
+    "#o#oooooooooooo#o#", // 10: Polished tile lab bench
+    "#o#xx##oooo##xx#o#", // 11: Arched entrance & brass fixtures
+    "################", // 12: Laboratory stone foundation
+    ".#xxxxxxxxxxxx#.", // 13: Perimeter drainage gutter
+    "..############..", // 14: Foundation footing
+    "................", // 15:
+  ],
+  satellite: [
+    ".......**.......", // 0: Telemetry probe tip
+    ".......##.......", // 1: Antenna stem
+    "......####......", // 2: Upper sensor turret
+    "....########....", // 3: Pressurized crew dome
+    "...#oooooooo#...", // 4: Dome observation windows
+    "..#oooooooooo#..", // 5: Saucer upper fuselage
+    ".################.", // 6: Saucer primary ring perimeter
+    "#o*o*o*o*o*o*o*o#", // 7: Flashing navigation strobe lights
+    "#oooooooooooooo#", // 8: Saucer underside bevel
+    ".#xxxxxxxxxxxx#.", // 9: Anti-gravity emitter coils
+    "..#+********+#..", // 10: Blinding cyan anti-gravity thruster core
+    "...#+******+#...", // 11: Plasma thruster glow beam
+    "....#+****+#....", // 12: Atmospheric ionization column
+    ".....#+**+#.....", // 13: Ground hover contact point
+    "....########....", // 14: Concentric ground resonance ring
+    "...##########...", // 15: Outer landing scorched ground
+  ],
+};
+
 /** 8×8 icon bitmaps: '.'=ground, '#'=dark outline, 'o'=owner color, '*'=accent. */
 const ICONS: Record<Building["type"], string[]> = {
   compound: [
@@ -699,30 +876,44 @@ export function renderTown(sim: SimState, opts: RenderOpts = {}): RenderedFrame 
         : bd.buildTicksLeft > 0
           ? hexToRgb("#9a9a9a")
           : hexToRgb(colorForPlayer(bd.player));
-    // OWNERSHIP GLOW: every cult building sits in its owner's colored halo —
-    // a bright ring around the tile with soft corner falloff, gently
-    // breathing with the tick so live buildings read at a glance
-    {
+    const ownerPl = sim.players.find((pl) => pl.id === bd.player);
+    const rawArch = String(ownerPl?.archetype ?? "dawn");
+    const archKey =
+      rawArch.includes("dawn") ? "dawn" :
+      rawArch.includes("radiant") ? "radiant" :
+      rawArch.includes("circle") ? "circle" :
+      "visitors";
+    const accentCol =
+      archKey === "dawn" ? hexToRgb("#ffaa00") :
+      archKey === "radiant" ? hexToRgb("#38bdf8") :
+      archKey === "circle" ? hexToRgb("#fbbf24") :
+      hexToRgb("#22d3ee");
+
+    const iconKey = bd.type === "compound" ? `compound_${archKey}` : bd.type;
+    const bitmap16 = CULT_ICONS_16[iconKey];
+
+    if (bitmap16) {
+      // 16×16 (2×2 tiles) Cult Asset with pulsating radiant glow
+      drawCultAsset16(bitmap16, bd.tile, w.width, ownerRgb, put, accentCol, tick, true);
+    } else {
+      // Fallback 8×8
       const gx0 = (bd.tile % w.width) * TILE_PX;
       const gy0 = ((bd.tile / w.width) | 0) * TILE_PX;
       const pulse = 1.15 + 0.25 * Math.sin((tick + bd.tile) * 0.12);
       const halo = shade(ownerRgb, pulse);
       const dim = shade(ownerRgb, pulse * 0.62);
       for (let k = 0; k < TILE_PX; k++) {
-        // full ring, alternating bright/dim so it shimmers instead of boxing
         const bright = (k + (tick >> 3)) % 2 === 0;
         put(gx0 + k, gy0 - 1, bright ? halo : dim);
         put(gx0 + k, gy0 + TILE_PX, bright ? halo : dim);
         put(gx0 - 1, gy0 + k, bright ? dim : halo);
         put(gx0 + TILE_PX, gy0 + k, bright ? dim : halo);
       }
+      const iconBmp = bd.type === "compound" ? (COMPOUND_ICONS[archKey as Archetype] ?? ICONS.compound) : ICONS[bd.type];
+      drawIcon(iconBmp, bd.tile, w.width, ownerRgb, put);
     }
-    const ownerPl = sim.players.find((pl) => pl.id === bd.player);
-    const arch: Archetype = (ownerPl?.archetype as Archetype) ?? "dawn";
-    const iconBmp = bd.type === "compound" ? (COMPOUND_ICONS[arch] ?? ICONS.compound) : ICONS[bd.type];
-    drawIcon(iconBmp, bd.tile, w.width, ownerRgb, put);
-    // compounds EXPAND as their cult grows: a perimeter fence appears once the
-    // flock is established, then banners fly over a true headquarters (§30)
+
+    // Compounds EXPAND as their cult grows: 16×16 perimeter fence posts and flying banners
     if (bd.type === "compound" && bd.buildTicksLeft === 0) {
       const p = sim.players.find((pl) => pl.id === bd.player);
       const permille = p && sim.populated > 0 ? (p.ownedTiles * 1000) / sim.populated : 0;
@@ -731,15 +922,15 @@ export function renderTown(sim: SimState, opts: RenderOpts = {}): RenderedFrame 
       const by = ((bd.tile / w.width) | 0) * TILE_PX;
       if (stage >= 2) {
         const post = shade(ownerRgb, 0.55);
-        for (const [fx, fy] of [[0, 0], [7, 0], [0, 7], [7, 7], [0, 3], [7, 3]] as const) {
-          put(bx + fx, by + fy, post); // the compound fence going up
+        for (const [fx, fy] of [[-1, -1], [16, -1], [-1, 16], [16, 16], [-1, 7], [16, 7], [7, -1], [7, 16]] as const) {
+          put(bx + fx, by + fy, post); // 16×16 perimeter fence posts
         }
       }
       if (stage >= 3) {
-        put(bx + 1, by - 1, ownerRgb); // banners over the headquarters
-        put(bx + 6, by - 1, ownerRgb);
-        put(bx + 1, by - 2, C.iconAccent);
-        put(bx + 6, by - 2, C.iconAccent);
+        put(bx + 2, by - 2, ownerRgb); // banners over the headquarters
+        put(bx + 13, by - 2, ownerRgb);
+        put(bx + 2, by - 3, C.iconAccent);
+        put(bx + 13, by - 3, C.iconAccent);
       }
     }
   }
@@ -965,19 +1156,30 @@ function drawTile(
               }
             }
           }
-          // 4-LANE HIGHWAY: yellow center seam + dashed white lane lines + outer white fog lines
-          if (highwayTopLane && py === TILE_PX - 1 && gx % 6 < 3) c = C.highwayLine;
-          if (highway && py === 3 && gx % 8 < 3) c = C.asphaltDash; // lane line
-          if (highway && (py === 0 || py === TILE_PX - 1) && !fronted) c = hexToRgb("#e8e8e8"); // white right-hand shoulder fog line
-          // 2-LANE STREETS: faint center dashes along the travel axis
+          // 4-LANE HIGHWAY: yellow center seam + delicate dashed lane lines + thin weathered fog lines
+          if (highwayTopLane && py === TILE_PX - 1 && gx % 6 < 3) {
+            c = C.highwayLine; // yellow center line on dividing seam
+          } else if (highway && py === 3 && gx % 8 < 2) {
+            c = shade(C.asphaltDash, 0.92); // delicate 2px dashed lane line
+          } else if (highwayTopLane && py === 0 && !fronted && !roadN) {
+            c = hexToRgb("#b3aca0"); // subtle weathered northern fog line (outer shoulder only)
+          } else if (highway && !highwayTopLane && py === TILE_PX - 1 && !fronted && !roadS) {
+            c = hexToRgb("#b3aca0"); // subtle weathered southern fog line (outer shoulder only)
+          }
+
+          // 2-LANE STREETS: faint, refined center dashes along the travel axis
           if (!highway) {
             const horiz2 = roadE && roadW && !roadN && !roadS;
             const vert2 = roadN && roadS && !roadE && !roadW;
-            if (horiz2 && py === 3 && gx % 8 < 3) c = shade(C.asphaltDash, 0.9);
-            if (vert2 && px === 3 && gy % 8 < 3) c = shade(C.asphaltDash, 0.9);
+            if (horiz2 && py === 3 && gx % 8 < 2) c = shade(C.asphaltDash, 0.85);
+            if (vert2 && px === 3 && gy % 8 < 2) c = shade(C.asphaltDash, 0.85);
           }
-          // crosswalk bars across the entries of a downtown intersection
-          if (intersection && px % 2 === 1 && (py === 1 || py === TILE_PX - 2)) c = C.crosswalk;
+
+          // DOWNTOWN INTERSECTIONS: crisp pedestrian crosswalk dashes at street entry edges
+          if (intersection && !fourWay && px % 2 === 1 && (py === 1 || py === TILE_PX - 2)) {
+            c = shade(C.crosswalk, 0.9);
+          }
+
           // the tracks continue straight across the pavement
           if (crossingH && (py === 2 || py === 5)) c = C.railSteel;
           if (crossingV && (px === 2 || px === 5)) c = C.railSteel;
@@ -3611,6 +3813,92 @@ function drawIcon(bitmap: string[], tile: number, width: number, body: RGB, put:
           break;
         case "*":
           put(x0 + px, y0 + py, accentCol);
+          break;
+      }
+    }
+  }
+}
+
+/**
+ * 16×16 Cult Asset (2×2 tiles) renderer with pulsing atmospheric glow.
+ */
+export function drawCultAsset16(
+  bitmap: string[],
+  tile: number,
+  mapWidth: number,
+  body: RGB,
+  put: Put,
+  accentCol: RGB = C.iconAccent,
+  tick: number = 0,
+  glow: boolean = true,
+): void {
+  const x0 = (tile % mapWidth) * TILE_PX;
+  const y0 = ((tile / mapWidth) | 0) * TILE_PX;
+
+  // 1. Radiant pulsing halo around the 16×16 perimeter
+  if (glow) {
+    const pulse = 1.0 + 0.32 * Math.sin((tick + tile * 7) * 0.14);
+    const haloBright = shade(body, pulse * 1.4);
+    const haloMid = shade(body, pulse * 0.9);
+    const haloSoft = shade(body, pulse * 0.45);
+
+    // Outer ring 1 (1px outside 16×16 bounding box)
+    for (let k = -1; k <= 16; k++) {
+      const alt = (k + (tick >> 2)) % 2 === 0;
+      const c = alt ? haloBright : haloMid;
+      put(x0 + k, y0 - 1, c);
+      put(x0 + k, y0 + 16, c);
+      put(x0 - 1, y0 + k, alt ? haloMid : haloBright);
+      put(x0 + 16, y0 + k, alt ? haloMid : haloBright);
+    }
+
+    // Outer ring 2 (2px outside 16×16 bounding box, ambient perimeter shimmer)
+    for (let k = 0; k < 16; k += 2) {
+      if ((k + (tick >> 3)) % 2 === 0) {
+        put(x0 + k, y0 - 2, haloSoft);
+        put(x0 + k, y0 + 17, haloSoft);
+        put(x0 - 2, y0 + k, haloSoft);
+        put(x0 + 17, y0 + k, haloSoft);
+      }
+    }
+    put(x0 - 2, y0 - 2, haloSoft);
+    put(x0 + 17, y0 - 2, haloSoft);
+    put(x0 - 2, y0 + 17, haloSoft);
+    put(x0 + 17, y0 + 17, haloSoft);
+  }
+
+  // 2. 16×16 Pixel Art
+  const highlight = shade(body, 1.4);
+  const shadow = shade(body, 0.45);
+  const trimColor = shade(body, 0.78);
+  const whiteGlint: RGB = [255, 255, 255];
+
+  for (let py = 0; py < 16; py++) {
+    const row = bitmap[py] ?? "................";
+    for (let px = 0; px < 16; px++) {
+      const ch = row[px];
+      if (!ch || ch === ".") continue;
+      switch (ch) {
+        case "#":
+          put(x0 + px, y0 + py, C.iconDark);
+          break;
+        case "o":
+          put(x0 + px, y0 + py, body);
+          break;
+        case "O":
+          put(x0 + px, y0 + py, highlight);
+          break;
+        case "x":
+          put(x0 + px, y0 + py, trimColor);
+          break;
+        case "*":
+          put(x0 + px, y0 + py, accentCol);
+          break;
+        case "+":
+          put(x0 + px, y0 + py, whiteGlint);
+          break;
+        case "-":
+          put(x0 + px, y0 + py, shadow);
           break;
       }
     }

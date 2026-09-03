@@ -19,6 +19,8 @@ import {
   newPlayer,
   renderTown,
   MASTER_ASSET_CATALOG,
+  CULT_ICONS_16,
+  drawCultAsset16,
 } from "../packages/sim/dist/index.js";
 import { auditWorld } from "./audit_mapgen.mjs";
 
@@ -113,8 +115,8 @@ for (const b of BENCHMARK_SEEDS) {
     balance: bal,
     world: w,
     spawns: [
-      { id: "p1", archetype: "final_dawn" },
-      { id: "p2", archetype: "radiant_path" },
+      { id: 1, archetype: "final_dawn" },
+      { id: 2, archetype: "radiant_path" },
     ],
   });
 
@@ -139,6 +141,239 @@ for (const b of BENCHMARK_SEEDS) {
     coreImg: coreImgFilename,
     ruralImg: ruralImgFilename,
     violations,
+  });
+}
+
+// ---------------------------------------------------------------- Cult Asset Studio & In-Map Inspection
+console.log(`[QA REPORT] Generating 2x2 Cult Asset Studio & In-Map Inspection Suite...`);
+const CULT_SHOTS_DIR = join(SHOTS_DIR, "cult");
+mkdirSync(CULT_SHOTS_DIR, { recursive: true });
+
+function renderStudioCultAsset(bitmap, bodyCol, accentCol, bgRgb, scale = 12) {
+  const LOG_SIZE = 26; // 16x16 asset in center (offset 5,5) with 5px glowing halo margin
+  const dstW = LOG_SIZE * scale;
+  const dstH = LOG_SIZE * scale;
+  const rgba = Buffer.alloc(dstW * dstH * 4);
+
+  // Fill background
+  for (let i = 0; i < dstW * dstH; i++) {
+    rgba[i * 4] = bgRgb[0];
+    rgba[i * 4 + 1] = bgRgb[1];
+    rgba[i * 4 + 2] = bgRgb[2];
+    rgba[i * 4 + 3] = 255;
+  }
+
+  const put = (gx, gy, col) => {
+    if (gx < 0 || gy < 0 || gx >= LOG_SIZE || gy >= LOG_SIZE) return;
+    for (let dy = 0; dy < scale; dy++) {
+      const py = gy * scale + dy;
+      for (let dx = 0; dx < scale; dx++) {
+        const px = gx * scale + dx;
+        const idx = (py * dstW + px) * 4;
+        rgba[idx] = col[0];
+        rgba[idx + 1] = col[1];
+        rgba[idx + 2] = col[2];
+        rgba[idx + 3] = 255;
+      }
+    }
+  };
+
+  // Center offset wrapper (offset by 5px so 16x16 asset + 2px halo fits 26x26)
+  const offsetPut = (px, py, col) => {
+    put(px + 5, py + 5, col);
+  };
+
+  drawCultAsset16(bitmap, 0, 100, bodyCol, offsetPut, accentCol, 120, true);
+  return { width: dstW, height: dstH, rgba };
+}
+
+const CULT_ASSETS = [
+  {
+    key: "compound_dawn",
+    name: "Final Dawn Bunker",
+    type: "compound",
+    cult: "Final Dawn",
+    playerId: 1,
+    tile: 22 * 64 + 18,
+    body: [225, 29, 72],     // #e11d48 Crimson
+    accent: [255, 170, 0],   // #ffaa00 Fiery ember
+    scale: "2×2 Tiles (16×16 px)",
+    glowColor: "#f43f5e",
+    signature: "Fortified survivalist redoubt with 4 corner flaming braziers, sandbag berms, armored observation slits, and hydraulic vault blast doors with pulsing crimson aura.",
+  },
+  {
+    key: "compound_radiant",
+    name: "Radiant Path Sanctuary",
+    type: "compound",
+    cult: "Radiant Path",
+    playerId: 2,
+    tile: 38 * 64 + 40,
+    body: [168, 85, 247],    // #a855f7 Lavender
+    accent: [56, 189, 248],  // #38bdf8 Cyan
+    scale: "2×2 Tiles (16×16 px)",
+    glowColor: "#a855f7",
+    signature: "Geodesic crystal dome with apex obelisk, triangular strut lattice, tiered botanical herb balconies, and radial marble steps with prismatic violet/cyan glow.",
+  },
+  {
+    key: "compound_circle",
+    name: "Prosperity Circle High-Rise",
+    type: "compound",
+    cult: "Prosperity Circle",
+    playerId: 3,
+    tile: 26 * 64 + 32,
+    body: [217, 119, 6],     // #d97706 Gold
+    accent: [251, 191, 36],  // #fbbf24 Bright Gold
+    scale: "2×2 Tiles (16×16 px)",
+    glowColor: "#f59e0b",
+    signature: "Modernist corporate skyscraper with penthouse helipad strobe beacon, vertical gold mullions, scrolling digital financial ticker, and granite plaza with prestige amber aura.",
+  },
+  {
+    key: "compound_visitors",
+    name: "Visitors' Telemetry Observatory",
+    type: "compound",
+    cult: "Visitors' Fellowship",
+    playerId: 4,
+    tile: 46 * 64 + 18,
+    body: [6, 182, 212],     // #06b6d4 Cyan
+    accent: [168, 85, 247],  // #a855f7 Cosmic Violet
+    scale: "2×2 Tiles (16×16 px)",
+    glowColor: "#06b6d4",
+    signature: "Retro-futurist telemetry observatory with elevated rotating parabolic radar dish, spherical telescope aperture, ring of blinking indicator pods, and scorched saucer landing ring.",
+  },
+  {
+    key: "watchtower",
+    name: "Prophet Observation Watchtower",
+    type: "watchtower",
+    cult: "Final Dawn",
+    playerId: 1,
+    tile: 20 * 64 + 14,
+    body: [225, 29, 72],
+    accent: [255, 170, 0],
+    scale: "2×2 Tiles (16×16 px)",
+    glowColor: "#f43f5e",
+    signature: "Braced structural lattice A-frame with elevated sniper crow's nest, signal lantern beacon, access ladder, and faction pennant banners casting an intimidating warning halo.",
+  },
+  {
+    key: "collection_plate",
+    name: "Digital Donation Terminal / Kiosk",
+    type: "collection_plate",
+    cult: "Prosperity Circle",
+    playerId: 3,
+    tile: 28 * 64 + 34,
+    body: [217, 119, 6],
+    accent: [52, 211, 153],  // #34d399 Emerald
+    scale: "2×2 Tiles (16×16 px)",
+    glowColor: "#f59e0b",
+    signature: "Ornate gilded transaction kiosk with holographic currency marquee, biometric touch console, collection hopper, and crimson velvet runner with shimmering golden glow.",
+  },
+  {
+    key: "broadcast_tower",
+    name: "Radio Relay Transmitter",
+    type: "broadcast_tower",
+    cult: "Visitors' Fellowship",
+    playerId: 4,
+    tile: 44 * 64 + 22,
+    body: [6, 182, 212],
+    accent: [239, 68, 68],
+    scale: "2×2 Tiles (16×16 px)",
+    glowColor: "#06b6d4",
+    signature: "High-voltage directional microwave relay array with guy-wire collar, transmitter equipment bunker, and blinking red aviation strobe pulsing electromagnetic wave rings.",
+  },
+  {
+    key: "supplement_lab",
+    name: "Botanical Distillation Pavilion",
+    type: "supplement_lab",
+    cult: "Radiant Path",
+    playerId: 2,
+    tile: 40 * 64 + 44,
+    body: [168, 85, 247],
+    accent: [52, 211, 153],
+    scale: "2×2 Tiles (16×16 px)",
+    glowColor: "#a855f7",
+    signature: "Octagonal alchemy conservatory with copper condenser spires, alembic glass coils, and glowing bubbling distillation vats radiating a soft medicinal aura.",
+  },
+  {
+    key: "satellite",
+    name: "Telemetry Saucer Landing Pad",
+    type: "satellite",
+    cult: "Visitors' Fellowship",
+    playerId: 4,
+    tile: 48 * 64 + 14,
+    body: [6, 182, 212],
+    accent: [56, 189, 248],
+    scale: "2×2 Tiles (16×16 px)",
+    glowColor: "#06b6d4",
+    signature: "Hovering telemetry saucer chapel with anti-gravity plasma thruster column, pressurized navigation deck, and circular ground ionization resonance ring.",
+  },
+];
+
+// Setup simulated world with active cult structures & territories
+const cultSimWorld = generateWorld(42, 64, 64, { townType: "desert" });
+const cultSim = createSim({
+  seed: 42,
+  balance: bal,
+  world: cultSimWorld,
+  spawns: [
+    { id: 1, archetype: "final_dawn" },
+    { id: 2, archetype: "radiant_path" },
+    { id: 3, archetype: "prosperity_circle" },
+    { id: 4, archetype: "visitors_fellowship" },
+  ],
+});
+
+for (const asset of CULT_ASSETS) {
+  cultSim.buildings.push({
+    id: cultSim.buildings.length + 1,
+    player: asset.playerId,
+    type: asset.type,
+    tile: asset.tile,
+    buildTicksLeft: 0,
+    disabledTicks: 0,
+  });
+  const bx = asset.tile % 64;
+  const by = Math.floor(asset.tile / 64);
+  for (let dy = -1; dy <= 2; dy++) {
+    for (let dx = -1; dx <= 2; dx++) {
+      const tx = bx + dx;
+      const ty = by + dy;
+      if (tx >= 0 && tx < 64 && ty >= 0 && ty < 64) {
+        cultSimWorld.owner[ty * 64 + tx] = asset.playerId;
+      }
+    }
+  }
+}
+
+const cultFrame = renderTown(cultSim, { frameTick: 120, season: "summer" });
+const cultFullRgba = Buffer.from(cultFrame.data.buffer, cultFrame.data.byteOffset, cultFrame.data.byteLength);
+
+const cultResults = [];
+for (const asset of CULT_ASSETS) {
+  const bitmap = CULT_ICONS_16[asset.key];
+
+  // 1. Dark Studio Render
+  const darkStudio = renderStudioCultAsset(bitmap, asset.body, asset.accent, [15, 18, 24], 12);
+  const darkFilename = `cult_dark_${asset.key}.png`;
+  writePNG(join(CULT_SHOTS_DIR, darkFilename), darkStudio.width, darkStudio.height, darkStudio.rgba);
+
+  // 2. Light Studio Render
+  const lightStudio = renderStudioCultAsset(bitmap, asset.body, asset.accent, [244, 244, 246], 12);
+  const lightFilename = `cult_light_${asset.key}.png`;
+  writePNG(join(CULT_SHOTS_DIR, lightFilename), lightStudio.width, lightStudio.height, lightStudio.rgba);
+
+  // 3. In-Map Context Crop
+  const bx = (asset.tile % 64) * 8;
+  const by = Math.floor(asset.tile / 64) * 8;
+  const cropX = Math.max(0, Math.min(cultFrame.width - 32, bx - 8));
+  const cropY = Math.max(0, Math.min(cultFrame.height - 32, by - 8));
+  const mapCrop = cropRgba(cultFullRgba, cultFrame.width, cultFrame.height, cropX, cropY, 32, 32, 9);
+  const mapFilename = `cult_map_${asset.key}.png`;
+  writePNG(join(CULT_SHOTS_DIR, mapFilename), mapCrop.width, mapCrop.height, mapCrop.rgba);
+
+  cultResults.push({
+    ...asset,
+    darkImg: `assets/cult/${darkFilename}`,
+    lightImg: `assets/cult/${lightFilename}`,
+    mapImg: `assets/cult/${mapFilename}`,
   });
 }
 
@@ -341,6 +576,7 @@ const html = `<!DOCTYPE html>
   <div style="max-width: 1400px; margin: 0 auto;">
     <div class="nav-tabs">
       <button class="tab-btn active" onclick="showTab('benchmarks')">Benchmark Seed Gallery (5 Archetypes)</button>
+      <button class="tab-btn" onclick="showTab('cult')">Cult Assets (2×2 Realism & Glow)</button>
       <button class="tab-btn" onclick="showTab('catalog')">Master Asset Catalog (121 Assets)</button>
       <button class="tab-btn" onclick="showTab('invariants')">Zoning & Ecological Invariant Matrix</button>
     </div>
@@ -366,14 +602,14 @@ const html = `<!DOCTYPE html>
               <label>Downtown Civic & Commercial Core</label>
             </div>
             <div class="preview-col">
-              <img src="assets/${b.ruralImg}" alt="Agricultural Outskirts" />
-              <label>Clustered Outskirts / Buffer Zones</label>
+              <img src="assets/${b.ruralImg}" alt="Rural Outskirts" />
+              <label>Agricultural Belt & Clustered Farmsteads</label>
             </div>
           </div>
           <div class="qa-metrics">
-            <div class="qa-metric-item"><div class="led"></div> Zero Farms in Forest/Desert</div>
-            <div class="qa-metric-item"><div class="led"></div> 1-Tile Water Setback</div>
-            <div class="qa-metric-item"><div class="led"></div> 100% Road Frontage</div>
+            <div class="qa-metric-item"><div class="led"></div> Zero Farms in Forest Biome</div>
+            <div class="qa-metric-item"><div class="led"></div> Zero Crops in Desert Biome</div>
+            <div class="qa-metric-item"><div class="led"></div> 1-Tile Hydrological Water Buffer</div>
             <div class="qa-metric-item"><div class="led"></div> ≥6 Tile Industrial Separation</div>
             <div class="qa-metric-item"><div class="led"></div> 100% Attached Parking Lots</div>
             <div class="qa-metric-item"><div class="led"></div> Continuous Road Connectivity</div>
@@ -382,6 +618,59 @@ const html = `<!DOCTYPE html>
         `
           )
           .join("")}
+      </div>
+    </div>
+
+    <!-- TAB 2: Cult Assets (2x2 Realism & Radiant Glow) -->
+    <div id="cult" class="tab-content">
+      <div style="max-width: 1400px; margin: 0 auto 24px;">
+        <h2 style="margin: 0 0 8px;">Cult Assets: 2×2 Footprints (16×16 px) & Radiant Atmospheric Glows</h2>
+        <div style="color: var(--text-dim); font-size: 14px;">
+          All major faction headquarters, defensive bastions, and ceremonial structures upgraded from 8×8 to 16×16 pixel art with multi-tiered emissive halos, atmospheric glow physics, and custom material signatures. Inspected on dark studio slate, neutral light canvas, and in-game town context.
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 1fr; gap: 28px; max-width: 1400px; margin: 0 auto;">
+        ${cultResults.map(c => `
+          <div class="benchmark-card" style="border-left: 4px solid ${c.glowColor};">
+            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px;">
+              <div>
+                <h3 style="margin: 0; display: flex; align-items: center; gap: 10px;">
+                  ${c.name}
+                  <span class="badge" style="background: rgba(255,255,255,0.08); color: ${c.glowColor}; border: 1px solid ${c.glowColor}; font-size: 11px;">${c.cult}</span>
+                  <span class="badge badge-static">${c.scale}</span>
+                </h3>
+                <div style="color: var(--text-dim); font-size: 13px; margin-top: 4px;">
+                  ${c.signature}
+                </div>
+              </div>
+              <div style="display: flex; gap: 8px;">
+                <span class="badge" style="background: ${c.glowColor}22; color: ${c.glowColor}; border: 1px solid ${c.glowColor};">Radiant Glow Active</span>
+              </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px;">
+              <div class="preview-col">
+                <div style="background: #0f1218; padding: 16px; border-radius: 6px; border: 1px solid var(--border); display: flex; justify-content: center; align-items: center;">
+                  <img src="${c.darkImg}" alt="${c.name} Dark Studio" style="max-height: 220px; width: auto; image-rendering: pixelated;">
+                </div>
+                <label>Blank Background — Dark Studio Slate</label>
+              </div>
+              <div class="preview-col">
+                <div style="background: #f4f4f6; padding: 16px; border-radius: 6px; border: 1px solid var(--border); display: flex; justify-content: center; align-items: center;">
+                  <img src="${c.lightImg}" alt="${c.name} Light Studio" style="max-height: 220px; width: auto; image-rendering: pixelated;">
+                </div>
+                <label>Blank Background — Neutral Light Canvas</label>
+              </div>
+              <div class="preview-col">
+                <div style="background: #000; padding: 16px; border-radius: 6px; border: 1px solid var(--border); display: flex; justify-content: center; align-items: center;">
+                  <img src="${c.mapImg}" alt="${c.name} On-Map Context" style="max-height: 220px; width: auto; image-rendering: pixelated;">
+                </div>
+                <label>On-Map Context — In-Game Town & Terrain Reflection</label>
+              </div>
+            </div>
+          </div>
+        `).join("")}
       </div>
     </div>
 

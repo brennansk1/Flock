@@ -20,6 +20,10 @@ import {
   Terrain,
   MAX_COHORTS,
   renderRecapCard,
+  computeCivicControl,
+  CivicDecreeId,
+  Lot,
+  Landmark,
   type Archetype,
 } from "@flock/sim";
 import { connect, type GameSession, type ClientIntent } from "./net.js";
@@ -396,6 +400,30 @@ function wireInput(app: Application, map: MapRenderer, g: GameSession, hud: Hud)
     switch (ev.key) {
       // (v3: 1/2/3 pick the mode INSIDE the mission wheel — see the wheel-open
       //  guard above. With the wheel closed there's no global stance to set.)
+      // Civic Decrees hotkeys (5, 6, 7, 8) (§Sprint 4 Task 4.2)
+      case "5": {
+        const ctrl = computeCivicControl(g.sim);
+        if (ctrl.get(Lot.Sheriff) === me.id) return g.sendIntent({ t: IntentType.CIVIC_DECREE, decree: CivicDecreeId.TownCurfew });
+        return;
+      }
+      case "6": {
+        const ctrl = computeCivicControl(g.sim);
+        if (ctrl.get(Lot.HighSchool) === me.id) return g.sendIntent({ t: IntentType.CIVIC_DECREE, decree: CivicDecreeId.PepRally });
+        if (ctrl.get(Lot.School) === me.id) return g.sendIntent({ t: IntentType.CIVIC_DECREE, decree: CivicDecreeId.ParentTeacherNight });
+        return;
+      }
+      case "7": {
+        const ctrl = computeCivicControl(g.sim);
+        if (ctrl.get(Lot.Supermarket) === me.id) return g.sendIntent({ t: IntentType.CIVIC_DECREE, decree: CivicDecreeId.FoodRationing });
+        if (ctrl.get(Lot.Church) === me.id) return g.sendIntent({ t: IntentType.CIVIC_DECREE, decree: CivicDecreeId.EvangelicalRevival });
+        return;
+      }
+      case "8": {
+        const ctrl = computeCivicControl(g.sim);
+        if (ctrl.get(Lot.Shop) === me.id) return g.sendIntent({ t: IntentType.CIVIC_DECREE, decree: CivicDecreeId.MunicipalInjunction });
+        if (ctrl.get(Lot.Office) === me.id) return g.sendIntent({ t: IntentType.CIVIC_DECREE, decree: CivicDecreeId.EmergencyJam });
+        return;
+      }
       // archetype actives D/F + signature G (§27)
       case "d":
         return g.sendIntent({ t: IntentType.ABILITY, ability: ACTIVE_D[me.archetype]!, ...(hover >= 0 ? { target: hover } : {}) });

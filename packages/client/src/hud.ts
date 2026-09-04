@@ -619,15 +619,23 @@ export class Hud {
     }
     const terrain = w.terrain[tile]!;
     let place = "";
+    const districtId = w.district[tile] ?? 0;
+    const distName = ["Old Town", "Suburbs", "College", "Downtown", "Trailer"][districtId] ?? "Town";
+
     if (w.landmark[tile] !== 0) {
-      place = LANDMARK_NAMES[w.landmark[tile]!] ?? "a landmark";
+      place = `${LANDMARK_NAMES[w.landmark[tile]!] ?? "a landmark"} · ${distName}`;
     } else if (terrain === Terrain.Citizen) {
       const lot = w.lot[tile]!;
       const pop = w.pop[tile]!;
-      if (lot !== 0) place = LOT_NAMES[lot] ?? "a lot";
-      else if (pop >= 3) place = `the ${householdName(tile)} place · ${pop} souls`;
-      else if (pop >= 1) place = `${memberName(tile, 0)}'s garden`;
-      else place = "an empty lot";
+      const owner = w.owner[tile]!;
+      const ownerName = owner === 0 ? "Neutral" : (this.g.players.find((p) => p.id === owner)?.name ?? `Cult #${owner}`);
+      if (lot !== 0) {
+        const lotName = LOT_NAMES[lot] ?? "a lot";
+        place = `${lotName.toUpperCase()} · ${distName} (${ownerName})`;
+      }
+      else if (pop >= 3) place = `the ${householdName(tile)} place · ${pop} souls · ${distName}`;
+      else if (pop >= 1) place = `${memberName(tile, 0)}'s garden · ${distName}`;
+      else place = `an empty lot · ${distName}`;
     } else {
       place = TERRAIN_NAMES[terrain] ?? "";
     }
@@ -1647,6 +1655,16 @@ export class Hud {
           iconName = "eye";
           color = "#3b82f6";
           glow = "rgba(59,130,246,0.4)";
+          break;
+        case CivicDecreeId.PepRally:
+          iconName = "crown";
+          color = "#ec4899";
+          glow = "rgba(236,72,153,0.4)";
+          break;
+        case CivicDecreeId.EvangelicalRevival:
+          iconName = "cross";
+          color = "#eab308";
+          glow = "rgba(234,179,8,0.4)";
           break;
       }
 

@@ -269,7 +269,7 @@ function wireInput(app: Application, map: MapRenderer, g: GameSession, hud: Hud)
     if (dragging) {
       const dx = ev.offsetX - lastX;
       const dy = ev.offsetY - lastY;
-      if (Math.abs(dx) + Math.abs(dy) > 2) dragMoved = true;
+      if (Math.abs(dx) + Math.abs(dy) > 6) dragMoved = true;
       map.pan(dx, dy);
       lastX = ev.offsetX;
       lastY = ev.offsetY;

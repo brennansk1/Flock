@@ -13,7 +13,6 @@ import type {
   SimState,
   World,
   PlayerState,
-  Front,
   Pylon,
   DistrictBuff,
   Aura,
@@ -35,7 +34,7 @@ import type {
 } from "./types.js";
 import type { Street } from "./names.js";
 
-export const SNAPSHOT_VERSION = 8;
+export const SNAPSHOT_VERSION = 10; // v10: fronts removed (v3 missions)
 
 export interface Snapshot {
   v: number;
@@ -63,8 +62,6 @@ export interface Snapshot {
     property: number[];
   };
   players: PlayerState[];
-  fronts: Front[];
-  nextFrontId: number;
   /** progress map flattened to [key, value] pairs, sorted by key. */
   progress: [number, Fixed][];
   populated: number;
@@ -129,9 +126,12 @@ export function toSnapshot(s: SimState): Snapshot {
       biome: [...w.biome],
       property: [...w.property],
     },
-    players: s.players.map((p) => ({ ...p, cooldowns: { ...p.cooldowns }, doctrine: [...p.doctrine] })),
-    fronts: s.fronts.map((f) => ({ ...f, tiles: [...f.tiles] })),
-    nextFrontId: s.nextFrontId,
+    players: s.players.map((p) => ({
+      ...p,
+      cooldowns: { ...p.cooldowns },
+      doctrine: [...p.doctrine],
+      cohorts: p.cohorts.map((c) => ({ ...c })),
+    })),
     progress: [...s.progress.entries()].sort((a, z) => a[0] - z[0]),
     populated: s.populated,
     totalPop: s.totalPop,
@@ -208,9 +208,8 @@ export function fromSnapshot(snap: Snapshot): SimState {
       ...p,
       cooldowns: { ...p.cooldowns },
       doctrine: [...p.doctrine],
+      cohorts: p.cohorts.map((c) => ({ ...c })),
     })),
-    fronts: snap.fronts.map((f) => ({ ...f, tiles: [...f.tiles] })),
-    nextFrontId: snap.nextFrontId,
     progress: new Map(snap.progress),
     populated: snap.populated,
     totalPop: snap.totalPop,

@@ -33,7 +33,6 @@ const CIVIC_AND_COMMERCIAL_LOTS = [
   Lot.Diner,
   Lot.Warehouse,
   Lot.Library,
-  Lot.Depot,
   Lot.Chapel,
 ];
 

@@ -22,6 +22,15 @@ export interface RawBalance {
     courier_per_tile: number;
     courier_cap: number;
     courier_interval_s: number;
+    /** v3 (§4): recruits/s per believer soul held; territory feeds the flock */
+    recruits_per_believer?: number;
+    /** v3: a small floor so a young cult trickles recruits before it holds ground */
+    base_recruits_per_s?: number;
+    /** Prosperity Gospel (§2C): a recruitment drive adds this ‰ of current
+     *  flock for cash — makes `income` a live stat (Circle's engine). */
+    recruit_drive_permille?: number;
+    /** usd per bought recruit; the drive's cost scales with the ‰ above. */
+    recruit_cost_per?: number;
   };
   conversion: {
     base_pressure: number;
@@ -64,6 +73,30 @@ export interface RawBalance {
     highschool_growth_mult: number;
     grocery_defense_mult: number;
     church_faith_per_s: number;
+    /** §2A economic anchors (B1.4.20) — optional for older files. */
+    anchor_tithe_mult?: number;
+    sawmill_build_mult?: number;
+    lighthouse_outreach_bonus?: number;
+    /** v3 §3: key buildings are sieges — resistance ×this (≈25–40 s to take) */
+    siege_resist_mult?: number;
+    /** v3 §13: Civic Momentum — global conversion +this per key building held. */
+    civic_momentum_per?: number;
+  };
+  /** v3 missions (DESIGN_MISSIONS.md) — optional for older files. */
+  missions?: {
+    inner_circle_permille?: number;
+    min_send_permille?: number;
+    max_send_permille?: number;
+    /** legacy M1 knob, superseded by the travel model (ignored) */
+    recall_ticks?: number;
+    march_ticks_per_tile?: number;
+    work_radius?: number;
+    followers_per_door?: number;
+    max_doors?: number;
+    crusade_attrition_permille_per_s?: number;
+    tend_hold_divisor?: number;
+    /** v3: Faith/s a deployed Tend cohort banks — fuels doctrine buys */
+    tend_faith_per_s?: number;
   };
 }
 
@@ -91,6 +124,10 @@ export interface Balance {
     courierPerTile: Fixed;
     courierCap: Fixed;
     courierIntervalS: number;
+    recruitsPerBeliever: Fixed;
+    baseRecruitsPerS: Fixed;
+    recruitDrivePermille: number;
+    recruitCostPer: Fixed;
   };
   conversion: {
     basePressure: Fixed;
@@ -124,6 +161,23 @@ export interface Balance {
     highschoolGrowthMult: Fixed;
     groceryDefenseMult: Fixed;
     churchFaithPerS: Fixed;
+    anchorTitheMult: Fixed;
+    sawmillBuildMult: Fixed;
+    lighthouseOutreachBonus: number;
+    siegeResistMult: Fixed;
+    civicMomentumPer: Fixed;
+  };
+  missions: {
+    innerCirclePermille: number;
+    minSendPermille: number;
+    maxSendPermille: number;
+    marchTicksPerTile: number;
+    workRadius: number;
+    followersPerDoor: number;
+    maxDoors: number;
+    crusadeAttritionPermillePerS: number;
+    tendHoldDivisor: number;
+    tendFaithPerS: Fixed;
   };
 }
 
@@ -147,6 +201,10 @@ export function loadBalance(raw: RawBalance): Balance {
       followerGrowth: fromFloat(raw.economy.follower_growth),
       capBase: fromFloat(raw.economy.cap_base),
       capPerCompound: fromFloat(raw.economy.cap_per_compound),
+      recruitsPerBeliever: fromFloat(raw.economy.recruits_per_believer ?? 0.005),
+      baseRecruitsPerS: fromFloat(raw.economy.base_recruits_per_s ?? 1),
+      recruitDrivePermille: raw.economy.recruit_drive_permille ?? 200,
+      recruitCostPer: fromFloat(raw.economy.recruit_cost_per ?? 35),
       courierPerTile: fromFloat(raw.economy.courier_per_tile),
       courierCap: fromFloat(raw.economy.courier_cap),
       courierIntervalS: raw.economy.courier_interval_s,
@@ -197,6 +255,23 @@ export function loadBalance(raw: RawBalance): Balance {
       highschoolGrowthMult: fromFloat(raw.civics?.highschool_growth_mult ?? 1.15),
       groceryDefenseMult: fromFloat(raw.civics?.grocery_defense_mult ?? 1.2),
       churchFaithPerS: fromFloat(raw.civics?.church_faith_per_s ?? 0.1),
+      anchorTitheMult: fromFloat(raw.civics?.anchor_tithe_mult ?? 1.1),
+      sawmillBuildMult: fromFloat(raw.civics?.sawmill_build_mult ?? 0.88),
+      lighthouseOutreachBonus: raw.civics?.lighthouse_outreach_bonus ?? 2,
+      siegeResistMult: fromFloat(raw.civics?.siege_resist_mult ?? 3.5),
+      civicMomentumPer: fromFloat(raw.civics?.civic_momentum_per ?? 0.03),
+    },
+    missions: {
+      innerCirclePermille: raw.missions?.inner_circle_permille ?? 200,
+      minSendPermille: raw.missions?.min_send_permille ?? 100,
+      maxSendPermille: raw.missions?.max_send_permille ?? 900,
+      marchTicksPerTile: raw.missions?.march_ticks_per_tile ?? 2,
+      workRadius: raw.missions?.work_radius ?? 6,
+      followersPerDoor: raw.missions?.followers_per_door ?? 15,
+      maxDoors: raw.missions?.max_doors ?? 12,
+      crusadeAttritionPermillePerS: raw.missions?.crusade_attrition_permille_per_s ?? 2,
+      tendHoldDivisor: raw.missions?.tend_hold_divisor ?? 200,
+      tendFaithPerS: fromFloat(raw.missions?.tend_faith_per_s ?? 0.4),
     },
   };
 }

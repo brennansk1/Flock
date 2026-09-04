@@ -226,6 +226,9 @@ export class MapRenderer {
       }
     };
     for (let t = 0; t < w.owner.length; t++) if (w.owner[t] === me) reveal(t, 6);
+    // your compound(s) light up the area you found in — even before you hold a
+    // single tile, so the map opens FROM your commune and spreads as you convert.
+    for (const bd of sim.buildings) if (bd.player === me) reveal(bd.tile, 8);
     for (const v of sim.vans) if (v.player === me) reveal(v.tile, 4);
     for (const a of sim.agents) if (a.player === me && a.phase !== "travel") reveal(a.tile, 4);
     for (const al of sim.alliances) {
@@ -238,6 +241,11 @@ export class MapRenderer {
 
   draw(sim: SimState): void {
     if (sim.tick === this.lastDrawnTick) return; // redraw at sim rate (10 Hz)
+    // fully zoomed OUT the renderer paints the whole map (the most expensive
+    // frame by far — measured ~160ms on 96²) while everything on it is a
+    // 2px speck; a ~3Hz cadence there is imperceptible and keeps the main
+    // thread inside the 100ms tick budget. Zoomed views stay at 10Hz.
+    if (this.zoom <= 1.01 && this.lastDrawnTick >= 0 && sim.tick % 3 !== 0) return;
     this.lastDrawnTick = sim.tick;
     this.updateFog(sim);
 

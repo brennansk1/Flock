@@ -21,6 +21,7 @@ import {
   toFloat,
   toInt,
   IntentType,
+  Stance,
   TileState,
   Landmark,
   MatchStatus,
@@ -92,6 +93,16 @@ function p(s: SimState, id: number): PlayerState {
   return s.players.find((pl) => pl.id === id)!;
 }
 
+/** Stage a flock (v3 travel model) so cohorts march a short known distance. */
+function compoundAt(s: SimState, pid: number, tile: number): void {
+  s.buildings.push({ id: s.nextEntityId++, player: pid, type: "compound", tile, buildTicksLeft: 0, disabledTicks: 0 });
+}
+
+/** A cohort send — the v3 replacement for opening a front on a tile. */
+function send(pid: number, tile: number, mode: Stance = Stance.Spread, permille = 700): Intent {
+  return { t: IntentType.MISSION_SEND, player: pid, tile, permille, mode };
+}
+
 // ---------------- buildings & couriers ----------------
 
 test("collection plates spawn couriers that deliver route money", () => {
@@ -123,11 +134,12 @@ test("watchtower fort_mult makes its tiles drastically harder to take", () => {
     p(s, 2).usd = fromInt(100_000);
     p(s, 2).followers = fromInt(200); // thin defense so the open case flips fast
     for (let y = 0; y < W; y++) own(s, y * W + 26, 1);
+    compoundAt(s, 1, 10 * W + 26); // stage p1's flock at the col-26 edge
     if (withTower) {
       run(s, 1, [{ t: IntentType.BUILD, player: 2, building: "watchtower", tile: 10 * W + 28 }]);
       run(s, 180); // build it
     }
-    run(s, 1, [{ t: IntentType.OPEN_FRONT, player: 1, tiles: [targetTile] }]);
+    run(s, 1, [send(1, targetTile)]);
     for (let i = 0; i < 6000; i++) {
       step(s, turn(s.tick), balance);
       if (s.world.owner[targetTile] === 1) return i;
@@ -148,10 +160,15 @@ test("buildings are destroyed, not captured, when their tile flips", () => {
   run(s, 1, [{ t: IntentType.BUILD, player: 2, building: "collection_plate", tile }]);
   assert.equal(s.buildings.length, 1);
   for (let y = 0; y < W; y++) own(s, y * W + 26, 1);
-  run(s, 1, [{ t: IntentType.OPEN_FRONT, player: 1, tiles: [tile] }]);
+  compoundAt(s, 1, 10 * W + 26);
+  run(s, 1, [send(1, tile)]);
   run(s, 3000);
   assert.equal(s.world.owner[tile], 1, "tile should have flipped to the attacker");
-  assert.equal(s.buildings.length, 0, "collection_plate must die with its tile");
+  // the plate dies with its tile (the p1 staging compound at col 26 remains)
+  assert.ok(
+    !s.buildings.some((bd) => bd.type === "collection_plate"),
+    "collection_plate must die with its tile",
+  );
 });
 
 // ---------------- agents: raids & scandal ----------------
@@ -159,14 +176,19 @@ test("buildings are destroyed, not captured, when their tile flips", () => {
 test("deprogramming raid scars a blob and spikes district dissent", () => {
   const s = duel();
   p(s, 1).usd = fromInt(50_000);
-  const tilesBefore = p(s, 2).ownedTiles;
   run(s, 1, [{ t: IntentType.AGENT_DISPATCH, player: 1, district: Districts.Trailer, mission: "deprogram" }]);
   assert.equal(s.agents.length, 1, "agent dispatched");
   run(s, 800); // travel (~24s) + 6s channel, well inside the 90s scar window
   assert.equal(s.agents.length, 0, "agent expired after the raid");
-  assert.ok(p(s, 2).ownedTiles < tilesBefore, "victim lost tiles to apostasy");
+  // measure the raid's DIRECT effect (apostasy + scars) — net ownedTiles is
+  // confounded by the victim's ambient creep during the long channel window
+  let apostate = 0;
   let scarred = 0;
-  for (let t = 0; t < s.world.scarTicks.length; t++) if (s.world.scarTicks[t]! > 0) scarred++;
+  for (let t = 0; t < s.world.state.length; t++) {
+    if (s.world.state[t] === TileState.Apostate) apostate++;
+    if (s.world.scarTicks[t]! > 0) scarred++;
+  }
+  assert.ok(apostate > 0, "the raid turned believers apostate");
   assert.ok(scarred > 0, "apostate scar tissue exists");
 });
 
@@ -221,10 +243,11 @@ test("allies cannot be converted; attacking an ally triggers JUDAS", () => {
   run(s, 1, [{ t: IntentType.ALLY_ACCEPT, player: 2, target: 1 }]);
   assert.equal(s.alliances.length, 1, "alliance formed");
 
-  // p1 opens a front on p2 territory → betrayal
+  // p1 sends a cohort onto p2 territory → betrayal fires when it arrives
   for (let y = 0; y < W; y++) own(s, y * W + 26, 1);
-  run(s, 1, [{ t: IntentType.OPEN_FRONT, player: 1, tiles: [10 * W + 27] }]);
-  run(s, 3);
+  compoundAt(s, 1, 10 * W + 26);
+  run(s, 1, [send(1, 10 * W + 27)]);
+  run(s, 12); // let the cohort march the ~1 tile and work the allied door
   assert.equal(s.alliances.length, 0, "alliance shattered");
   assert.ok(p(s, 1).traitor, "JUDAS mark applied");
   assert.ok(p(s, 1).judasTicks > 0, "retention shock running");
@@ -256,20 +279,33 @@ test("schism: oversized, dissent-ridden cult splinters into a new sect", () => {
 
 // ---------------- doctrine ----------------
 
-test("doctrine: milestones grant points, tiers gate, effects apply", () => {
+test("doctrine: Faith is the currency, tiers gate, effects apply (v3)", () => {
   const s = duel();
   const me = p(s, 1);
-  me.maxFollowers = fromInt(10_000); // 3 milestones → 3 points
+  // three picks cost 3×15 = 45 Faith; fund exactly that
+  me.faith = fromInt(45);
   run(s, 1, [{ t: IntentType.DOCTRINE_PICK, player: 1, node: "T4" }]);
-  assert.equal(me.doctrine.length, 0, "T4 must be tier-gated");
+  assert.equal(me.doctrine.length, 0, "T4 must be tier-gated (needs 3 in branch)");
   run(s, 1, [
     { t: IntentType.DOCTRINE_PICK, player: 1, node: "T1" },
     { t: IntentType.DOCTRINE_PICK, player: 1, node: "T2" },
     { t: IntentType.DOCTRINE_PICK, player: 1, node: "T3" },
   ]);
   assert.deepEqual(me.doctrine, ["T1", "T2", "T3"], "three picks landed");
+  assert.ok(toInt(me.faith) < 5, "Faith was spent (≈0 after 45 of 45)");
   run(s, 1, [{ t: IntentType.DOCTRINE_PICK, player: 1, node: "B1" }]);
-  assert.equal(me.doctrine.length, 3, "no points left — 4th pick refused");
+  assert.equal(me.doctrine.length, 3, "no Faith left — 4th pick refused");
+});
+
+test("doctrine: a deployed Tend cohort banks Faith to spend (v3)", () => {
+  const s = duel();
+  const me = p(s, 1);
+  compoundAt(s, 1, 12 * W + 3);
+  me.faith = fromInt(10); // below the 15 cost — can't buy yet
+  run(s, 1, [send(1, 12 * W + 5, Stance.Tend)]);
+  const before = toInt(me.faith);
+  run(s, 400); // the tend cohort marches in and gathers the faithful
+  assert.ok(toInt(me.faith) > before, "Tend banked Faith while deployed");
 });
 
 // ---------------- archetype kits ----------------
@@ -353,8 +389,8 @@ test("Visitors: Crop Circle accelerates neutral conversion for everyone", () => 
     const me = p(s, 1);
     (me as { archetype: string }).archetype = "visitors";
     me.usd = fromInt(100_000);
-    const targets = Array.from({ length: W }, (_, y) => y * W + 5);
-    const intents: Intent[] = [{ t: IntentType.OPEN_FRONT, player: 1, tiles: targets }];
+    compoundAt(s, 1, 10 * W + 4); // stage at p1's col-4 edge
+    const intents: Intent[] = [send(1, 10 * W + 5)];
     if (withCircle)
       intents.push({ t: IntentType.ABILITY, player: 1, ability: "crop_circle", target: 10 * W + 5 });
     const base = me.ownedTiles;

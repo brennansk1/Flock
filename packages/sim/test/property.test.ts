@@ -29,6 +29,7 @@ import {
   followerCap,
   propertyStats,
   propertyCost,
+  buildingCost,
   computeCivicControl,
   IntentType,
   Terrain,
@@ -88,6 +89,27 @@ test("SPAWN founds a wilderness property with compound, felled trees, bused cong
   assert.ok(s.players[0]!.alive, "compound keeps the cult alive at 0 tiles");
 });
 
+test("commune stages: money raises the flock cap; caps at stage 5 (v3 M3.3)", () => {
+  const w = tinyWorld();
+  const s = createSim({ seed: 1, balance, world: w, spawns: [{ id: 1, archetype: "dawn" }] });
+  step(s, turn(0, [{ t: IntentType.SPAWN, player: 1, tile: 4 * 32 + 4 }]), balance);
+  const p = s.players[0]!;
+  assert.equal(p.compounds, 1, "founds at stage 1");
+  const cap1 = toInt(followerCap(p, balance, s));
+
+  // fund and upgrade one stage → cap rises, money spent
+  p.usd = fromInt(500_000);
+  const usdBefore = toInt(p.usd);
+  step(s, turn(1, [{ t: IntentType.UPGRADE_COMMUNE, player: 1 }]), balance);
+  assert.equal(p.compounds, 2, "raised to stage 2");
+  assert.ok(toInt(p.usd) < usdBefore, "money spent on the upgrade");
+  assert.ok(toInt(followerCap(p, balance, s)) > cap1, "flock cap rose with the stage");
+
+  // spam upgrades: the commune tops out at stage 5
+  for (let i = 2; i < 12; i++) step(s, turn(i, [{ t: IntentType.UPGRADE_COMMUNE, player: 1 }]), balance);
+  assert.equal(p.compounds, 5, "commune capped at stage 5");
+});
+
 test("wilderness BUILD requires own property; BUY_PROPERTY expands the empire", () => {
   const w = tinyWorld();
   const s = createSim({ seed: 2, balance, world: w, spawns: [{ id: 1, archetype: "circle" }] });
@@ -144,15 +166,16 @@ test("crowding: a full parcel sags the follower cap until more land is bought", 
   assert.ok(crowdedCap < roomyCap, `crowded cap ${crowdedCap} < roomy ${roomyCap}`);
 });
 
-test("compound outreach: fronts press town tiles without territory adjacency", () => {
+test("cohort presence: a mission converts town tiles with no territory adjacency", () => {
   const w = tinyWorld();
   const s = createSim({ seed: 4, balance, world: w, spawns: [{ id: 1, archetype: "dawn" }] });
-  // spawn ~4 tiles from the town edge — inside outreach, outside adjacency
+  // spawn ~10 tiles from the town edge; the cohort marches in and works it —
+  // presence is access, no adjacency needed (the v3 core loop)
   step(s, turn(0, [{ t: IntentType.SPAWN, player: 1, tile: 8 * 32 + 8 }]), balance);
   const townTile = 13 * 32 + 13;
-  step(s, turn(1, [{ t: IntentType.OPEN_FRONT, player: 1, tiles: [townTile, townTile + 1, townTile + 32] }]), balance);
-  for (let i = 2; i < 400 && s.players[0]!.ownedTiles === 0; i++) step(s, turn(i), balance);
-  assert.ok(s.players[0]!.ownedTiles > 0, "outreach front flipped town tiles from the compound");
+  step(s, turn(1, [{ t: IntentType.MISSION_SEND, player: 1, tile: townTile, permille: 700, mode: "spread" }]), balance);
+  for (let i = 2; i < 600 && s.players[0]!.ownedTiles === 0; i++) step(s, turn(i), balance);
+  assert.ok(s.players[0]!.ownedTiles > 0, "the cohort flipped town tiles from a wilderness base");
 });
 
 test("civics: control resolves deterministically and the sheriff cools Heat faster", () => {
@@ -192,6 +215,92 @@ test("civics: control resolves deterministically and the sheriff cools Heat fast
   const h1 = toInt(s.players[0]!.heat);
   const h2 = toInt(s.players[1]!.heat);
   assert.ok(h1 < h2, `sheriff controller cools faster (${h1} < ${h2})`);
+});
+
+test("§2A anchors: the granary pays and the sawmill discounts (B1.4.20)", () => {
+  const w = tinyWorld();
+  const g1 = 12 * 32 + 18;
+  w.lot[g1] = Lot.GrainElevator;
+  w.lot[g1 + 1] = Lot.GrainElevator;
+  const sm = 13 * 32 + 18;
+  w.lot[sm] = Lot.Sawmill;
+  // SAME archetype both seats: the A/B must isolate the anchor mult, not
+  // compare dawn-vs-circle income coefficients
+  const s = createSim({
+    seed: 9,
+    balance,
+    world: w,
+    spawns: [
+      { id: 1, archetype: "dawn" },
+      { id: 2, archetype: "dawn" },
+    ],
+  });
+  step(s, turn(0, [
+    { t: IntentType.SPAWN, player: 1, tile: 4 * 32 + 4 },
+    { t: IntentType.SPAWN, player: 2, tile: 27 * 32 + 27 },
+  ]), balance);
+
+  // player 1 converts the granary + the sawmill
+  for (const t of [g1, g1 + 1, sm]) {
+    w.owner[t] = 1;
+    w.state[t] = TileState.Believer;
+  }
+  s.players[0]!.ownedTiles += 3;
+  const control = computeCivicControl(s);
+  assert.equal(control.get(Lot.GrainElevator), 1, "player 1 holds the granary");
+  assert.equal(control.get(Lot.Sawmill), 1, "player 1 holds the sawmill");
+
+  // SAWMILL: lumber at cost — the holder builds cheaper, price is visible
+  const c1 = toInt(buildingCost(s, 1, "watchtower", control, balance));
+  const c2 = toInt(buildingCost(s, 2, "watchtower", control, balance));
+  assert.ok(c1 < c2, `sawmill holder builds cheaper (${c1} < ${c2})`);
+
+  // GRANARY: the harvest money flows — same followers, richer tithe
+  s.players[0]!.followers = s.players[1]!.followers;
+  s.players[0]!.usdEarned = fromInt(0);
+  s.players[1]!.usdEarned = fromInt(0);
+  for (let i = 1; i <= 100; i++) step(s, turn(i), balance);
+  const e1 = toInt(s.players[0]!.usdEarned);
+  const e2 = toInt(s.players[1]!.usdEarned);
+  assert.ok(e1 > e2, `granary holder earns more (${e1} > ${e2})`);
+});
+
+test("§2A anchors: the lighthouse extends the cohort work radius (B1.4.20)", () => {
+  const w = createWorld(32, 32);
+  w.terrain.fill(Terrain.Grass);
+  // ONE convertible house, 7 tiles from the cohort's target — outside the
+  // base work radius (6), inside the lighthouse-boosted reach (8)
+  const target = 10 * 32 + 10;
+  const house = 10 * 32 + 17;
+  w.terrain[house] = Terrain.Citizen;
+  w.pop[house] = 4;
+  w.susceptibility[house] = fromInt(80);
+  // the lighthouse (unpopulated) sits elsewhere; controlling it is the toggle
+  const lh = 20 * 32 + 20;
+  w.terrain[lh] = Terrain.Citizen;
+  w.lot[lh] = Lot.Lighthouse;
+  w.pop[lh] = 0;
+  const s = createSim({ seed: 10, balance, world: w, spawns: [{ id: 1, archetype: "dawn" }] });
+  s.players[0]!.spawned = true;
+  s.players[0]!.followers = fromInt(1000);
+  s.buildings.push({ id: s.nextEntityId++, player: 1, type: "compound", tile: 10 * 32 + 9, buildTicksLeft: 0, disabledTicks: 0 });
+  // deploy: without the light the house is out of radius, so the cohort — which
+  // has no other doors to work — flips nothing
+  step(s, turn(1, [{ t: IntentType.MISSION_SEND, player: 1, tile: target, permille: 700, mode: "spread" }]), balance);
+  for (let i = 2; i <= 300; i++) step(s, turn(i), balance);
+  assert.notEqual(w.owner[house], 1, "house is out of reach without the lighthouse");
+
+  // hand player 1 the light — the SAME cohort's radius grows and reaches it
+  w.owner[lh] = 1;
+  w.state[lh] = TileState.Believer;
+  s.players[0]!.ownedTiles += 1;
+  assert.equal(computeCivicControl(s).get(Lot.Lighthouse), 1);
+  let flipped = false;
+  for (let i = 301; i <= 1400 && !flipped; i++) {
+    step(s, turn(i), balance);
+    flipped = w.owner[house] === 1;
+  }
+  assert.ok(flipped, "the boosted work radius reaches the house once the light is held");
 });
 
 test("property + parcels survive the snapshot round-trip hash-identically", () => {

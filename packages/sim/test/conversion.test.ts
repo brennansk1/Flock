@@ -20,6 +20,8 @@ import {
   Stance,
   NEUTRAL,
   TileState,
+  Lot,
+  computeSiegeState,
   type RawBalance,
   type SimState,
   type Turn,
@@ -52,6 +54,9 @@ function twoCults(): SimState {
   // tests tuned against the classic 1k-follower dynamics; starts are smaller now
   s.players[0]!.followers = fromInt(1000);
   s.players[1]!.followers = fromInt(1000);
+  // established cults with territory count as spawned (MISSION_SEND requires it)
+  s.players[0]!.spawned = true;
+  s.players[1]!.spawned = true;
   return s;
 }
 
@@ -73,21 +78,33 @@ function run(s: SimState, ticks: number, turns: Map<number, Turn> = new Map()): 
   }
 }
 
-test("an open front flips adjacent neutral tiles within seconds", () => {
+/** Stage a player's flock: an operational compound so cohorts march a short,
+ *  known distance to their target (v3 travel model). */
+function compoundAt(s: SimState, pid: number, tile: number): void {
+  s.buildings.push({ id: s.nextEntityId++, player: pid, type: "compound", tile, buildTicksLeft: 0, disabledTicks: 0 });
+}
+
+/** A turn that sends a cohort — the v3 replacement for opening a front. */
+function sendTurn(
+  pid: number,
+  tile: number,
+  mode: typeof Stance.Spread | typeof Stance.Tend | typeof Stance.Crusade,
+  permille = 700,
+): Turn {
+  return { n: 0, intents: [{ t: IntentType.MISSION_SEND, player: pid, tile, permille, mode }], seedSlice: 0 };
+}
+
+test("a spread cohort flips neutral tiles around its target", () => {
   const s = twoCults();
-  // p1 pushes into column 4 (neutral, adjacent to its column 3)
-  const targets = Array.from({ length: W }, (_, y) => y * W + 4);
-  const turns = new Map<number, Turn>([
-    [0, { n: 0, intents: [{ t: IntentType.OPEN_FRONT, player: 1, tiles: targets }], seedSlice: 0 }],
-  ]);
+  compoundAt(s, 1, 12 * W + 3); // stage p1's flock at its column-3 edge
+  const target = 12 * W + 5; // neutral, radius-6 disk full of neutrals
+  const turns = new Map<number, Turn>([[0, sendTurn(1, target, Stance.Spread)]]);
   const before = s.players[0]!.ownedTiles;
-  // Early-game pressure with 1k followers spread over a 24-tile front is slow
-  // (~3/s vs the 100 threshold); 60 sim-seconds is a comfortable window. The
-  // §4.4 "1.5–4s typical" figure assumes mid-game (~60 attackers per tile).
+  // march (~4 ticks) + door-by-door conversion; 60 sim-seconds is comfortable
   run(s, 600, turns);
   const after = s.players[0]!.ownedTiles;
-  assert.ok(after > before, `front should capture neutral tiles (before=${before} after=${after})`);
-  assert.ok(after - before >= W / 2, `expected most of the column captured, got ${after - before}`);
+  assert.ok(after > before, `cohort should capture neutral tiles (before=${before} after=${after})`);
+  assert.ok(after - before >= 8, `expected a worked block captured, got ${after - before}`);
 });
 
 test("ambient creep flips neutral border tiles with no front at all", () => {
@@ -100,53 +117,51 @@ test("ambient creep flips neutral border tiles with no front at all", () => {
 });
 
 test("defended enemy tiles flip far slower than neutral tiles", () => {
-  // Measure ticks-to-first-flip for p1 attacking neutral vs attacking p2.
-  const ticksToFirstFlip = (attackEnemy: boolean): number => {
+  // Track the ANCHOR tile itself (the cohort always works its dist-0 target),
+  // so the enemy case measures a DEFENDED flip — not a neutral bystander the
+  // auto-spread happened to pick up.
+  const ticksToTargetFlip = (attackEnemy: boolean): number => {
     const s = twoCults();
-    const col = attackEnemy ? 20 : 4;
-    const targets = Array.from({ length: W }, (_, y) => y * W + col);
+    const col = attackEnemy ? 20 : 5;
+    const target = 12 * W + col;
     // teleport p1 adjacent to p2 for the enemy case: give p1 column 19
     if (attackEnemy) for (let y = 0; y < W; y++) own(s, y * W + 19, 1);
-    const turns = new Map<number, Turn>([
-      [0, { n: 0, intents: [{ t: IntentType.OPEN_FRONT, player: 1, tiles: targets }], seedSlice: 0 }],
-    ]);
-    const base = s.players[0]!.ownedTiles;
+    compoundAt(s, 1, 12 * W + (attackEnemy ? 19 : 3));
+    const turns = new Map<number, Turn>([[0, sendTurn(1, target, Stance.Spread)]]);
     for (let n = 0; n < 3000; n++) {
       step(s, turns.get(n) ?? emptyTurn(n), balance);
-      if (s.players[0]!.ownedTiles > base) return n + 1;
+      if (s.world.owner[target] === 1) return n + 1;
     }
     return Infinity;
   };
-  const vsNeutral = ticksToFirstFlip(false);
-  const vsEnemy = ticksToFirstFlip(true);
+  const vsNeutral = ticksToTargetFlip(false);
+  const vsEnemy = ticksToTargetFlip(true);
   assert.ok(vsNeutral < vsEnemy, `neutral (${vsNeutral}) should flip before defended enemy (${vsEnemy})`);
-  assert.ok(vsEnemy > vsNeutral * 2, `defense should matter: neutral=${vsNeutral} enemy=${vsEnemy}`);
+  assert.ok(vsEnemy > vsNeutral * 1.5, `defense should matter: neutral=${vsNeutral} enemy=${vsEnemy}`);
 });
 
-test("attrition: pushing a front costs the attacker followers", () => {
+test("committing a cohort costs the attacker its available flock", () => {
   const s = twoCults();
-  const targets = Array.from({ length: W }, (_, y) => y * W + 4);
-  const turns = new Map<number, Turn>([
-    [0, { n: 0, intents: [{ t: IntentType.OPEN_FRONT, player: 1, tiles: targets }], seedSlice: 0 }],
-  ]);
-  // crusade to maximize commitment, then compare follower trajectories
+  compoundAt(s, 1, 12 * W + 3);
+  const turns = new Map<number, Turn>([[0, sendTurn(1, 12 * W + 5, Stance.Crusade)]]);
+  // deploying moves mass out of the home flock (and crusade attrition bites);
+  // compare the home flock against an idle twin
   const sIdle = twoCults();
-  run(s, 30, turns);
-  run(sIdle, 30);
+  run(s, 60, turns);
+  run(sIdle, 60);
   assert.ok(
     toFloat(s.players[0]!.followers) < toFloat(sIdle.players[0]!.followers),
-    "attacker should have fewer followers than an idle twin",
+    "attacker's home flock should be lower than an idle twin's",
   );
 });
 
 test("apostate scar tiles are immune to conversion until they heal", () => {
   const s = twoCults();
-  const t = 10 * W + 4; // neutral tile adjacent to p1
+  compoundAt(s, 1, 12 * W + 3);
+  const t = 10 * W + 5; // neutral tile in p1's cohort radius
   s.world.state[t] = TileState.Apostate;
   s.world.scarTicks[t] = 200; // 20s remaining
-  const turns = new Map<number, Turn>([
-    [0, { n: 0, intents: [{ t: IntentType.OPEN_FRONT, player: 1, tiles: [t] }], seedSlice: 0 }],
-  ]);
+  const turns = new Map<number, Turn>([[0, sendTurn(1, t, Stance.Spread)]]);
   run(s, 100, turns); // 10s: still scarred
   assert.equal(s.world.owner[t], NEUTRAL, "scarred tile must not flip");
   assert.equal(s.world.state[t], TileState.Apostate);
@@ -158,28 +173,43 @@ test("apostate scar tiles are immune to conversion until they heal", () => {
   );
 });
 
-test("CRUSADE stance presses faster than Tend the Flock", () => {
-  const capturedAfter = (stance: typeof Stance.Tend | typeof Stance.Crusade): number => {
+test("a CRUSADE cohort presses faster than a TEND cohort", () => {
+  const capturedAfter = (mode: typeof Stance.Tend | typeof Stance.Crusade): number => {
     const s = twoCults();
-    const targets = Array.from({ length: W }, (_, y) => y * W + 4);
-    const turns = new Map<number, Turn>([
-      [
-        0,
-        {
-          n: 0,
-          intents: [
-            { t: IntentType.SET_STANCE, player: 1, stance },
-            { t: IntentType.OPEN_FRONT, player: 1, tiles: targets },
-          ],
-          seedSlice: 0,
-        },
-      ],
-    ]);
+    compoundAt(s, 1, 12 * W + 3);
+    const turns = new Map<number, Turn>([[0, sendTurn(1, 12 * W + 5, mode)]]);
     const base = s.players[0]!.ownedTiles;
-    run(s, 120, turns); // short window: crusade flips, tend trickles
+    run(s, 200, turns); // Tend holds (0 captures); Crusade flips
     return s.players[0]!.ownedTiles - base;
   };
   const tend = capturedAfter(Stance.Tend);
   const crusade = capturedAfter(Stance.Crusade);
   assert.ok(crusade > tend, `crusade (${crusade}) should out-capture tend (${tend})`);
+});
+
+test("key buildings are SIEGES — slower to take + reported in siege state (v3 M4)", () => {
+  const s = twoCults();
+  compoundAt(s, 1, 12 * W + 3);
+  const target = 12 * W + 6; // cohort anchor (plain)
+  const sheriff = 13 * W + 6; // dist 1 from anchor — a key building
+  const house = 11 * W + 6; // dist 1 from anchor — a plain house
+  s.world.lot[sheriff] = Lot.Sheriff;
+  const turns = new Map<number, Turn>([[0, sendTurn(1, target, Stance.Spread)]]);
+  let houseFlip = -1;
+  let sheriffFlip = -1;
+  for (let n = 0; n < 4000 && (houseFlip < 0 || sheriffFlip < 0); n++) {
+    step(s, turns.get(n) ?? emptyTurn(n), balance);
+    if (houseFlip < 0 && s.world.owner[house] === 1) houseFlip = n;
+    if (sheriffFlip < 0 && s.world.owner[sheriff] === 1) sheriffFlip = n;
+  }
+  assert.ok(houseFlip > 0, "the plain house flipped");
+  assert.ok(
+    sheriffFlip > houseFlip * 1.8,
+    `sheriff is a siege: took ${sheriffFlip} vs house ${houseFlip}`,
+  );
+  // once p1 holds the sheriff, the HUD siege state reports it
+  const bar = computeSiegeState(s).find((b) => b.lot === Lot.Sheriff);
+  assert.ok(bar, "sheriff has a siege bar");
+  assert.equal(bar!.leader, 1, "p1 leads the sheriff siege");
+  assert.ok(bar!.leaderFill > 0, "capture fill reported");
 });

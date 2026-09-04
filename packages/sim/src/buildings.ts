@@ -9,7 +9,9 @@
 
 import { add, mul, fromInt, fromFloat, ONE, type Fixed } from "./fixed.js";
 import type { Balance } from "./balance.js";
+import { controlsCivic } from "./civics.js";
 import {
+  Lot,
   Terrain,
   TileState,
   type Building,
@@ -44,7 +46,7 @@ export const STAFF_RADIUS = 6;
 
 /** Authoritative table (§6). Satellite is the Visitors' Saucer chapel (§11.4). */
 export const BUILDING_DEFS: Record<Building["type"], BuildingDef> = {
-  compound: { cost: 15_000, costGrowth: 1.35, buildTicks: 20 * TPS, radius: 8, max: 8, staff: 40 },
+  compound: { cost: 15_000, costGrowth: 1.35, buildTicks: 20 * TPS, radius: 8, max: 1, staff: 40 },
   collection_plate: { cost: 10_000, costGrowth: 1, buildTicks: 15 * TPS, radius: 0, max: 6, staff: 25 },
   watchtower: { cost: 12_000, costGrowth: 1.25, buildTicks: 18 * TPS, radius: 6, max: 10, staff: 20 },
   broadcast_tower: { cost: 250_000, costGrowth: 1, buildTicks: 45 * TPS, radius: 0, max: 2, staff: 90 },
@@ -92,8 +94,20 @@ export function countBuildings(s: SimState, player: PlayerId, type: Building["ty
   return n;
 }
 
-/** Cost of the player's next building of `type`, with per-copy growth. */
-export function buildingCost(s: SimState, player: PlayerId, type: Building["type"]): Fixed {
+/**
+ * Cost of the player's next building of `type`, with per-copy growth.
+ * Sawmill anchor (§2A mechanics, B1.4.20): lumber at cost — pass the caller's
+ * per-tick/per-render civic-control map + balance and the discount applies.
+ * Without them the base price holds (control is a pure function of state, so
+ * every price-displaying or price-charging caller CAN and SHOULD supply it).
+ */
+export function buildingCost(
+  s: SimState,
+  player: PlayerId,
+  type: Building["type"],
+  civics?: Map<number, PlayerId>,
+  b?: Balance,
+): Fixed {
   const def = BUILDING_DEFS[type];
   let cost = fromInt(def.cost);
   if (def.costGrowth !== 1) {
@@ -101,6 +115,8 @@ export function buildingCost(s: SimState, player: PlayerId, type: Building["type
     const existing = countBuildings(s, player, type);
     for (let i = 0; i < existing; i++) cost = mul(cost, growth);
   }
+  if (civics && b && controlsCivic(civics, Lot.Sawmill, player))
+    cost = mul(cost, b.civics.sawmillBuildMult);
   // Food & Fuel Cartel monopoly: enemy building placement costs +30%
   for (const pl of s.players) {
     if (pl.id !== player && pl.alive && computeMonopolies(s, pl.id).foodAndFuelCartel) {

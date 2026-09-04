@@ -171,9 +171,9 @@ function renderStudioCultAsset(bitmap, bodyCol, accentCol, bgRgb, scale = 12) {
       const dist = Math.sqrt(dx * dx + dy * dy);
 
       if (dist > 0 && dist <= glowRadius) {
-        // Smooth exponential-quadratic gradient falloff
+        // Smooth exponential-quadratic gradient falloff with soft low-opacity
         const norm = 1.0 - dist / glowRadius;
-        const alpha = Math.pow(norm, 1.85) * 0.88;
+        const alpha = Math.pow(norm, 1.85) * 0.28;
 
         rgba[idx] = Math.min(255, Math.round((1 - alpha) * bgRgb[0] + alpha * bodyCol[0]));
         rgba[idx + 1] = Math.min(255, Math.round((1 - alpha) * bgRgb[1] + alpha * bodyCol[1]));

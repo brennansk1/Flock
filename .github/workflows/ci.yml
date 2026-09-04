@@ -20,3 +20,10 @@ jobs:
       # plus the live-transport lockstep smoke test. If these fail, nothing
       # downstream is safe to ship.
       - run: npm test
+      # Cross-BROWSER determinism (B6.5, HANDOFF §8.5 — risk #1 in §10):
+      # the same probe (worldgen incl. the oceanside transcendental coastline
+      # + 400 sim ticks) must hash identically in Node/V8, Chromium/V8,
+      # Firefox/SpiderMonkey, and WebKit/JavaScriptCore. A divergence here is
+      # a client desync in production.
+      - run: npx playwright install --with-deps chromium firefox webkit
+      - run: node tools/xbrowser_determinism.mjs

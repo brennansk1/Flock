@@ -194,14 +194,29 @@ export interface World {
 }
 
 /**
- * An active Front (§4): a player's committed push into a target region. The
- * tile list is kept sorted ascending so every machine iterates identically.
+ * A deployed cohort (v3 missions — DESIGN_MISSIONS.md §1): a slice of the
+ * flock sent to work a part of town. `mode` reuses the Stance vocabulary
+ * per-sortie ("this wave is a crusade"). Mass is CONSERVED: it leaves
+ * `followers` on SEND and returns when the recall completes — deployed
+ * followers are a stake, not a projection.
  */
-export interface Front {
-  id: number;
-  player: PlayerId;
-  tiles: TileId[];
+export interface Cohort {
+  /** anchor tile the cohort was sent at */
+  target: TileId;
+  /** per-sortie mode: Spread converts, Tend holds, Crusade burns */
+  mode: Stance;
+  /** follower-mass committed (Q16.16) */
+  mass: Fixed;
+  /** ticks since dispatch (drives march-out + the M2 arrival model) */
+  age: number;
+  /** walking home; mass rejoins the flock when the return completes */
+  recalling: boolean;
+  /** ticks since recall began */
+  recallAge: number;
 }
+
+/** Max concurrent cohorts — the readability cap (DESIGN_MISSIONS.md §1). */
+export const MAX_COHORTS = 3;
 
 /** Per-player runtime state (§3). */
 export interface PlayerState {
@@ -219,9 +234,10 @@ export interface PlayerState {
   spawned: boolean;
   /** remaining cooldown ticks per ritual/ability id; absent = ready */
   cooldowns: Record<string, number>;
-  /** Sermon's +5% conversion buff, remaining ticks (§9) */
+  /** VESTIGIAL (rituals cut, v3 M3.2b): always 0 now — kept to preserve the
+   *  snapshot/hash layout; purge with the next SNAPSHOT_VERSION bump. */
   sermonBuffTicks: number;
-  /** Day of Atonement: dissent decay ×4, own fronts frozen, remaining ticks (§9) */
+  /** VESTIGIAL (rituals cut, v3 M3.2b): always 0 now — see sermonBuffTicks. */
   atonementTicks: number;
   /** Final Dawn: Prophecy Countdown is once per match (§11.1) */
   prophecyUsed: boolean;
@@ -252,6 +268,8 @@ export interface PlayerState {
   channelTicks: number;
   /** Land parcels bought (§18 rev.) — drives escalating BUY_PROPERTY cost. */
   parcels: number;
+  /** Deployed cohorts (v3 missions) — at most MAX_COHORTS live entries. */
+  cohorts: Cohort[];
 }
 
 /** Recap event log (§25): the raw material for headlines and cards. */
@@ -457,8 +475,6 @@ export interface SimState {
   rng: RngState;
   world: World;
   players: PlayerState[];
-  fronts: Front[];
-  nextFrontId: number;
   progress: ProgressMap;
   /** count of citizen tiles — the victory-balance unit (§1) */
   populated: number;

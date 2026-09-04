@@ -11,11 +11,55 @@ implementation step. Tree view: [BUILD_TREE.md](./BUILD_TREE.md)._
 
 ## Progress summary
 
-**70/79 nodes VERIFIED · 2 NOT_STARTED (B6.5, B1.4.12) · 6 BLOCKED (external infra/content) · 1 STUBBED (deferred high-detail art, tracked) · 0 BLOCKED_BY_POLICY**
+_Updated 2026-07-05: B1.4 (mapgen) decomposed to atoms per the PROCGEN RULE —
+14 nodes → **115 nodes** (one leaf per pipeline stage, invariant, and QA gate),
+derived from mapgen.ts/gridRoads.ts code, not from docs. Baseline re-verified
+that day: build clean, **sim 78/78 green**._
 
-Next recommended action: **B6.5** (cross-browser determinism CI) — the
-top-listed risk in HANDOFF §10 and the last pure-code ⬜ node; everything
-else open is external provisioning (B7.*) or the deferred art pass (B5.3).
+**~177/183 nodes VERIFIED · 0 IMPLEMENTED-not-verified · NOT_STARTED: B1.4.20 (archetype mechanics — deferred behind B7.9), B1.4.21 (3 remaining transcendental clusters — risk contained by B6.5), B7.1/B7.4 (launch seams), B8.11/B8.12 (accepted MINOR) · 6 BLOCKED (external infra/content) · 1 STUBBED (deferred high-detail art, tracked)**
+
+_2026-07-05 late session: **B6.5 CLOSED** — the #1 HANDOFF risk is gated on
+every push (probe hashes byte-identical across Node/V8, Chromium/V8,
+Firefox/SpiderMonkey, WebKit/JavaScriptCore). **B1.4.12 CLOSED** — terrain
+fields v2 landed: elevation+moisture generated first, river descends the
+terrain, biomes moisture-gated, vegetation wetness-weighted; 87/87 sim +
+14/14 server green, metrics within noise of baseline, QA re-render PASS
+(one TUNE round: thalweg blend un-straightened the river), playability
+smoke PT-0004. Every pure-code mapgen node is now VERIFIED; what remains
+open anywhere is deferred-by-decision or blocked-external._
+
+_Prime-directive pass 2026-07-05 (PT-0003): archetype worlds PLAY — 30/30 bot
+matches on all 5 townTypes founded 4/4 via the production spawn spiral and
+ended with winners. Spatial Depth Review: base town PASSES its DEEP target
+(decisions/tradeoffs/emergence all land); archetype differentiation is LIGHT
+(geometry only, no Biome engine hooks) — filed as B1.4.20, deferred. WATCH
+item: 0.94–0.98 winner lead share in same-tier bot mirrors (snowball signal;
+attribute after human playtests, B7.9)._
+
+_2026-07-05 close-out: the archetype gap is shut — B1.4.14.2–.7 all VERIFIED
+(9 test gates in archetypes.test.ts, suite 87/87; 24 QA renders PASS; mountain
+sawmill fallback fixed a real seed-3 generation gap the probe found). B1.4.19
+quality-metrics harness live with baseline recorded._
+
+_2026-07-09 session (visual overhaul, user-directed): **special buildings
+redone as front-facing composed facades** (B5.2.6) with **frontage parking
+that always touches a road** (B1.4.7.4 + invariant test), the anchor-collapse
+bug fixed (B1.4.7.1 scan placement — grocery/sheriff/fire were silently 1×1
+on most seeds), **blocks widened with mid-block lanes + dirt alleys + yard
+life** so interiors read as town fabric (B1.4.1.10, B1.4.8.4–.5), and a house
+/street variety pass (B5.2.7). Approval sprite sheets delivered to the user.
+Suite 105/105 sim + 14/14 server green; the church-vs-drifter microbench now
+asserts its honest anti-regression property (tier strength at 24²/2min is
+layout luck — measured before AND after; real-scale validation stays with
+playtest_sim). BALANCE WATCH: church edge over drifter at tiny scale is ~even
+(aggregate 100v96) — fold into the B7.9 balance pass._
+
+Next recommended actions, in order:
+1. Playtest-feedback batch 2 (user-queued): sidewalk/driving/dot realism,
+   night window glow, route-following cars that park at homes/lots, and a
+   sub-agent tutorial run against latest code.
+2. **B1.4.12 follow-ons** — reviewer items still deferred: #1 river-anchored
+   founding, #15 curvilinear suburbs.
 
 ## Manifest
 
@@ -38,20 +82,192 @@ else open is external provisioning (B7.*) or the deferred art pass (B5.3).
 | B1.1 | B1/loop | Tick loop + KIT table | `createSim/step/applyIntent`; no floats/Date/Math.random in scope | T.* | ✔️ | determinism gate; sim 60/60 |
 | B1.2 | B1/conversion | Conversion combat (§4) | Fronts, pressure/resistance, creep, attrition, scars, deterministic flips | B1.1 | ✔️ | conversion.test.ts green |
 | B1.3 | B1/economy | Sim economy (§3) | Logistic followers, per-tile tithe, district income, dissent tax, Faith, Heat | B1.1 | ✔️ | sim suite 60/60 |
-| B1.4 | B1/mapgen | Seeded mapgen (§2/§12) | Districts, river, farms, all 5 landmarks w/ passive effects; seed-stable | T.2.2 | ✔️ | Reworked onto the block grid; mapgen.test.ts 6/6 + full suite 66/66 (2026-07-02) |
-| B1.4.1 | B1/mapgen/gridroads | Axis-aligned street grid | ALL roads horizontal/vertical: 2-lane highway→Main St, county route, jittered avenues×streets forming irregular blocks (tight downtown, looser fringe); zero unbridged corner-only road adjacencies | B1.4 | ✔️ | tensorRoads.ts deleted; mapgen.test.ts orthogonality gate green over 5 seeds; vision-checked LOD1+LOD3 renders |
-| B1.4.2 | B1/mapgen/lanes | Orthogonal country roads + lanes | Rural roads leave town along the grid with 90° jogs; dirt lanes are L-paths (axis-at-a-time); no diagonal stair-steps anywhere | B1.4.1 | ✔️ | carveDirtLane rewritten as hash-oriented L-path; rural roads launch from painted street endpoints (gap bug found+fixed by the test) |
-| B1.4.3 | B1/mapgen/names | Town + street naming | `World.townName` fresh per seed from the faker corpus; every street segment named in `World.streets`; two same-seed runs identical | B1.4.1, B6.6 | ✔️ | mapgen.test.ts: determinism + Main-Street resolution + name variety across seeds all green |
-| B1.4.4 | B1/mapgen/zoning | Zoning re-fit + pop floor | Districts/farms/nature/landmarks on the block grid; ≥640 populated tiles & ≥2900 residents on 96 worlds across seeds | B1.4.1 | ✔️ | floors green over seeds (infill-housing fallback); also fixed a pre-existing (seed,attempt) rng-salt collision that made adjacent seeds produce identical towns |
-| B1.4.5 | B1/mapgen/contract | World naming contract | World gains {townName, streets}; SNAPSHOT_VERSION 6→7 carries + restores them; hashState covers them; round-trip invariant holds | T.5 | ✔️ | mapgen.test.ts snapshot round-trip hash-identical; lockstep smoke green |
-| B1.4.6 | B1/mapgen/zoning2 | Realistic zoning v2 | 8 districts (ResLow, ResHigh, Commercial, Industrial + Downtown/OldTown/College/Trailer), each with coeffs, pop ranges, and its own building set; industrial by the highway, commercial on Main St, ResHigh ringing downtown | B1.4.4 | ✔️ | 8 districts + coeffs live; ground palette makes zoning readable at map scale (vision-checked) |
-| B1.4.7 | B1/mapgen/keystones | Keystone civics guaranteed | Every town has elementary school, high school, sheriff, grocery, church, fire station, gas station — force-placed if stamping fails; test-asserted per seed | B1.4.6 | ✔️ | mapgen.test.ts keystone gate green ×5 seeds; forced fallback placement |
-| B1.4.8 | B1/mapgen/blocks | Block interiors | Footpaths (Terrain.Path) connect every pop≥3 home to the street net (test: access within 1 orth tile); cul-de-sacs with bulbs, named "X Court" | B1.4.1 | ✔️ | REVISED per feedback: homes FRONT roads (no path corridors); frontage test green ×5 seeds; cul-de-sacs in-footprint |
-| B1.4.9 | B1/mapgen/farms2 | Farming v2 | Farmsteads anchored ON rural lanes; rectangular road-aligned field parcels with baulks; orchards (tree rows) + fenced pastures (livestock) | B1.4.2 | ✔️ | road-anchored parcels + orchards/pastures asserted in tests; river margin enforced; crop variety + hay bales rendered |
-| B1.4.10 | B1/mapgen/biomes | Configurable biomes | `World.biome` blob layer (desert/forest) from `generateWorld` opts / server env; affects nature gen + render palette; snapshot v8 + hashed | B1.4.4 | ✔️ | biome config test green (default/[]/determinism); FLOCK_BIOMES env plumbed; snapshot v8 hashed |
-| B1.4.11 | B1/mapgen/realism | Geographer realism pass | Rail line (fewest-crossing row, right-of-way through unbuilt lots) + siding + grain elevator + depot every town; 2 tributaries joining at confluence rows; lake outlet channel; river widens 1→3→4 downstream; riparian forest bias + bank galleries; quarter-section farm-belt fill (>20% of open land cultivated); farmstead shelterbelts; woods/field hedgerows; road-field shoulders; cemetery at town edge; 3-ring desert ecotone; off-center crossing | B1.4.4 | ✔️ | Sonnet fresh-eyes review (18 findings, 11 implemented); mapgen.test.ts rail/farm-belt/hydrology gates green ×5 seeds; vision-checked full map + rail-siding zoom |
-| B1.4.12 | B1/mapgen/fields | Terrain fields v2 | Coarse heightmap + moisture field generated first; river follows drainage, biomes gated on elevation+moisture, vegetation on wetness | B1.4.11 | ⬜ | Deferred (reviewer finding #8) — foundational; also deferred: #16 diagonal legacy road (conflicts with the roads-must-be-H/V requirement), #1 river-anchored founding, #15 curvilinear suburbs |
-| B1.4.13 | B1/mapgen/qa | Mapgen QA pass | Run QA_MAPGEN.md end-to-end: 5+ seeds × LOD 1+3 vision sweep across all 10 subsystems; every S1/S2 finding fixed with render evidence; second sweep yields zero new S1/S2; ASSETS.md updated | B1.4.11 | ✔️ | Sweep 1, 2, and 3 fully completed. All S1/S2 findings resolved: fixed lake outlets, zoning colors, house shape/color variety, shop awning/parapet variety, dam/millpond, in-town water tower, marshes, curb cuts, and dirt alleys. Visual tests and sim tests pass. |
+| B1.4 | B1/mapgen | THE PROCGEN SYSTEM (§2/§12/§2A) | Seeded small-town generator, decomposed to atoms per the PROCGEN RULE (subtree below: 115 nodes); seed-stable, hash-covered, QA'd | T.2.2 | ✔️ | Full decomposition 2026-07-05 from mapgen.ts:142–2391 + gridRoads.ts; suite re-run green 78/78 that day |
+
+#### B1.4.0 — Pipeline orchestration (`generateWorld`, mapgen.ts:142)
+
+| ID | Tree Path | Feature | Contract / Acceptance Criteria | Depends On | Status | Evidence / Notes |
+|----|-----------|---------|-------------------------------|------------|--------|------------------|
+| B1.4.0.1 | B1/mapgen/pipeline/order | Ordered-stage pipeline | 24 stages run in a fixed order; order is a CONTRACT (nature before farms per QA S1-B; landmarks before hygiene; rollLots before frontage before infill) | — | ✔️ | mapgen.ts:142–303 reads as the ordered spine; reordering breaks documented invariants |
+| B1.4.0.2 | B1/mapgen/pipeline/retry | Pop-floor retry loop | ≤5 attempts; rScale = 1+0.12·attempt grows the town until floors hold; deterministic walk per seed | B1.4.0.4 | ✔️ | mapgen.ts:146–151; pop-floor test green ×seeds (2026-07-05) |
+| B1.4.0.3 | B1/mapgen/pipeline/salt | (seed,attempt) rng salting | Golden-ratio stride keeps every attempt stream distinct; adjacent seeds never twin | T.2.2 | ✔️ | mapgen.ts:151; "distinct across adjacent seeds" test green |
+| B1.4.0.4 | B1/mapgen/pipeline/floors | popFloors() | Floors ∝ map area (~0.32 souls/tile): 64²≈1300 / 96²≈2900 / 128²≈5150 | — | ✔️ | mapgen.ts:113; B8.5 probe evidence (1301/2989/5157) |
+| B1.4.0.5 | B1/mapgen/pipeline/opts | MapOpts contract | `{biomes?, townType?}` knobs; FLOCK_BIOMES env + private-room host knobs (B8.1) reach the generator verbatim | B1.4.10, B1.4.14 | ✔️ | mapgen.ts:131–140; biome-config test green; room knobs live |
+
+#### B1.4.1 — Street grid (`gridRoads.ts`)
+
+| ID | Tree Path | Feature | Contract / Acceptance Criteria | Depends On | Status | Evidence / Notes |
+|----|-----------|---------|-------------------------------|------------|--------|------------------|
+| B1.4.1.1 | B1/mapgen/grid/highway | Highway / Main Street | 2-lane pair (rows hy, hy+1) crossing the full map; becomes Main St downtown | — | ✔️ | gridRoads.ts:103; Main-Street name resolution test green |
+| B1.4.1.2 | B1/mapgen/grid/county | County route | One vertical artery through town | B1.4.1.1 | ✔️ | gridRoads.ts:116 |
+| B1.4.1.3 | B1/mapgen/grid/avenues | Avenues | Jittered horizontals stepping out from the highway; tight downtown, looser fringe → irregular blocks | B1.4.1.1 | ✔️ | gridRoads.ts:121; orthogonality gate ×5 seeds |
+| B1.4.1.4 | B1/mapgen/grid/streets | Streets | Jittered verticals off the county route completing the block grid | B1.4.1.2 | ✔️ | gridRoads.ts:148; same gate |
+| B1.4.1.5 | B1/mapgen/grid/culdesac | Cul-de-sacs | Dead-end courts poke into residential blocks; bulb ends; named "X Court" | B1.4.1.4 | ✔️ | gridRoads.ts:167; bulbs render-verified (B5.2.5) |
+| B1.4.1.6 | B1/mapgen/grid/rural | Country roads | Section-line roads leave town with 90° jogs (traceRuralRoad); launch from painted street endpoints | B1.4.1.3 | ✔️ | gridRoads.ts:215,267; endpoint-gap bug found+fixed by test |
+| B1.4.1.7 | B1/mapgen/grid/elbows | Elbow fill | fillRoadElbows bridges every corner-only road contact at the source | B1.4.1.6 | ✔️ | gridRoads.ts:240; orthogonality invariant green |
+| B1.4.1.8 | B1/mapgen/grid/segments | Street-segment registry | freshLabel → `Street[]` → World.streets; every segment addressable for naming | B1.4.1.3 | ✔️ | gridRoads.ts:80; naming tests green |
+| B1.4.1.9 | B1/mapgen/grid/shape | Town shape | layoutHighwaysAndTown yields {cx,cy,r,highwayY,…} — the geometry every later stage reads | — | ✔️ | mapgen.ts:1029; downstream stages consume TownShape |
+| B1.4.1.10 | B1/mapgen/grid/lanes | Wider blocks + mid-block lanes (§2 rev. 6) 🖼️ | Blocks grow to 5–6 downtown / 6–8 fringe so lawns/walks/parking read; ~half the gaps ≥7 rows earn a named residential "X Lane" through the middle (more frontage, more houses) | B1.4.1.3 | ✔️ | gridRoads.ts gap()+lane pass; suite 105/105; vision-checked sheet_v7 + map renders (2026-07-09) |
+
+#### B1.4.2 — Dirt & lanes
+
+| ID | Tree Path | Feature | Contract / Acceptance Criteria | Depends On | Status | Evidence / Notes |
+|----|-----------|---------|-------------------------------|------------|--------|------------------|
+| B1.4.2.1 | B1/mapgen/lanes/carve | carveDirtLane | Hash-oriented L-path (axis-at-a-time); zero diagonal stair-steps | B1.4.2.2 | ✔️ | mapgen.ts:1608; orthogonality gate covers lanes |
+| B1.4.2.2 | B1/mapgen/lanes/nearest | nearestRoad | Bounded radial search for lane anchoring | — | ✔️ | mapgen.ts:1632 |
+| B1.4.2.3 | B1/mapgen/lanes/alleys | Main-Street alleys | Dirt service lanes at hy−2/hy+3 behind the commercial strip | B1.4.1.1 | ✔️ | mapgen.ts:273–288; QA sweep 3 render evidence (dirt alleys item) |
+| B1.4.2.4 | B1/mapgen/lanes/trailercourt | Trailer court | One proper court: 4-tile dirt lane off a street, trailer households flanking | B1.4.6 | ✔️ | mapgen.ts:206–244; fringe QA'd in sweeps |
+
+#### B1.4.3 — Naming
+
+| ID | Tree Path | Feature | Contract / Acceptance Criteria | Depends On | Status | Evidence / Notes |
+|----|-----------|---------|-------------------------------|------------|--------|------------------|
+| B1.4.3.1 | B1/mapgen/names/town | pickTownName | Fresh fake town per seed from the corpus; tone guardrail upstream (B8.6) | B6.6 | ✔️ | mapgen.ts:155; naming test green |
+| B1.4.3.2 | B1/mapgen/names/streets | Street naming | Every traced segment named; Main Street resolves onto the highway pair | B1.4.1.8 | ✔️ | naming + Main-St tests green |
+| B1.4.3.3 | B1/mapgen/names/corpus | Corpus dependency | 512 towns / 384 streets / 328 firsts / 512 surnames from gen_names.py; generated file never hand-edited | B6.6 | ✔️ | nameData.ts checked in; B6.6 row |
+| B1.4.3.4 | B1/mapgen/names/invariant | INVARIANT: name determinism | Same seed ⇒ same names; variety across seeds; household/member names pure & stable | B1.4.3.1 | ✔️ | 2 mapgen.test.ts gates green (2026-07-05) |
+
+#### B1.4.4 — Zoning & population fit
+
+| ID | Tree Path | Feature | Contract / Acceptance Criteria | Depends On | Status | Evidence / Notes |
+|----|-----------|---------|-------------------------------|------------|--------|------------------|
+| B1.4.4.1 | B1/mapgen/zone/coeffs | districtCoeffTable | Authoritative §2 coefficient table on World | — | ✔️ | mapgen.ts:52; economy consumes it |
+| B1.4.4.2 | B1/mapgen/zone/households | Household variance tables | Per-district household size ranges + empty-yard chance (lived-in texture) | B1.4.6 | ✔️ | mapgen.ts:71,84 |
+| B1.4.4.3 | B1/mapgen/zone/exurbs | scatterExurbs | Lone fringe households outside town limits | B1.4.1.6 | ✔️ | mapgen.ts:1159 |
+| B1.4.4.4 | B1/mapgen/zone/rolllots | rollLots | Residents + hidden susceptibility per lot; street-front lots denser | B1.4.4.2 | ✔️ | mapgen.ts:2132 |
+| B1.4.4.5 | B1/mapgen/zone/infill | infillToFloor | Yards→modest homes until the floor holds (retry loop's last resort) | B1.4.0.2 | ✔️ | mapgen.ts:2272; pop-floor test green |
+| B1.4.4.6 | B1/mapgen/zone/invariant | INVARIANT: pop floor | ≥640 populated tiles & ≥2900 souls on 96² across seeds | B1.4.0.4 | ✔️ | mapgen.test.ts gate green |
+| B1.4.5 | B1/mapgen/contract | World/snapshot contract | World {townName, streets, biome}; SNAPSHOT_VERSION v7→v8; hashState covers all mapgen fields; round-trip hash-identical | T.5 | ✔️ | round-trip + lockstep smoke green |
+| B1.4.6 | B1/mapgen/zoning2 | Zoning v2 — 8 districts | ResLow/ResHigh/Commercial/Industrial + Downtown/OldTown/College/Trailer w/ coeffs; industrial by rail, commercial on Main | B1.4.4.1 | ✔️ | live; palette readable at map scale (vision-checked) |
+
+#### B1.4.7 — Keystone civics
+
+| ID | Tree Path | Feature | Contract / Acceptance Criteria | Depends On | Status | Evidence / Notes |
+|----|-----------|---------|-------------------------------|------------|--------|------------------|
+| B1.4.7.1 | B1/mapgen/keystones/engine | keystone() stamp engine | SCAN-based (2026-07-09): enumerate every valid placement, rng-pick; graceful shrink 3×2→2×2→2×1→1×1 → force-place. (Random throws almost never hit the few legal spots in a 25-tile downtown and were silently collapsing every anchor to 1×1) | B1.4.15.1 | ✔️ | mapgen.ts fits/fronted/claim + stamp(scan); all anchors at full size ×5 seeds (probe 2026-07-09) |
+| B1.4.7.2 | B1/mapgen/keystones/seven | The seven guarantees | Elementary + high school, sheriff (2×2), grocery, church (2×2), fire station, gas — every town, every seed (feeds civics engine B1.18) | B1.4.7.1 | ✔️ | keystone gate ×5 seeds green |
+| B1.4.7.3 | B1/mapgen/keystones/invariant | INVARIANT: keystone gate | Test asserts all seven per seed | B1.4.7.2 | ✔️ | mapgen.test.ts green (2026-07-05) |
+| B1.4.7.4 | B1/mapgen/keystones/frontpark | Frontage parking (stampFront) 🖼️ | Big civic anchors set back one row; a Parking strip spans the frontage BETWEEN facade and street (majority on a curb cut); south frontage preferred so the facade faces its lot; EVERY parking component touches a road (opportunistic + guarantee passes included) | B1.4.7.1 | ✔️ | stampFront side-tiers + touchesRoad guards; INVARIANT "every parking lot touches a road" ×5 seeds green; vision-checked sheet_v7 (2026-07-09) |
+
+#### B1.4.8 — Block interiors & frontage
+
+| ID | Tree Path | Feature | Contract / Acceptance Criteria | Depends On | Status | Evidence / Notes |
+|----|-----------|---------|-------------------------------|------------|--------|------------------|
+| B1.4.8.1 | B1/mapgen/blocks/frontage | enforceRoadFrontage | Homes FRONT the street; block interiors become yards (no path corridors) | B1.4.1 | ✔️ | mapgen.ts:462; revised per user feedback |
+| B1.4.8.2 | B1/mapgen/blocks/orthopaths | orthogonalizePaths | Safety net: bridge any corner-only path contact | B1.4.8.1 | ✔️ | mapgen.ts:1405 |
+| B1.4.8.3 | B1/mapgen/blocks/invariant | INVARIANT: home access | No home without street access within 1 orth tile | B1.4.8.1 | ✔️ | frontage gate ×5 seeds green |
+| B1.4.8.4 | B1/mapgen/blocks/alleys | Block alleys (§2 rev. 6) 🖼️ | Corridors of non-fronting yard tiles connecting two streets become dirt service alleys (throats punched to pavement; stubs eaten back; pre-existing farm/landmark lanes untouched); alley-fronting lots may hold homes | B1.4.8.1 | ✔️ | carveBlockAlleys; suite 105/105 incl. home-access gate; vision-checked map/crops (2026-07-09) |
+| B1.4.8.5 | B1/mapgen/blocks/yardlife | Empty-yard dressing 🖼️ | pop-0 interior yards never render bare: mow stripes + shade tree / clothesline / wildflowers + parcel fences (renderer; existing hues only) | B1.4.8.4 | ✔️ | townRender empty-yard branch; vision-checked 2026-07-09 — block interiors no longer read as holes |
+
+#### B1.4.9 — Farming
+
+| ID | Tree Path | Feature | Contract / Acceptance Criteria | Depends On | Status | Evidence / Notes |
+|----|-----------|---------|-------------------------------|------------|--------|------------------|
+| B1.4.9.1 | B1/mapgen/farm/steads | layoutFarms — farmsteads | Farmsteads anchored ON rural lanes (never floating) | B1.4.1.6 | ✔️ | mapgen.ts:1203; enhanced in 575658f |
+| B1.4.9.2 | B1/mapgen/farm/parcels | Field parcels | Rectangular, road-aligned, baulk separators, river margins enforced | B1.4.9.1 | ✔️ | parcel asserts in tests |
+| B1.4.9.3 | B1/mapgen/farm/orchards | Orchards | Tree-row parcels | B1.4.9.2 | ✔️ | asserted + rendered (B5.2.5) |
+| B1.4.9.4 | B1/mapgen/farm/pastures | Pastures | Fenced livestock parcels | B1.4.9.2 | ✔️ | asserted + rendered |
+| B1.4.9.5 | B1/mapgen/farm/belt | fillFarmBelt | Quarter-section fill: >20% of open land cultivated, contiguous not islands | B1.4.9.2 | ✔️ | mapgen.ts:1345; farm-belt gate green |
+| B1.4.9.6 | B1/mapgen/farm/shelterbelts | Shelterbelts | Windbreak woods rows at farmsteads + in-field belts | B1.4.9.5 | ✔️ | mapgen.ts:1323 |
+| B1.4.9.7 | B1/mapgen/farm/shoulders | Road-field shoulders | 1-tile grass always separates pavement from crop (#13) | B1.4.9.5 | ✔️ | mapgen.ts:1305 |
+| B1.4.9.8 | B1/mapgen/farm/outbuildings | Farm outbuildings | Barns/silos/greenhouses grown beside farmhouses | B1.4.9.1 | ✔️ | mapgen.ts:~766 (placeTownBuildings farm pass) |
+| B1.4.9.9 | B1/mapgen/farm/invariant | INVARIANT: working countryside | "Farmed, watered, wooded like working land" gate | B1.4.9.5 | ✔️ | mapgen.test.ts green |
+
+#### B1.4.10 — Biomes
+
+| ID | Tree Path | Feature | Contract / Acceptance Criteria | Depends On | Status | Evidence / Notes |
+|----|-----------|---------|-------------------------------|------------|--------|------------------|
+| B1.4.10.1 | B1/mapgen/biome/paint | paintBiomes | Blob-shaped biomes (desert/forest/autumn); order-independent, deduped input | B1.4.0.5 | ✔️ | mapgen.ts:392; blob test green |
+| B1.4.10.2 | B1/mapgen/biome/dominant | Dominant-biome override | Archetype towns sit INSIDE a biome (desert/mountain §2A) | B1.4.14 | ✔️ | mapgen.ts:160–163 |
+| B1.4.10.3 | B1/mapgen/biome/oasis | Temperate town margin | Town + working margin stay temperate; fringe wobble so the rim never reads as a circle | B1.4.10.1 | ✔️ | mapgen.ts:402–412 |
+| B1.4.10.4 | B1/mapgen/biome/ecotone | Desert ecotone | 3-ring transition, no hard biome edge | B1.4.10.1 | ✔️ | realism pass; vision-checked |
+| B1.4.10.5 | B1/mapgen/biome/invariant | INVARIANT: biome config | Configurable, blob-shaped, deterministic (default / [] / desert-only) | B1.4.10.1 | ✔️ | mapgen.test.ts gate green |
+
+#### B1.4.11 — Rail & hydrology (realism pass)
+
+| ID | Tree Path | Feature | Contract / Acceptance Criteria | Depends On | Status | Evidence / Notes |
+|----|-----------|---------|-------------------------------|------------|--------|------------------|
+| B1.4.11.1 | B1/mapgen/rail/line | layoutRail | Fewest-street-crossing row; right-of-way never runs ALONG an avenue | B1.4.1 | ✔️ | mapgen.ts:313; rail gate ×5 seeds |
+| B1.4.11.2 | B1/mapgen/rail/crossings | Level crossings | Roads keep pavement where the line crosses (crossbucks are B5.2's job) | B1.4.11.1 | ✔️ | rendered + vision-checked |
+| B1.4.11.3 | B1/mapgen/rail/siding | Siding + elevator + depot | Anchor the industrial edge every town; oceanside swaps elevator→cannery | B1.4.11.1 | ✔️ | rail/elevator/depot gate green |
+| B1.4.11.4 | B1/mapgen/rail/spur | Industrial rail spur | Stub track branches into the works' own siding when an industrial lot sits ≤5 rows off | B1.4.11.1 | ✔️ | mapgen.ts:174–205 (inline stage) |
+| B1.4.11.5 | B1/mapgen/water/river | carveRiver | Meandering river down one valley side; widens 1→3→4 downstream | B1.4.1.9 | ✔️ | mapgen.ts:1658; hydrology gate green |
+| B1.4.11.6 | B1/mapgen/water/creeks | carveCreek | 2 tributaries joining at confluence rows | B1.4.11.5 | ✔️ | mapgen.ts:1767 |
+| B1.4.11.7 | B1/mapgen/water/lakes | Lake plumbing | Outlet channel + connectLakesToRiver — no disconnected water bodies | B1.4.11.5, B1.4.16.2 | ✔️ | mapgen.ts:1830; QA sweep fixed outlets |
+| B1.4.11.8 | B1/mapgen/water/dam | Dam & millpond | Low weir upstream of town with impounded millpond (#5) | B1.4.11.5 | ✔️ | mapgen.ts:1722; sweep-3 render evidence |
+| B1.4.11.9 | B1/mapgen/water/riparian | Riparian vegetation | Forest bias toward water + bank galleries | B1.4.16.2 | ✔️ | placeNature riverPath bias; vision-checked |
+| B1.4.11.10 | B1/mapgen/realism/hedgerows | Hedgerows | Woods/field boundary rows | B1.4.9.5 | ✔️ | realism pass; vision-checked |
+| B1.4.11.11 | B1/mapgen/realism/cemetery | Edge cemetery | One cemetery at the town margin | B1.4.15.1 | ✔️ | realism pass; vision-checked |
+| B1.4.11.12 | B1/mapgen/rail/invariant | INVARIANT: rail anchors town | Railroad + elevator + depot present every seed (§2 rev. 5) | B1.4.11.3 | ✔️ | mapgen.test.ts gate green (2026-07-05) |
+| B1.4.12 | B1/mapgen/fields | Terrain fields v2 (§2 rev. 6) | Elevation+moisture built FIRST (value noise on the pixHash lattice — mult/add only, cross-engine exact); river = drainage descent blended with thalweg noise, cxs[] contract preserved so crossings/widening/dam/creeks unchanged; biomes = moisture quantiles (dry→desert 6%, wet→forest 6%, mid band→autumn) with the town margin temperate; woods seek moist ground, lake seeks low ground; fields generation-local (no snapshot/hash change) | B1.4.11 | ✔️ | Suite 87/87 + server 14/14 green; metrics vs baseline all within noise (connectivity .986, farmShare .23, waterShare .052); x-browser gate PASS ×4 engines; QA re-render PASS after 1 TUNE (canal-straight river → thalweg blend), "QA gallery/Archetypes_fieldsv2/"; playability smoke PT-0004. Still deferred from reviewer list: #1 river-anchored founding, #15 curvilinear suburbs, #16 diagonal legacy road (H/V rule) |
+
+#### B1.4.13 — Mapgen QA (sweeps complete)
+
+| ID | Tree Path | Feature | Contract / Acceptance Criteria | Depends On | Status | Evidence / Notes |
+|----|-----------|---------|-------------------------------|------------|--------|------------------|
+| B1.4.13.1 | B1/mapgen/qa/sweeps | QA sweeps 1–3 🖼️ | QA_MAPGEN.md protocol: 5 seeds × full map + crops, all 10 subsystems; zero open S1/S2 | B1.4.11 | ✔️ | All S1/S2 resolved (lake outlets, zoning colors, house/shop variety, dam, water tower, marshes, curb cuts, alleys); renders in "QA gallery/" |
+| B1.4.13.2 | B1/mapgen/qa/evidence | Seeded render evidence 🖼️ | Every QA sample logged with its seed (11/21/42/77/99) — failures reproducible | B1.4.13.1 | ✔️ | "QA gallery/" + QA_GALLERY.md |
+
+#### B1.4.14 — Town archetypes (§2A) — ⚠ found undocumented in code 2026-07-05
+
+| ID | Tree Path | Feature | Contract / Acceptance Criteria | Depends On | Status | Evidence / Notes |
+|----|-----------|---------|-------------------------------|------------|--------|------------------|
+| B1.4.14.1 | B1/mapgen/arch/farm | Farm (default) | townType "farm" skips the archetype pass entirely — classic generator | B1.4.0.5 | ✔️ | mapgen.ts:246; all existing gates run on farm |
+| B1.4.14.2 | B1/mapgen/arch/oceanside | Oceanside | Sea on roomier edge w/ wavy coast; river→estuary; 2-tile beach; highway stub = THE pier (others trimmed at water); lighthouse; cannery + fish docks; elevator→cannery swap | B1.4.14.1 | ✔️ | archetypes.test.ts: sea ≥1500 ocean tiles, lighthouse, cannery, elevator=0, water clean ×5 seeds; renders vision-checked (pier/beach/estuary) 2026-07-05 |
+| B1.4.14.3 | B1/mapgen/arch/mountain | Mountain / timber | Conifer walls rim the valley, floor open; slope farms reclaimed by stands; sawmill + log yard beside rail at woods edge — EVERY seed (relaxed fallback added after probe found seed 3 without one) | B1.4.14.1 | ✔️ | archetypes.test.ts: woods ≥1500, sawmill ≥2 tiles, zero farmland in forest biome ×5 seeds; renders vision-checked |
+| B1.4.14.4 | B1/mapgen/arch/lakeside | Lakeside | Big water at town edge; resort shore: cabins + docks + boat ramp on town-facing shore | B1.4.14.1 | ✔️ | archetypes.test.ts: lake ≥ farm+250 tiles, docks ≥3 ×5 seeds; resort-shore render vision-checked |
+| B1.4.14.5 | B1/mapgen/arch/desert | Desert | Dominant desert biome + temperate oasis under the town | B1.4.10.2 | ✔️ | archetypes.test.ts: desert ≥4000 tiles, ≥90% of homes on temperate ground ×5 seeds; render vision-checked (best of the four) |
+| B1.4.14.6 | B1/mapgen/arch/invariants | INVARIANTS: archetype gates | Determinism + distinct-from-farm; pop floor + keystones + orthogonality survive every archetype; water clean (only Lot.Dam on lakes); snapshot round-trip hash-identical | B1.4.14.2–.5 | ✔️ | packages/sim/test/archetypes.test.ts — 9 gates, suite 87/87 green (2026-07-05) |
+| B1.4.14.7 | B1/mapgen/arch/qa | Archetype sample-set QA 🖼️ | QA_MAPGEN protocol × 4 archetypes × 3 seeds; full map + LOD-3 anchor crop; seeds in filenames | B1.4.14.6 | ✔️ | 24 renders in "QA gallery/Archetypes_2026-07-05/" via tools/archetype_qa.mjs; verdict PASS, S3s logged in QA_GALLERY.md §Town Archetypes |
+| B1.4.14.8 | B1/mapgen/arch/playtest | Archetype match playability 🎮 | Full matches run on every archetype with the PRODUCTION founding path: every player founds, every match ends with a winner, pacing recorded | B1.4.14.2–.5 | ✔️ | tools/archetype_playtest.mjs: 30 matches (5 types × 6 seeds), 30/30 founded 4/4 + ended decisively; PT-0003 in PLAYTEST_LOG.md |
+| B1.4.20 | B1/mapgen/arch/mechanics | Archetype mechanical identity 🎮 | ECONOMIC ANCHORS via the civics engine (zero new sim state, no snapshot change): GrainElevator OR Cannery control → tithe ×anchor_tithe_mult (1.1); Sawmill control → building costs ×sawmill_build_mult (0.88), discount visible in the build palette; Lighthouse control → outreach radius +lighthouse_outreach_bonus (2). Knobs in balance.json civics{}; HUD Key Buildings panel lists only anchors present on THIS map | B1.18, B1.4.14 | ✔️ | User waived the B7.9 gate. A/B tests: granary-holder earns more (matched archetypes), sawmill-holder builds cheaper, lighthouse front flips a target at r=11.3 only after control (property.test.ts ×3 gates); suite 90/90 + 14/14; x-browser gate PASS ×4 engines; PT-0006 smoke |
+| B1.4.21 | B1/mapgen/transcendentals | Transcendental-free mapgen | Replace the REMAINING Math.sin/cos/atan2 sites — 3 clusters after fields v2 retired the river meander + biome rims: oceanside coastline wobble (mapgen.ts:916), town footprint rim (:1116–1169), organicBlob rim (:2081–2087) — with field-noise or LUT math | B1.4.12 | ⬜ | Risk CONTAINED: B6.5 gates all 3 shipping engine families on every push, incl. an oceanside case. Fields v2 already eliminated 2 of the 5 clusters; the rest reshape towns/coasts/blobs, so batch them with the next intentional world-shape change |
+
+#### B1.4.15 — Town building placement (`placeTownBuildings` beyond keystones)
+
+| ID | Tree Path | Feature | Contract / Acceptance Criteria | Depends On | Status | Evidence / Notes |
+|----|-----------|---------|-------------------------------|------------|--------|------------------|
+| B1.4.15.1 | B1/mapgen/bldg/stamp | stamp() + anchor() engine | wLots×hLots fitting in district; frontage on ANY road side (sweep fix: N/S-only check silently rejected vertical-street frontage); anchor() adds size + district fallback chains + deterministic nearest-tile last resort; keystone force-place spirals from town center (raster scan put a grocery on a farmstead 30 tiles out) | B1.4.6 | ✔️ | Downtown sweep 2026-07-05: pre-fix Factory missing 4/6 seeds, PostOffice 5/6, Bank 3/6 — post-fix all 18 anchors present 9/9 seeds; gated by "downtown core and the works exist" test ×5 seeds incl. supermarket-in-town assert; suite 88/88 |
+| B1.4.15.2 | B1/mapgen/bldg/civic | Downtown civic core | Town hall (landmark), bank, post office on every Main Street | B1.4.15.1 | ✔️ | vision-checked in sweeps |
+| B1.4.15.3 | B1/mapgen/bldg/green | Town green | Civic square in the heart of downtown | B1.4.15.2 | ✔️ | sweeps |
+| B1.4.15.4 | B1/mapgen/bldg/strip | Commercial strip | Shops/diner/cinema/offices along Main St | B1.4.15.1 | ✔️ | sweeps (awning/parapet variety fixed) |
+| B1.4.15.5 | B1/mapgen/bldg/industrial | Industrial quarter | Factory + warehouses + yard by the rail | B1.4.11.1 | ✔️ | sweeps |
+| B1.4.15.6 | B1/mapgen/bldg/college | College quarter | College lots + school ballpark | B1.4.15.1 | ✔️ | sweeps |
+| B1.4.15.7 | B1/mapgen/bldg/oldtown | Old Town | Chapel + diner + old churchyard | B1.4.15.1 | ✔️ | sweeps |
+| B1.4.15.8 | B1/mapgen/bldg/suburbs | Suburb amenities | Corner shops, 2nd church, parks, playground | B1.4.15.1 | ✔️ | sweeps |
+| B1.4.15.9 | B1/mapgen/bldg/parsonage | Parsonage rule | Every church keeps a full household next door (first orth empty lot) | B1.4.15.1 | ✔️ | mapgen.ts:~621–147 block (§7) |
+| B1.4.15.10 | B1/mapgen/bldg/highwaybiz | Motel + gas stations | Roadside motel + gas stations on the highway outside town | B1.4.1.1 | ✔️ | mapgen.ts:~633–669 |
+| B1.4.15.11 | B1/mapgen/bldg/parking | Parking lots | Opportunistic aprons + GUARANTEE pass: every civic anchor (grocery/school/HS/sheriff/cinema/fire/factory) HAS one, clearing a yard if needed | B1.4.15.1 | ✔️ | mapgen.ts:~672–755; curb cuts QA'd sweep 3 |
+| B1.4.15.12 | B1/mapgen/bldg/watertower | Water tower | In-town suburb lot + the far-corner landmark | B1.4.15.1 | ✔️ | mapgen.ts:618, 2206; sweep-3 item |
+| B1.4.15.13 | B1/mapgen/bldg/docks | placeDocks | Shoreline docks (rowboats are render's job) | B1.4.11.7 | ✔️ | mapgen.ts:786 |
+| B1.4.15.14 | B1/mapgen/bldg/quarry | Quarry scar | One gravel pit gouged off-road in deep country; never in desert biome | B1.4.10.1 | ✔️ | mapgen.ts:254–272 (inline stage) |
+
+#### B1.4.16 — Nature & water bodies
+
+| ID | Tree Path | Feature | Contract / Acceptance Criteria | Depends On | Status | Evidence / Notes |
+|----|-----------|---------|-------------------------------|------------|--------|------------------|
+| B1.4.16.1 | B1/mapgen/nature/blob | organicBlob | Shared irregular-shape primitive for stands/lakes/biome blobs | T.2.2 | ✔️ | mapgen.ts:1970 |
+| B1.4.16.2 | B1/mapgen/nature/place | placeNature | Woods stands + the lake in open country; riparian bias when river present | B1.4.16.1 | ✔️ | mapgen.ts:2025 |
+| B1.4.16.3 | B1/mapgen/nature/order | ORDER INVARIANT: nature first | Nature before farms — fields wrap standing timber, never the reverse (QA S1-B) | B1.4.0.1 | ✔️ | pipeline order + comment contract mapgen.ts:166–168 |
+
+#### B1.4.17 — Road-graph hygiene (post-passes)
+
+| ID | Tree Path | Feature | Contract / Acceptance Criteria | Depends On | Status | Evidence / Notes |
+|----|-----------|---------|-------------------------------|------------|--------|------------------|
+| B1.4.17.1 | B1/mapgen/hygiene/components | roadComponents | 4-connected component labeling over road+dirt | — | ✔️ | mapgen.ts:1441 |
+| B1.4.17.2 | B1/mapgen/hygiene/connect | connectRoadComponents | Orphan road islands stitched into the main grid | B1.4.17.1 | ✔️ | mapgen.ts:1485 |
+| B1.4.17.3 | B1/mapgen/hygiene/prune | pruneRoadStubs + pruneAllDeadEnds | Whatever still leads nowhere is erased (incl. dirt lanes, orphaned spurs) | B1.4.17.2 | ✔️ | mapgen.ts:1565, 2235 |
+| B1.4.17.4 | B1/mapgen/hygiene/edges | extendEdgeRoads | Rural roads run off-map; none die at the border | B1.4.17.3 | ✔️ | mapgen.ts:2318 |
+| B1.4.17.5 | B1/mapgen/hygiene/invariant | INVARIANT: orthogonality | No corner-only contact, no orphan pixels, anywhere, any seed | B1.4.17.1–.4 | ✔️ | mapgen.test.ts gate ×5 seeds green (2026-07-05) |
+
+#### B1.4.18 — Determinism & seed contract (PROCGEN RULE §2)
+
+| ID | Tree Path | Feature | Contract / Acceptance Criteria | Depends On | Status | Evidence / Notes |
+|----|-----------|---------|-------------------------------|------------|--------|------------------|
+| B1.4.18.1 | B1/mapgen/det/identity | INVARIANT: seed identity | Same seed ⇒ bit-identical world; adjacent seeds ⇒ distinct worlds | B1.4.0.3 | ✔️ | mapgen.test.ts gate green |
+| B1.4.18.2 | B1/mapgen/det/hash | INVARIANT: hash coverage | All mapgen World fields inside hashState; snapshot v8 round-trip hash-identical (lockstep gate) | B1.4.5 | ✔️ | round-trip + lockstep smoke green |
+| B1.4.18.3 | B1/mapgen/det/seedlog | Seed logging | Every QA sample carries its seed; failures reproducible | B1.4.13.2 | ✔️ | QA gallery seeds 11/21/42/77/99 |
+| B1.4.19 | B1/mapgen/metrics | Quality metrics ledger | Measured quality beyond pass/fail (PROCGEN RULE §4): road connectivity ratio, block count/median/p90, lot-kind count + entropy, name COLLISIONS (same name on unrelated streets; expect 0 — replaced the mis-specified "uniqueness," whose duplicates were the highway pair + rural jogs by design), farm share, water share — per seed batch & archetype | B1.4.18 | ✔️ | tools/mapmetrics.mjs. CURRENT baseline (post quality-pass 2026-07-05, farm 96² seeds 1/2/3/42/99): roadConnectivity 0.991 (quarry haul road closed the dirt-pocket dips), blocks 52 @ median 13, 25 lot kinds @ 4.24 bits, nameCollisions 0, farmShare 0.206, waterShare 0.056. Judge future gen changes by delta against these |
 | B1.5 | B1/buildings | Buildings (§6) | Full table incl. Watchtowers fort×5, Hotlines 75% intercept | B1.1 | ✔️ | m1.test.ts green |
 | B1.6 | B1/units | Units (§7) | Couriers (robbable), Vans (mobile pressure/screening), invisible Agents | B1.5 | ✔️ | m1.test.ts green |
 | B1.7 | B1/pvp | PvP trio (§13/§15) | Raids, Scandal 50%-notify→Publish, Court Defection | B1.6 | ✔️ | m1.test.ts green |
@@ -124,6 +340,12 @@ else open is external provisioning (B7.*) or the deferred art pass (B5.3).
 | B5.2.3 | B5/townrender/growth | Cult building expansion | Compound icon gains visible growth stages (fence at ≥7%, banners at ≥15% town share); wilderness-claim assets extend to grass verges | B5.2 | ✔️ | stages keyed to ownedTiles permille (25/70/150‰ thresholds shared with woodsClaim); mid/late match screenshots rendered |
 | B5.2.4 | B5/assetsdoc | ASSETS.md ledger | Every rendered asset documented: name, source fn, LOD1 form, LOD2–4 detail, status; every deferred high-detail variant is a 🧩 row here + in this manifest | B5.2.1–.3 | ✔️ | ASSETS.md written: terrain/lots/landmarks/cult/units/effects × LOD, deferred variants itemized → B5.3.1 |
 | B5.2.5 | B5/townrender/v3 | Renderer v3 | Biome palettes (desert sand/cacti, forest density), Path sidewalks, bridge-CROSSING detection (no more shore-parallel false bridges), poles every 2 tiles with connected wire, cul-de-sac bulbs, orchard/pasture/warehouse/high-school assets, property stakes | B1.4.10 | ✔️ | vision-checked: biomes/paths→lawns rework, bridge crossings, U-wires, traffic, stop signs, streetlights, backyards, crop variety, welcome signs, smoke |
+| B5.2.6 | B5/townrender/facades | Front-facing special-building facades 🖼️ | 16 anchor types (schools, sheriff, grocery, church/chapel, fire, gas, bank, library, PO, cinema, factory, office, warehouse, motel) compose ONE facade across their contiguous footprint (roof band / textured wall / window rhythm / signed entrance / lawn-walk apron); per-tile 8×8 slices, clipped; outer ring stays ground so the territory tint rings the building; fixed 8px/tile (composition, not density) | B5.2, B1.4.7.4 | ✔️ | drawFacade + lotRect; approval sheets v1–v7 (user-delivered 2026-07-09); dead per-tile cases removed; suite 105/105 |
+| B5.2.7 | B5/townrender/variety | House + street variety pass 🖼️ | 2 extra wall tones per district, per-house roof-tone variance, porches, dormers, flower beds, driveway hoops; downtown benches/planters/bus shelter/trash cans; seasonal yard life (snowmen, leaf piles, blossoms); industrial-shed variants; existing palette + tiny additions only (RESTRAINT guard) | B5.2.6 | ✔️ | vision-checked sheet_v7/v8 + seasonal renders (2026-07-09) |
+| B5.2.8 | B5/townrender/civicday2 | Civic day v2: real cars + curb walkers 🎮🖼️ | Household cars are agents: driveway overnight → drive in-lane with directional sprites (windshield leads; varied real-world paint for neutrals, cult colors for converts) → park nose-in on the painted 3px bay pitch spread across the lot → owner walks the last leg; hash traffic deleted. Walkers hug curb rows (right-hand rule kept); door legs axis-at-a-time. Night glow fixed (windowDark bypass). DEFERRED: signal-timed crosswalk waits | B5.2.7, B1.4.7.4 | ✔️ | day-cycle renders rush/midday/evening/night vision-checked (2026-07-09); suite 105/105 |
+| B5.2.9 | B5/townrender/cohortmarch | Mission cohorts march 🎮🖼️ | A deployed v3 cohort renders as a single-file column walking compound→target on the street network (same pedestrian rules), mills at its ground, walks home on recall; arrival syncs with cohorts.ts via RenderOpts.marchTicksPerTile (default = shipped balance) | B5.2.8 | ✔️ | build+suite green; sends are now READABLE on the map (mission legibility) |
+| B5.2.10 | B5/townrender/perf | OPTIMIZE: full-map render cost | Zoomed-out (LOD1) full-map render was blowing the 100ms tick budget. MEASURED: 231→160ms/frame on 96² (−31%) via a quantized cosine-ease table for valueNoise (profiled at 49% CPU), memoized hexToRgb + shade (GC pressure); a lattice-corner Map memo was tried and REVERTED (measured slower than 3-imul pixHash). Client renders the full-zoom-out view at ~3Hz (specks don't need 10Hz); zoomed views stay 10Hz at 6–12ms | B5.2.8 | ✔️ | node --cpu-prof before/after; bench: full 231→160ms, LOD3 10.5→10.0ms, LOD5 6.3→6.3ms; suite 105/105 + recap determinism green |
+| B6.2.1 | B6/artqa/repair | UPGRADE: QA tools un-broken | spritesheet.mjs fabricated Clean-Cut-removed building types (crashed renderTown); qa_screenshots.mjs hardcoded a developer-machine output path. Both run headless again (spritesheet regenerated 2026-07-09) | B6.2 | ✔️ | both tools run clean; spritesheet.png vision-checked (6 cult icons incl. refreshed compound/watchtower/broadcast) |
 | B5.3 | B5/authored | Authored audio + animation (§30/§31) | ~40 frame-by-frame animations, full audio pass | B5.2 | 🚫 | BLOCKED: artist/composer content, not code; render/event seams ready |
 | B5.3.1 | B5/authored/lod | High-detail LOD 3–4 asset variants | Each 🧩 line in ASSETS.md gets a dedicated high-detail form (animated neon, truss bridges, per-tree canopies, walk cycles…) | B5.2.4 | 🧩 | STUBBED by design: low-LOD procedural forms ship now; this row is the Stub-Law tracker for the deferred art pass |
 
@@ -135,7 +357,7 @@ else open is external provisioning (B7.*) or the deferred art pass (B5.3).
 | B6.2 | B6/artqa | Art QA tools | screenshots / units / spritesheet headless renders | B5.2 | ✔️ | tools present; used for prior sprite QA |
 | B6.3 | B6/botleague | Balance harness (§40/§41) | Per-archetype win-rate drift over N bot matches | B1.14 | ✔️ | tools/botleague.mjs; nightly runs → B7.9 |
 | B6.4 | B6/soak | Load/desync soak | N clients vs live server; asserts desync SLA | B3.3 | ✔️ | prior run: 12 clients / 1600+ intents / 0 desyncs |
-| B6.5 | B6/xbrowser | Cross-browser determinism CI | Hash gate passes in headless Chromium + Firefox, wired into CI | T.2.3 | ⬜ | HANDOFF §8.5 — #1 risk (§10): Node-only today |
+| B6.5 | B6/xbrowser | Cross-browser determinism CI | The identical probe (worldgen incl. §2A oceanside + 400 sim ticks, hashed at 5 checkpoints × 4 cases) runs in Node, Chromium, Firefox AND WebKit; any hash divergence exits 1; wired into ci.yml | T.2.3 | ✔️ | tools/xbrowser_determinism.mjs + tools/xbrowser/probe.mjs (vite iife bundle, playwright): PASS across V8 / SpiderMonkey / JavaScriptCore locally 2026-07-05; ci.yml installs browsers + runs gate on every push |
 | B6.6 | B6/gennames | Name corpus generator | `tools/gen_names.py` (Python faker) emits `packages/sim/src/nameData.ts`: deduped town/street/first/surname banks; regenerable, generated file checked in and never hand-edited | — | ✔️ | ran with faker 40.28.1 (seeded): 512 towns / 384 streets / 328 firsts / 512 surnames baked in |
 
 ### B7 — Launch infrastructure (external seams)
@@ -163,6 +385,7 @@ listed as B7.* rows above (each has its interface in code and its row here).
 |----|-----------|---------|-------------------------------|------------|--------|------------------|
 | B8.1 | B8/rooms | Private rooms (§32) | Host by `?private=1` (+bots/size/founding/town knobs), 5-char code issued over WS `room` msg, join by `?room=CODE`, public matchmaking never routes into private matches, bogus code → error+close | B3.2 | ✔️ | lobby.ts byCode registry + matchWorker isPrivate; menu Play tab host/join UI; 3 tests in rooms.test.ts (14/14 server green) |
 | B8.2 | B8/civicday | Resident civic day (§30) | Dots run a shared 4-min day: night → staggered morning rush → indoors at work (visible at outdoor lots) → lunch errands → evening rush → leisure/home. Street-accurate: sidewalk right-hand rule, door→street→elbow→door legs; long trips render as cars in the correct lane | B5.2 | ✔️ | townRender civic-day rewrite; pixel-count probe: night 164 → rush 468 → workday 236 → evening 1025 visible dots |
+| B8.2.1 | B8/civicday/routing | Street-true dot routing 🖼️ | Routes follow the ACTUAL road graph: deterministic BFS over Road/Dirt cached per world+endpoint pair (WeakMap; ~21ms one-time warm-up); straight-leg compression keeps the sidewalk right-hand rule + car lane snap per segment; turns land on real intersections; lunch errands depart the WORKPLACE; return legs end at trip origin; night-owl rate 1/17 | B8.2 | ✔️ | Measured (person-pixel ground buckets, seed 21 evening wave): on-pavement ×2 (37→76), cut-through halved to ≈2 door-leg crossings, night 86→45; day wave 45/150/134/105/524; renders in "QA gallery/CivicDay/"; render-side only, suite 90/90 |
 | B8.3 | B8/dotread | Conversion read on people | 2×2 high-contrast person figures; neutral putty vs cult colors; apostates drained gray drifting at home; Downline carries gold tithe accent | B8.2 | ✔️ | putPerson + palette personNeutral #7a6a58; verified at zoom |
 | B8.4 | B8/glow | Cult-building ownership glow | Every cult building ringed by its owner color, shimmer-pulsed by tick; disabled/building tints preserved | B5.2 | ✔️ | halo ring in icon pass; live-match render: 7 compounds identifiable at LOD1 |
 | B8.5 | B8/popscale | Population scales with map (§18) | Pop floor ∝ map area (96²≈2900 souls constant density ~0.32/tile); 64²≈1300, 128²≈5150 | B1.4 | ✔️ | popFloors(); probe: 1301/2989/5157 across 64/96/128 |

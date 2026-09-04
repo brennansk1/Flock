@@ -95,36 +95,8 @@ function soloSim(): SimState {
   return s;
 }
 
-test("Sermon grants faith and respects its cooldown", () => {
-  const s = soloSim();
-  const p = s.players[0]!;
-  const f0 = toFloat(p.faith);
-  const sermon: Intent = { t: IntentType.RITUAL, player: 1, ritual: "sermon" };
-  run(s, 3, turnsOf({ [s.tick]: [sermon] }));
-  const f1 = toFloat(p.faith);
-  assert.ok(f1 > f0 + 10, `sermon should add ~12 faith (${f0} -> ${f1})`);
-
-  // immediate re-cast is blocked by cooldown
-  run(s, 3, turnsOf({ [s.tick]: [sermon] }));
-  assert.ok(toFloat(p.faith) < f1 + 5, "second sermon inside cooldown must not fire");
-});
-
-test("The Offering trades followers for faith and adds dissent + heat", () => {
-  const s = soloSim();
-  const p = s.players[0]!;
-  p.faith = fromInt(50);
-  const followers0 = toInt(p.followers);
-  const offering: Intent = {
-    t: IntentType.RITUAL,
-    player: 1,
-    ritual: "the_offering",
-    district: Districts.Suburbs,
-  };
-  run(s, 2, turnsOf({ [s.tick]: [offering] }));
-  assert.ok(toInt(p.followers) <= followers0 - 190, "200 followers poofed (cartoon halo)");
-  assert.ok(toFloat(p.faith) > 50, "net faith gain");
-  assert.ok(toFloat(p.heat) > 0, "offering generates heat");
-});
+// (Sermon + The Offering ritual tests removed — rituals ✂ cut in v3 M3.2b;
+//  Faith now buys doctrine directly, banked by Tend missions.)
 
 // ---------- Final Dawn kit ----------
 
@@ -256,4 +228,31 @@ test("timer expiry crowns the largest cult", () => {
   run(s, 35, turnsOf({}));
   assert.equal(s.status, MatchStatus.Ended, "timer should end the match");
   assert.equal(s.winner, 1, "largest cult wins the tiebreak");
+});
+
+test("radio_static (Visitors) sows dissent through enemy tiles in range (v3 retarget)", () => {
+  // The old effect knocked out Broadcast Towers, which no longer exist — this
+  // pins the retargeted behaviour so the ability can't silently become a no-op.
+  const world = createWorld(24, 24);
+  const s = createSim({
+    seed: 3,
+    balance,
+    world,
+    spawns: [{ id: 1, archetype: "visitors" }, { id: 2, archetype: "dawn" }],
+  });
+  const p1 = s.players[0]!;
+  p1.faith = fromInt(100);
+  p1.spawned = true;
+  const w = s.world;
+  const enemy = 12 * 24 + 12;
+  w.owner[enemy] = 2;
+  w.state[enemy] = TileState.Believer;
+  w.terrain[enemy] = Terrain.Citizen;
+  w.dissent[enemy] = 0;
+  step(
+    s,
+    { n: 0, intents: [{ t: IntentType.ABILITY, player: 1, ability: "radio_static", target: enemy }], seedSlice: 0 },
+    balance,
+  );
+  assert.ok(toFloat(w.dissent[enemy]!) > 0, `static should raise enemy dissent, got ${toFloat(w.dissent[enemy]!)}`);
 });

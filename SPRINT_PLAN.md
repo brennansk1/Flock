@@ -465,14 +465,16 @@ Visual inspection must be conducted using headless image renders (`node tools/sc
 - [x] **Contiguous Storefront Blocks:** Downtown Main Street features wall-to-wall storefronts with distinct party-wall vertical seams (`MISGEN`). *[Verified across COM-01]*
 - [x] **Awning Variation:** Storefronts cycle through at least 3 distinct retro striped awning patterns (Red, Blue, Green) (`MONOTONE`). *[Verified across COM-02]*
 - [x] **Rooftop Dressing:** Commercial buildings display flat gravel roofs with rooftop HVAC compressor units and vents (`MISSING`). *[Verified across COM-09]*
-- [x] **Standalone Anchors:** Diner (chrome/neon), Gas Station (overhead canopy/pumps), and Cinema (lit marquee) appear along the strip (`MISSING`). *[Verified across COM-03, COM-04, COM-06]*
+- [x] **Standalone Anchors:** Diner (chrome/neon), Gas Station (overhead canopy/pumps), Bank (classical white pediment, Doric columns, green dollar symbol, and heavy vault door with spin wheel), and Cinema (illuminated neon marquee with bulb border, overhanging triangular marquee canopy, poster lightboxes, box office booth, and red carpet runner) appear along the strip (`MISSING`). *[Verified across COM-03, COM-04, COM-06, COM-07]*
 - [x] **Alleyways & Dumpsters:** Rear alleys behind Main Street show green dumpster boxes and delivery apron paving (`MISSING`). *[Verified across COM-01, COM-08]*
 
 #### Inspection Pass 5: Keystone Civics & Institutional Grounds [VERIFIED]
+- [x] **Civic Lot Buffering:** Immediate residential lots flanking major civic institutions (`Supermarket`, `HighSchool`, `School`, `Library`, `Cinema`, `FireStation`, `Factory`, `Bank`) are automatically diverted into expanded blacktop parking aprons or landscaped green plazas, eliminating houses directly adjoining civic anchors (`MISPLACED`). *[Verified: 100% clean buffering]*
 - [x] **High School Complex:** Brick academic building generates with adjacent green athletic field (running track/gridiron) and a parked yellow school bus (`MISSING`). *[Verified across CIV-03, CIV-04, CIV-05]*
 - [x] **Elementary Grounds:** Elementary school includes an asphalt/mulch playground with swing set and jungle gym (`MISSING`). *[Verified across CIV-06, CIV-07]*
 - [x] **Sheriff Dept:** Station lot features at least 2 parked black-and-white police cruiser sprites in front stalls (`MISSING`). *[Verified across CIV-02]*
 - [x] **Parsonage House:** Community Church is accompanied by an adjacent residential parsonage house (`MISSING`). *[Verified across CIV-09]*
+- [x] **Cult Asset Glow Opacity:** Cult territory glow and studio cult asset rendering capped to soft atmospheric low opacity ($\alpha \le 0.28$) with quadratic falloff (`MISGEN`). *[Verified across all cult assets]*
 
 #### Inspection Pass 6: Agriculture & Rural Landscape [VERIFIED]
 - [x] **Contiguous Farm Belts:** Crop parcels form continuous working blocks without random grass voids wider than 6 tiles (`DENSITY`). *[Verified across AGR-01 to AGR-04]*

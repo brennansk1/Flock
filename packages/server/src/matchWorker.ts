@@ -265,7 +265,6 @@ export class MatchWorker {
   addChurch(tier: BotTier = "church", aggression = 2): void {
     const name = CHURCH_NAMES[nextRange(this.botRng, CHURCH_NAMES.length)]!;
     const archetype = ARCHETYPES[nextRange(this.botRng, ARCHETYPES.length)]!;
-    const idx = this.roster.length;
     const playerId = this.addPlayer(name, archetype, true);
     this.bots.push({
       playerId,
@@ -274,22 +273,9 @@ export class MatchWorker {
       aggression,
       grudge: 0,
     });
-    // Pre-seed territory: a ring of OPEN_FRONT around the spawn so the major
-    // starts the match already established (intents, not a direct world poke).
-    const spawn = spawnTileFor(this.sim.world, idx);
-    const w = this.sim.world;
-    const sx = spawn % w.width;
-    const sy = (spawn / w.width) | 0;
-    const seedTiles: number[] = [];
-    for (let oy = -4; oy <= 4; oy++) {
-      for (let ox = -4; ox <= 4; ox++) {
-        const x = sx + ox;
-        const y = sy + oy;
-        if (x < 0 || y < 0 || x >= w.width || y >= w.height) continue;
-        seedTiles.push(y * w.width + x);
-      }
-    }
-    this.pending.push({ t: IntentType.OPEN_FRONT, player: playerId, tiles: seedTiles });
+    // v3: the major founds like everyone else (compound + flock via the
+    // founding-gate auto-place) and establishes by sending missions — no
+    // pre-seeded territory. Its aggression prior does the rest.
     this.broadcast({ type: "player_joined", player: this.roster[this.roster.length - 1]! });
   }
 

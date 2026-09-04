@@ -18,13 +18,15 @@ import {
   Stance,
   MatchStatus,
   Terrain,
+  MAX_COHORTS,
   renderRecapCard,
   type Archetype,
 } from "@flock/sim";
 import { connect, type GameSession, type ClientIntent } from "./net.js";
 import { connectTutorial, startTutorial } from "./tutorial.js";
 import { MapRenderer } from "./render.js";
-import { Hud } from "./hud.js";
+import { Hud, targetName } from "./hud.js";
+import { MissionWheel } from "./wheel.js";
 import { showMenu } from "./menu.js";
 import { applySettings } from "./settings.js";
 
@@ -81,10 +83,12 @@ async function boot(): Promise<void> {
       mountMatchControls(g);
 
       // Center status prompt (founding / prophecy / CPA / elimination) —
-      // pixel-panel idiom per the design tokens.
+      // pixel-panel idiom per the design tokens. z-index sits ABOVE the
+      // tutorial card (28): the founding countdown was fully hidden behind
+      // it during the tutorial's Step 2 (playtest fix 2026-07-09).
       const prompt = document.createElement("div");
       prompt.style.cssText =
-        "position:absolute;top:152px;left:50%;transform:translateX(-50%);z-index:21;pointer-events:none;" +
+        "position:absolute;top:152px;left:50%;transform:translateX(-50%);z-index:29;pointer-events:none;" +
         "font-family:'Press Start 2P',monospace;font-size:10px;letter-spacing:1px;line-height:1.7;color:#f0b53e;" +
         "text-align:center;max-width:70vw;background:#1a130b;border:3px solid #4a3a26;" +
         "box-shadow:0 4px 0 #060403,inset 0 0 0 1px #6b563a;padding:11px 20px;display:none";
@@ -209,6 +213,43 @@ const ACTIVE_F: Record<string, string> = {
 
 function wireInput(app: Application, map: MapRenderer, g: GameSession, hud: Hud): void {
   let hover = -1;
+
+  // MISSION WHEEL (§6): the SEND verb. Right-click a tile/key building → radial
+  // Spread/Tend/Crusade + %-of-flock slider → MISSION_SEND. Left-click stays
+  // reserved for founding SPAWN and armed HUD placements.
+  const wheel = new MissionWheel(document.body, (tile, permille, mode) => {
+    g.sendIntent({ t: IntentType.MISSION_SEND, tile, permille, mode });
+  });
+  const openWheel = (tile: number, clientX: number, clientY: number): void => {
+    const me = g.sim.players.find((pl) => pl.id === g.playerId);
+    const cohorts = me?.cohorts.length ?? 0;
+    const flock = me ? toFloat(me.followers) : 0;
+    let canSend = true;
+    let reason = "";
+    if (cohorts >= MAX_COHORTS) {
+      canSend = false;
+      reason = "All cohorts are out";
+    } else if (flock < 1) {
+      canSend = false;
+      reason = "No flock to send";
+    }
+    wheel.open({ tile, screenX: clientX, screenY: clientY, label: targetName(g.sim, tile), canSend, reason });
+  };
+  app.canvas.addEventListener("contextmenu", (ev) => {
+    ev.preventDefault();
+    const me = g.sim.players.find((pl) => pl.id === g.playerId);
+    if (!me || !me.spawned) return; // still founding — left-click places your commune
+    const tile = map.tileAt(g.sim, ev.offsetX, ev.offsetY);
+    if (tile < 0) {
+      wheel.close();
+      return;
+    }
+    openWheel(tile, ev.clientX, ev.clientY);
+  });
+  // click-away dismiss (the wheel swallows pointerdowns landing on itself)
+  window.addEventListener("pointerdown", (ev) => {
+    if (wheel.isOpen && !(ev.target as HTMLElement).closest?.(".fk-wheel")) wheel.close();
+  });
   // drag-pan + wheel-zoom (zoom drives level-of-detail in the renderer)
   let dragging = false;
   let dragMoved = false;
@@ -232,6 +273,7 @@ function wireInput(app: Application, map: MapRenderer, g: GameSession, hud: Hud)
   });
 
   app.canvas.addEventListener("pointerdown", (ev) => {
+    if (ev.button !== 0) return; // only the LEFT button pans — right-click opens the wheel
     dragging = true;
     dragMoved = false;
     lastX = ev.offsetX;
@@ -242,7 +284,7 @@ function wireInput(app: Application, map: MapRenderer, g: GameSession, hud: Hud)
   });
 
   // Click (without dragging): resolve an armed HUD action at the tile, else
-  // SPAWN during FOUNDING (§18), else OPEN_FRONT (the default world verb).
+  // SPAWN during FOUNDING (§18), else MISSION_SEND (the default world verb).
   app.canvas.addEventListener("click", (ev) => {
     if (dragMoved) return; // it was a pan, not a click
     const center = map.tileAt(g.sim, ev.offsetX, ev.offsetY);
@@ -277,9 +319,6 @@ function wireInput(app: Application, map: MapRenderer, g: GameSession, hud: Hud)
         case "strike":
           g.sendIntent({ t: IntentType.STRIKE, strike: placement.strike as never, target: center });
           return;
-        case "ritual":
-          g.sendIntent({ t: IntentType.RITUAL, ritual: placement.ritual as never, tile: center, district });
-          return;
         case "ability":
           g.sendIntent({ t: IntentType.ABILITY, ability: placement.ability, target: center });
           return;
@@ -306,9 +345,9 @@ function wireInput(app: Application, map: MapRenderer, g: GameSession, hud: Hud)
           g.sendIntent(nearestVanIntent(g, center));
           return;
         case "close_front": {
-          const f = nearestFront(g, center);
-          if (f >= 0) g.sendIntent({ t: IntentType.CLOSE_FRONT, front: f });
-          else pingPrompt("You have no open front near there.");
+          const me = g.sim.players.find((pl) => pl.id === g.playerId);
+          if (me && me.cohorts.length > 0) g.sendIntent({ t: IntentType.MISSION_RECALL, slot: 0 });
+          else pingPrompt("You have no cohort deployed to recall.");
           return;
         }
         case "cancel_build":
@@ -321,53 +360,42 @@ function wireInput(app: Application, map: MapRenderer, g: GameSession, hud: Hud)
       g.sendIntent({ t: IntentType.SPAWN, tile: center });
       return;
     }
-    const cx = center % w.width;
-    const cy = (center / w.width) | 0;
-    const tiles: number[] = [];
-    for (let dy = -2; dy <= 2; dy++) {
-      for (let dx = -2; dx <= 2; dx++) {
-        const x = cx + dx;
-        const y = cy + dy;
-        if (x < 0 || y < 0 || x >= w.width || y >= w.height) continue;
-        tiles.push(y * w.width + x);
-      }
-    }
-    g.sendIntent({ t: IntentType.OPEN_FRONT, tiles });
+    // After founding, a plain click opens the MISSION WHEEL at that spot — the
+    // core SEND verb, discoverable without knowing to right-click. (Right-click
+    // opens it too.) Pick Spread/Tend/Crusade + how much flock on the wheel.
+    if (!wheel.isOpen) openWheel(center, ev.clientX, ev.clientY);
   });
 
   // Typing in any input (the chat box) must never trigger game keybinds.
   const typing = (ev: KeyboardEvent): boolean =>
     ev.target instanceof HTMLInputElement || ev.target instanceof HTMLTextAreaElement;
 
-  // Escape clears an armed placement.
+  // Escape dismisses the mission wheel first, else clears an armed placement.
   window.addEventListener("keydown", (ev) => {
     if (typing(ev)) return;
-    if (ev.key === "Escape") hud.arm(null);
-    if (ev.key === "?") hud.toggleHelp();
+    if (ev.key === "Escape") {
+      if (wheel.isOpen) wheel.close();
+      else hud.arm(null);
+    }
+    if (ev.key === "?" && !wheel.isOpen) hud.toggleHelp();
   });
 
   window.addEventListener("keydown", (ev) => {
     if (typing(ev)) return;
+    // While the wheel is open it owns the number keys (1/2/3 pick a mode) and
+    // swallows the rest — it's modal over the map keybinds.
+    if (wheel.isOpen) {
+      wheel.pickByKey(ev.key);
+      return;
+    }
     const me = g.sim.players.find((pl) => pl.id === g.playerId);
     if (!me) return;
     const hoverDistrict = hover >= 0 ? g.sim.world.district[hover]! : 0;
     const hoverOwner = hover >= 0 ? g.sim.world.owner[hover]! : 0;
 
     switch (ev.key) {
-      // stances (§5)
-      case "1": return g.sendIntent({ t: IntentType.SET_STANCE, stance: Stance.Tend });
-      case "2": return g.sendIntent({ t: IntentType.SET_STANCE, stance: Stance.Spread });
-      case "3": return g.sendIntent({ t: IntentType.SET_STANCE, stance: Stance.Crusade });
-      // rituals Q/W/E/R (§9, §27)
-      case "q": return g.sendIntent({ t: IntentType.RITUAL, ritual: "sermon" });
-      case "w":
-        if (hover >= 0) g.sendIntent({ t: IntentType.RITUAL, ritual: "midnight_festival", tile: hover });
-        return;
-      case "e":
-        if (hover >= 0)
-          g.sendIntent({ t: IntentType.RITUAL, ritual: "the_offering", tile: hover, district: hoverDistrict });
-        return;
-      case "r": return g.sendIntent({ t: IntentType.RITUAL, ritual: "day_of_atonement" });
+      // (v3: 1/2/3 pick the mode INSIDE the mission wheel — see the wheel-open
+      //  guard above. With the wheel closed there's no global stance to set.)
       // archetype actives D/F + signature G (§27)
       case "d":
         return g.sendIntent({ t: IntentType.ABILITY, ability: ACTIVE_D[me.archetype]!, ...(hover >= 0 ? { target: hover } : {}) });
@@ -377,22 +405,14 @@ function wireInput(app: Application, map: MapRenderer, g: GameSession, hud: Hud)
         if (me.archetype === "visitors" && hover >= 0)
           return g.sendIntent({ t: IntentType.ABILITY, ability: "saucer_landing", target: hover });
         return g.sendIntent({ t: IntentType.SIGNATURE });
-      // build palette (§6) at the hovered tile
-      case "b":
-        if (hover >= 0) g.sendIntent({ t: IntentType.BUILD, building: "compound", tile: hover });
-        return;
-      case "t":
-        if (hover >= 0) g.sendIntent({ t: IntentType.BUILD, building: "watchtower", tile: hover });
-        return;
-      case "c":
-        if (hover >= 0) g.sendIntent({ t: IntentType.BUILD, building: "collection_plate", tile: hover });
-        return;
-      case "y":
-        if (hover >= 0) g.sendIntent({ t: IntentType.BUILD, building: "broadcast_tower", tile: hover });
-        return;
+      // (v3: the old build palette b/t/c/y is gone — the commune is upgraded
+      // from the HUD, and watchtower/collection_plate/broadcast_tower were cut.)
       case "h":
         hud.toggleDissentOverlay();
         return;
+      // Prosperity Gospel (§2C): run a recruitment drive — cash → flock
+      case "r":
+        return g.sendIntent({ t: IntentType.BUY_RECRUITS });
       // agents & PvP (§13/§15)
       case "a":
         if (hoverDistrict > 0)
@@ -418,10 +438,9 @@ function wireInput(app: Application, map: MapRenderer, g: GameSession, hud: Hud)
         if (hover >= 0) g.sendIntent({ t: IntentType.VAN_MOVE, van: -1, path: [hover] });
         return;
       case "C": {
-        // shift+C: close your front nearest the hovered tile (stop the push)
-        if (hover < 0) return;
-        const f = nearestFront(g, hover);
-        if (f >= 0) g.sendIntent({ t: IntentType.CLOSE_FRONT, front: f });
+        // shift+C: recall your oldest deployed cohort (bring the flock home)
+        const me = g.sim.players.find((pl) => pl.id === g.playerId);
+        if (me && me.cohorts.length > 0) g.sendIntent({ t: IntentType.MISSION_RECALL, slot: 0 });
         return;
       }
       case "z":
@@ -493,27 +512,6 @@ function nearestVanIntent(g: GameSession, tile: number): ClientIntent {
     }
   }
   return { t: IntentType.VAN_MOVE, van: best.id, path: [tile] };
-}
-
-/** The id of the player's front nearest `tile`, or -1 if they have none. */
-function nearestFront(g: GameSession, tile: number): number {
-  const W = g.sim.world.width;
-  const hx = tile % W;
-  const hy = (tile / W) | 0;
-  let bestF = -1;
-  let bestD = Infinity;
-  for (const f of g.sim.fronts) {
-    if (f.player !== g.playerId || f.tiles.length === 0) continue;
-    const t0 = f.tiles[0]!;
-    const dx = (t0 % W) - hx;
-    const dy = ((t0 / W) | 0) - hy;
-    const d = dx * dx + dy * dy;
-    if (d < bestD) {
-      bestD = d;
-      bestF = f.id;
-    }
-  }
-  return bestF;
 }
 
 /** Flash a transient guidance line for a mis-aimed armed action. */
@@ -697,10 +695,10 @@ function maybeShowFtue(): void {
     return;
   }
   const steps = [
-    "① Click a glowing spot on the map to found your compound.",
-    "② Use 1 / 2 / 3 to set your stance — Spread grows, Crusade pushes hard.",
-    "③ Press B then click a tile to build a Compound (more followers).",
-    "④ Watch the bar up top — convert the town to win. Good luck, Shepherd.",
+    "① Click a glowing spot on the map to found your commune.",
+    "② RIGHT-CLICK the town to send a mission — pick SPREAD, TEND or CRUSADE and how much of your flock to commit.",
+    "③ Low on flock? Press R for a Recruitment Drive — turn cash into new followers.",
+    "④ Convert the most of the town to win. Watch the share bar up top. Good luck, Shepherd.",
   ];
   let i = 0;
   const tip = document.createElement("div");

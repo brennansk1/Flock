@@ -94,7 +94,7 @@ interface ArchDef {
   sig: string;
   r0: string;
   def: string;
-  win: string;
+  money: string;
   passive: string;
   dD: string;
   dF: string;
@@ -106,35 +106,35 @@ interface ArchDef {
 const ARCH: Record<ArchId, ArchDef> = {
   dawn: {
     label: "The Final Dawn", tag: "DOOMSDAY", accent: "#df5a2b", accent2: "#f0b53e", glyph: "candle",
-    actD: "Street Prophet", actF: "Stockpile Sermon", sig: "Prophecy Countdown", r0: "1.30", def: "0.80", win: "51%",
-    passive: "FEAR FEEDS US — +2% conversion per active front anywhere on the map (cap +25%).",
-    dD: "Plant a 30s fear-pressure pylon.", dF: "One district: your pressure ×3 for 12s.",
-    dSig: "Broadcast a 3:00 doomsday timer to the whole lobby.",
-    tip: "Spawn near College — you blitz, they churn. Never CRUSADE with an open home.", pattern: "crack",
+    actD: "Street Prophet", actF: "Stockpile Sermon", sig: "Prophecy Countdown", r0: "1.05", def: "0.80", money: "0.80",
+    passive: "FEAR FEEDS US — every cohort you have out in town adds +2% conversion to your whole cult (cap +15%).",
+    dD: "Hard conversion pressure at a spot for 30s.", dF: "One district: your pressure ×3 for 12s.",
+    dSig: "Broadcast a doomsday timer to the whole lobby.",
+    tip: "Fastest grower — send lots of missions at once. But you run HOT: watch Heat, and your ground flips back easily.", pattern: "crack",
   },
   radiant: {
     label: "The Radiant Path", tag: "WELLNESS", accent: "#84a23c", accent2: "#c4dd72", glyph: "leaf",
-    actD: "Juice Cleanse", actF: "Retreat Weekend", sig: "Supplement Empire", r0: "0.80", def: "1.50", win: "49%",
-    passive: "THE GLOW — owned tiles gain retention the longer you hold them, up to +80%.",
+    actD: "Juice Cleanse", actF: "Retreat Weekend", sig: "Supplement Empire", r0: "1.00", def: "1.50", money: "1.10",
+    passive: "THE GLOW — the longer you hold a tile, the harder it is for anyone to flip it back.",
     dD: "Zero one district's dissent.", dF: "Radius love-bomb: 2.5× conversion, zero Heat.",
-    dSig: "Supplement Labs that quietly hook your neighbors.",
-    tip: "Old Town + Glow is near-unflippable. Win the games you don't fight.", pattern: "bloom",
+    dSig: "A quiet growth surge across your held ground.",
+    tip: "Cool and defensive — your territory barely flips back. Hold TEND on your border and win the long game.", pattern: "bloom",
   },
   circle: {
     label: "The Prosperity Circle", tag: "M.L.M.", accent: "#e0a422", accent2: "#f3cf6a", glyph: "coin",
-    actD: "Seminar Blitz", actF: "Hostile Takeover", sig: "The Ledger", r0: "0.60", def: "0.90", win: "50%",
-    passive: "DOWNLINE — creep-flipped tiles pay 2× tithe, forever.",
-    dD: "+2,500 followers, instantly.", dF: "Buy a neutral landmark or income district outright.",
-    dSig: "Bank to the Ledger target for an Economic victory.",
-    tip: "Spawn on Downtown's approach. Keep Heat at zero and Scandal can't touch you.", pattern: "stripe",
+    actD: "Seminar Blitz", actF: "Hostile Takeover", sig: "The Ledger", r0: "1.00", def: "0.90", money: "1.30",
+    passive: "PROSPERITY GOSPEL — the richest cult. Turn tithe into flock with Recruitment Drives (R), then flood the town with missions.",
+    dD: "+2,500 followers, instantly.", dF: "Buy a neutral landmark or key building outright.",
+    dSig: "The Ledger — cash in your fortune for a surge of new followers.",
+    tip: "Spend to win: keep tithe flowing, run Recruitment Drives, out-scale everyone. Highest income in the game.", pattern: "stripe",
   },
   visitors: {
     label: "Visitors' Fellowship", tag: "U.F.O.", accent: "#4fa3ad", accent2: "#8fd6dd", glyph: "ufo",
-    actD: "Crop Circle", actF: "Radio Static", sig: "Saucer Landing", r0: "1.00", def: "1.00", win: "50%",
+    actD: "Crop Circle", actF: "Radio Static", sig: "Saucer Landing", r0: "1.00", def: "1.00", money: "0.90",
     passive: "STARGAZERS — vision ×2; see every rival's Heat & Dissent without doctrine.",
-    dD: "Gift or trap a district with +30 susceptibility for everyone.", dF: "Knock an enemy Broadcast Tower offline for 20s.",
+    dD: "Gift or trap a district with +30 susceptibility for everyone.", dF: "Jam a rival's signal — scramble their conversion for a spell.",
     dSig: "Land a saucer chapel on ANY visible tile — even across water.",
-    tip: "Home is wherever the saucer parks. Snipe the Radio Tower early.", pattern: "stars",
+    tip: "The all-rounder — no weakness, no gimmick. See everything, land anywhere, react.", pattern: "stars",
   },
 };
 
@@ -204,7 +204,7 @@ const tierBadge = (tier: string): string =>
   `<span style="font-family:'Press Start 2P',monospace;font-size:7px;letter-spacing:.5px;color:${TIER_COLORS[tier] ?? MUTED}">${esc(tier)}</span>`;
 
 const KEYS_LINE =
-  "KEYS — 1/2/3 stance · QWER ritual · D/F power · G signature · B/T/C/Y/U/H build · V van · ⇧C close front · Z cancel build · F8 surrender · ⏸ pause (solo) · Esc cancel";
+  "KEYS — right-click: send mission (Spread/Tend/Crusade) · 1/2/3 stance · R recruitment drive · D/F power · G signature · V van · ⇧C recall · F8 surrender · ⏸ pause (solo) · Esc cancel";
 
 // per-accent button styles (ported from the prototype's renderVals)
 const soloCss = (a: ArchDef): string =>
@@ -364,7 +364,7 @@ function renderPlay(panel: HTMLDivElement): void {
           <div style="display:flex;flex-direction:column;gap:3px;font-size:11px;color:${MUTED};text-align:left">
             <div title="SPREAD — how fast this cult converts the town. Higher = more aggressive early game.">SPREAD <span style="float:right;color:#d8c8a6">${a.r0}</span></div>
             <div title="DEFENSE — how hard your converts are to flip back. Higher = your territory sticks.">DEFENSE <span style="float:right;color:#d8c8a6">${a.def}</span></div>
-            <div title="WIN% — average win rate in balanced play. All four are tuned near 50%.">WIN% <span style="float:right;color:#9bbf6a">${a.win}</span></div>
+            <div title="MONEY — tithe income. Higher = more cash for Recruitment Drives (buy flock) and powers.">MONEY <span style="float:right;color:#9bbf6a">${a.money}</span></div>
           </div>
         </button>`;
       }).join("")}
@@ -405,7 +405,7 @@ function renderPlay(panel: HTMLDivElement): void {
         </div>
       </div>
       <div style="font-family:'VT323',monospace;font-size:15px;color:${DIM};max-width:640px;text-align:center">
-        click a glowing spot to found · click to convert · 1/2/3 stances · QWER rituals · D/F powers · G signature · V van · ⇧C close front · Z cancel build · F8 surrender · ⏸ pause (solo)
+        click a glowing spot to found · RIGHT-CLICK the town to send missions · R recruitment drive · 1/2/3 stance · D/F powers · G signature · V van · ⇧C recall · F8 surrender · ⏸ pause (solo)
       </div>
     </div>`;
 

@@ -111,6 +111,16 @@ export function hashState(s: SimState): string {
     f.u32(p.faithHoldTicks);
     f.u32(p.channelTicks);
     f.u32(p.parcels);
+    // v3 cohorts (push order is deterministic state)
+    f.u32(p.cohorts.length);
+    for (const c of p.cohorts) {
+      f.u32(c.target);
+      f.str(c.mode);
+      f.fix(c.mass);
+      f.u32(c.age);
+      f.byte(c.recalling ? 1 : 0);
+      f.u32(c.recallAge);
+    }
     f.str(p.doctrine.join(","));
     f.str(p.pactNode);
     f.u32(p.pactWith);
@@ -291,15 +301,6 @@ export function hashState(s: SimState): string {
       f.u32(k);
       f.u32(rec[k]!);
     }
-  }
-
-  // Fronts (already kept in insertion order with sorted tile lists).
-  f.u32(s.fronts.length);
-  for (const fr of s.fronts) {
-    f.u32(fr.id);
-    f.u32(fr.player);
-    f.u32(fr.tiles.length);
-    for (const t of fr.tiles) f.u32(t);
   }
 
   // Conversion progress, iterated in sorted-key order for stability.

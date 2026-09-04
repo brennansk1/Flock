@@ -136,7 +136,7 @@ test("replay from a recorded turn log reproduces the exact final hash (§40)", (
       { t: IntentType.SPAWN, player: 2, tile: 11 * 16 + 11 },
     ]],
     [10, [{ t: IntentType.SET_STANCE, player: 1, stance: "crusade" }]],
-    [20, [{ t: IntentType.OPEN_FRONT, player: 1, tiles: [7 * 16 + 7, 7 * 16 + 8] }]],
+    [20, [{ t: IntentType.MISSION_SEND, player: 1, tile: 7 * 16 + 7, permille: 500, mode: "crusade" }]],
   ]);
   for (let n = 0; n < 300; n++) {
     const tn: Turn = { n, intents: scripted.get(n) ?? [], seedSlice: (n * 2654435761) >>> 0 };

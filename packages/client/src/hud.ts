@@ -477,6 +477,22 @@ const HUD_CSS = `
 .fk-mute-chat .fk-chat{display:none}
 .fk-mute-chat .fk-chatin{display:none}
 @media(max-width:1100px){.fk-rail-stack{width:150px}.fk-right-stack{width:190px}.fk-build{width:50px}}
+@media(max-width:900px){
+  .fk-top{padding:0 4px;gap:0}
+  .fk-stat{padding:6px 9px;gap:6px}
+  .fk-stat .v{font-size:20px}
+  .fk-stat .l{font-size:6px}
+  .fk-rail-stack{width:130px}
+  .fk-right-stack{width:160px}
+  .fk-hoverchip{max-width:160px;font-size:10px}
+}
+@media(max-width:680px){
+  .fk-top{top:30px}
+  .fk-civic-tray{top:80px}
+  .fk-rail{left:4px}
+  .fk-right{right:4px}
+  .fk-bottom{bottom:6px}
+}
 `;
 
 /**

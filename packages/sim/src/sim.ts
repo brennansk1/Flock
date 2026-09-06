@@ -66,7 +66,13 @@ import {
   stepSchism,
 } from "./diplomacy.js";
 import { pickDoctrine, titheMult, ownDissentMult, loveBombCostMult, strikeCostMult, tryAbsorbMassApostasy } from "./doctrine.js";
-import { computeCivicControl, controlsCivic } from "./civics.js";
+import {
+  computeCivicControl,
+  controlsCivic,
+  executeCivicDecree,
+  computeMonopolies,
+  isEmergencyJamActive,
+} from "./civics.js";
 
 export { newPlayer } from "./player.js";
 
@@ -87,6 +93,7 @@ const MAX_PATH_TILES = 1024;
 /** Ability tuning (§11.1). ITVs; promote to balance.json when tuned.
  *  (Rituals were cut in v3 M3.2b — Faith now buys doctrine directly.) */
 export const KIT = {
+  sermon: { faithGain: 12, buffTicks: 15 * TPS, cooldown: 30 * TPS },
   streetProphet: { cost: 12_000, cooldown: 45 * TPS, durTicks: 30 * TPS },
   stockpileSermon: { cost: 30, cooldown: 90 * TPS, durTicks: 12 * TPS, afterDissent: 10 },
   prophecy: {
@@ -190,6 +197,7 @@ export function createSim(opts: {
     districtBuffs: [],
     auras: [],
     prophecies: [],
+    activeDecrees: [],
     // Revelation ON by default (2026-07-24). The doctrinal and economic paths
     // were implemented but gated behind a flag nothing ever set, so the game
     // shipped with one reachable victory condition and no "which path do I
@@ -416,6 +424,22 @@ function addDistrictDissent(w: World, district: DistrictId, amount: number): voi
   }
 }
 
+function applyRitual(s: SimState, p: PlayerState, b: Balance, intent: Intent): void {
+  if (intent.t !== IntentType.RITUAL) return;
+  switch (intent.ritual) {
+    case "sermon": {
+      if (p.stance === Stance.Crusade || onCooldown(p, "sermon")) return;
+      const hasCanopy = computeMonopolies(s, p.id).sacredCanopy;
+      const faithGain = hasCanopy ? Math.floor(KIT.sermon.faithGain * 1.5) : KIT.sermon.faithGain;
+      const buffTicks = hasCanopy ? Math.floor(KIT.sermon.buffTicks * 1.5) : KIT.sermon.buffTicks;
+      p.faith = clamp(add(p.faith, fromInt(faithGain)), 0, HUNDRED);
+      p.sermonBuffTicks = buffTicks;
+      startCooldown(p, "sermon", KIT.sermon.cooldown);
+      return;
+    }
+  }
+}
+
 function applyAbility(s: SimState, p: PlayerState, b: Balance, intent: Intent): void {
   if (intent.t !== IntentType.ABILITY) return;
   switch (intent.ability) {
@@ -633,7 +657,13 @@ export function applyIntent(s: SimState, intent: Intent, b: Balance): void {
   if (!p || !p.alive) return;
   switch (intent.t) {
     case IntentType.SET_STANCE:
-      p.stance = intent.stance;
+      if (!isEmergencyJamActive(s, p.id)) {
+        p.stance = intent.stance;
+      }
+      break;
+
+    case IntentType.CIVIC_DECREE:
+      executeCivicDecree(s, p.id, intent.decree, b, followerCap(p, b, s));
       break;
 
     case IntentType.SPAWN: {
@@ -895,7 +925,8 @@ export function applyIntent(s: SimState, intent: Intent, b: Balance): void {
       let cost = mul(fromInt(def.cost), strikeCostMult(p)); // I3 −20% (§10)
       if (ownsLandmark(s, p.id, Landmark.RadioTower)) cost = mul(cost, fp(0.7)); // §12
       if (p.usd < cost) break;
-      p.usd = sub(p.usd, cost);
+      const isDeepSpaceTransmitter =
+        p.archetype === "visitors" && ownsLandmark(s, p.id, Landmark.RadioTower);
       s.strikes.push({
         id: s.nextEntityId++,
         player: p.id,
@@ -903,7 +934,7 @@ export function applyIntent(s: SimState, intent: Intent, b: Balance): void {
         target: t,
         victim,
         chargeTicksLeft: def.chargeTicks,
-        warningTicksLeft: WARNING_TICKS,
+        warningTicksLeft: isDeepSpaceTransmitter ? 0 : WARNING_TICKS,
       });
       break;
     }
@@ -926,6 +957,10 @@ export function applyIntent(s: SimState, intent: Intent, b: Balance): void {
 
     case IntentType.PUBLISH_SCANDAL:
       publishScandal(s, p, intent.target, b);
+      break;
+
+    case IntentType.RITUAL:
+      applyRitual(s, p, b, intent);
       break;
 
     case IntentType.ABILITY:
@@ -1000,8 +1035,12 @@ function stepEconomy(s: SimState, b: Balance): void {
       let mod = add(fp(0.8), div(p.faith, fromInt(250))); // faith_growth_mod
       if (p.stance === Stance.Tend) mod = mul(mod, fp(1.1)); // nurture recruits better
       else if (p.stance === Stance.Crusade) mod = mul(mod, fp(0.8));
+      if (b.archetypes[p.archetype]?.growth) {
+        mod = mul(mod, b.archetypes[p.archetype].growth);
+      }
       // High-school takeover: youth recruitment feeds the flock (§13 rev.)
       if (controlsCivic(civics, Lot.HighSchool, p.id)) mod = mul(mod, b.civics.highschoolGrowthMult);
+      if (computeMonopolies(s, p.id).indoctrinationPipeline) mod = mul(mod, fp(1.20));
       const recruits = add(
         b.economy.baseRecruitsPerS,
         mul(believerPop.get(p.id) ?? 0, b.economy.recruitsPerBeliever),
@@ -1039,8 +1078,13 @@ function stepEconomy(s: SimState, b: Balance): void {
 
     // Faith base drift toward 50 at ±0.05/s (§3.3); Megachurch +0.15/s (§12).
     const drift = fp(0.05);
-    if (p.faith > FIFTY) p.faith = clamp(sub(p.faith, mul(drift, dt)), FIFTY, HUNDRED);
-    else if (p.faith < FIFTY) p.faith = clamp(add(p.faith, mul(drift, dt)), 0, FIFTY);
+    const hasCanopy = computeMonopolies(s, p.id).sacredCanopy;
+    if (hasCanopy && p.faith < FIFTY) {
+      p.faith = FIFTY;
+    } else {
+      if (p.faith > FIFTY) p.faith = clamp(sub(p.faith, mul(drift, dt)), FIFTY, HUNDRED);
+      else if (p.faith < FIFTY) p.faith = clamp(add(p.faith, mul(drift, dt)), 0, FIFTY);
+    }
     if (ownsLandmark(s, p.id, Landmark.Megachurch)) {
       p.faith = clamp(add(p.faith, mul(fp(0.15), dt)), 0, HUNDRED);
     }
@@ -1158,6 +1202,9 @@ function stepEffects(s: SimState, b: Balance): void {
   }
   for (let i = s.cropCircles.length - 1; i >= 0; i--) {
     if (--s.cropCircles[i]!.ticksLeft <= 0) s.cropCircles.splice(i, 1);
+  }
+  for (let i = s.activeDecrees.length - 1; i >= 0; i--) {
+    if (--s.activeDecrees[i]!.ticksLeft <= 0) s.activeDecrees.splice(i, 1);
   }
   // expire stale alliance offers and lapsed alliances (§16)
   for (let i = s.allianceOffers.length - 1; i >= 0; i--) {

@@ -45,6 +45,9 @@ import {
   propertyStats,
   followerCap,
   computeCivicControl,
+  computeMonopolies,
+  CivicDecreeId,
+  CIVIC_DECREES,
   computeSiegeState,
   CIVIC_LOTS,
   CIVIC_EFFECTS,
@@ -55,6 +58,7 @@ import {
   type SiegeBar,
 } from "@flock/sim";
 import type { GameSession, ClientIntent } from "./net.js";
+import { playFactionTheme, playCivicDecreeSfx, playMonopolyUnlockSfx } from "./audio.js";
 
 export type PlacementKind =
   | { mode: "build"; building: string; key: string }
@@ -337,6 +341,19 @@ const HUD_CSS = `
 .fk-heat .v{color:#caa07a}
 .fk-heat.hot .ic{color:var(--fk-acc2)}
 .fk-heat.hot .v{color:#ff7a3a;animation:fkHeat 1s infinite}
+/* ---- sleek compact active civic & monopoly status tray (Task 2.5) ---- */
+.fk-civic-tray{position:absolute;top:92px;left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:6px;min-height:28px;background:rgba(26,19,11,0.88);border:2px solid #4a3a26;border-radius:4px;box-shadow:0 3px 0 #060403;padding:2px 8px;z-index:6;pointer-events:none;transition:all .15s ease-in-out;backdrop-filter:blur(3px)}
+.fk-civic-tray.collapsed{min-height:14px;padding:1px 5px;background:rgba(26,19,11,0.65)}
+.fk-civic-tray.collapsed .fk-badge-list{display:none}
+.fk-civic-toggle{pointer-events:auto;cursor:pointer;font-size:9px;color:#8a7550;display:flex;align-items:center;justify-content:center;width:14px;height:20px;border-radius:2px;background:#140e08;border:1px solid #36291a;padding:0}
+.fk-civic-toggle:hover{color:#e0a422;border-color:#6b563a}
+.fk-badge-list{display:flex;align-items:center;gap:6px}
+.fk-buff-badge{pointer-events:auto;position:relative;display:flex;align-items:center;gap:5px;height:22px;padding:0 6px 0 3px;border-radius:3px;background:#140e08;border:1px solid var(--badge-border,#6b563a);box-shadow:0 0 6px var(--badge-glow,rgba(234,179,8,0.25));cursor:help;transition:transform .1s}
+.fk-buff-badge:hover{transform:translateY(-1px);box-shadow:0 0 10px var(--badge-glow,rgba(234,179,8,0.5))}
+.fk-buff-pie{position:relative;width:16px;height:16px;border-radius:50%;background:conic-gradient(var(--badge-col,#eab308) var(--pie-pct,100%), #2a2015 0%);display:flex;align-items:center;justify-content:center}
+.fk-buff-pie::after{content:'';position:absolute;width:12px;height:12px;border-radius:50%;background:#140e08}
+.fk-buff-pie .ic{position:relative;z-index:1;color:var(--badge-col,#eab308)}
+.fk-buff-time{font-family:'VT323',monospace;font-size:14px;color:#efe3c6;line-height:1}
 /* ---- pixel panels ---- */
 .fk-grp{background:#1a130b;border:3px solid #4a3a26;box-shadow:0 4px 0 #060403;padding:9px}
 .fk-grp h4{margin:0 0 8px;font-family:'Press Start 2P',monospace;font-size:7px;letter-spacing:1px;color:#8a7550;font-weight:400;text-transform:uppercase}
@@ -466,6 +483,22 @@ const HUD_CSS = `
 .fk-emote{flex:1;background:#241c12;color:#efe3c6;border:0;box-shadow:inset 0 0 0 1px #36291a,0 2px 0 #060403;padding:4px 0;font-size:13px;line-height:1;cursor:pointer;font-family:inherit}
 .fk-emote:hover{background:#2a2014;box-shadow:inset 0 0 0 1px var(--fk-acc),0 2px 0 #060403}
 @media(max-width:1100px){.fk-rail-stack{width:150px}.fk-right-stack{width:190px}.fk-build{width:50px}}
+@media(max-width:900px){
+  .fk-top{padding:0 4px;gap:0}
+  .fk-stat{padding:6px 9px;gap:6px}
+  .fk-stat .v{font-size:20px}
+  .fk-stat .l{font-size:6px}
+  .fk-rail-stack{width:130px}
+  .fk-right-stack{width:160px}
+  .fk-hoverchip{max-width:160px;font-size:10px}
+}
+@media(max-width:680px){
+  .fk-top{top:30px}
+  .fk-civic-tray{top:80px}
+  .fk-rail{left:4px}
+  .fk-right{right:4px}
+  .fk-bottom{bottom:6px}
+}
 `;
 
 /**
@@ -506,7 +539,16 @@ export class Hud {
   private usdPerSec = 0;
   private folTrend = 0;
   private feed: { tick: number; text: string; tag: string }[] = [];
-  private seen = { scandals: 0, prophecies: 0, betrayals: 0, alliances: 0, dead: new Set<number>(), threats: new Set<string>() };
+  private seen = {
+    scandals: 0,
+    prophecies: 0,
+    betrayals: 0,
+    alliances: 0,
+    dead: new Set<number>(),
+    threats: new Set<string>(),
+    decrees: new Set<number>(),
+    monopolies: new Set<string>(),
+  };
   private banner: { text: string; until: number } | null = null;
   showDissent = false;
   private lastMiniTick = -999;
@@ -599,15 +641,23 @@ export class Hud {
     }
     const terrain = w.terrain[tile]!;
     let place = "";
+    const districtId = w.district[tile] ?? 0;
+    const distName = ["Old Town", "Suburbs", "College", "Downtown", "Trailer"][districtId] ?? "Town";
+
     if (w.landmark[tile] !== 0) {
-      place = LANDMARK_NAMES[w.landmark[tile]!] ?? "a landmark";
+      place = `${LANDMARK_NAMES[w.landmark[tile]!] ?? "a landmark"} · ${distName}`;
     } else if (terrain === Terrain.Citizen) {
       const lot = w.lot[tile]!;
       const pop = w.pop[tile]!;
-      if (lot !== 0) place = LOT_NAMES[lot] ?? "a lot";
-      else if (pop >= 3) place = `the ${householdName(tile)} place · ${pop} souls`;
-      else if (pop >= 1) place = `${memberName(tile, 0)}'s garden`;
-      else place = "an empty lot";
+      const owner = w.owner[tile]!;
+      const ownerName = owner === 0 ? "Neutral" : (this.g.players.find((p) => p.id === owner)?.name ?? `Cult #${owner}`);
+      if (lot !== 0) {
+        const lotName = LOT_NAMES[lot] ?? "a lot";
+        place = `${lotName.toUpperCase()} · ${distName} (${ownerName})`;
+      }
+      else if (pop >= 3) place = `the ${householdName(tile)} place · ${pop} souls · ${distName}`;
+      else if (pop >= 1) place = `${memberName(tile, 0)}'s garden · ${distName}`;
+      else place = `an empty lot · ${distName}`;
     } else {
       place = TERRAIN_NAMES[terrain] ?? "";
     }
@@ -719,6 +769,24 @@ export class Hud {
     );
     this.el.faith_sub!.textContent = "/100";
     this.root.appendChild(top);
+
+    // ---- sleek compact civic status tray (Task 2.5) ----------------------
+    const civicTray = document.createElement("div");
+    civicTray.className = "fk-civic-tray";
+    const toggleBtn = document.createElement("button");
+    toggleBtn.className = "fk-civic-toggle";
+    toggleBtn.textContent = "▲";
+    toggleBtn.title = "collapse / expand active buffs";
+    toggleBtn.onclick = () => {
+      const isCol = civicTray.classList.toggle("collapsed");
+      toggleBtn.textContent = isCol ? "▼" : "▲";
+    };
+    const badgeList = document.createElement("div");
+    badgeList.className = "fk-badge-list";
+    civicTray.append(toggleBtn, badgeList);
+    this.el.civicTray = civicTray;
+    this.el.badgeList = badgeList;
+    this.root.appendChild(civicTray);
 
     // ---- left rail: stance / powers / scheme + collapse -------------------
     const rail = document.createElement("div");
@@ -1167,6 +1235,7 @@ export class Hud {
       const acc = ARCH_ACCENT[me.archetype] ?? ARCH_ACCENT["circle"]!;
       this.root.style.setProperty("--fk-acc", acc.a);
       this.root.style.setProperty("--fk-acc2", acc.b);
+      playFactionTheme(me.archetype);
     }
 
     // derive $/sec + follower trend at sim rate
@@ -1311,6 +1380,7 @@ export class Hud {
     this.collectDrama(s);
     this.renderFeed(s);
     this.renderBanner(s);
+    this.renderCivicTray(s, me);
     this.renderMinimap(s);
   }
 
@@ -1502,13 +1572,14 @@ export class Hud {
   private renderCivics(s: SimState): void {
     const w = s.world;
     const control = computeCivicControl(s);
-    const siege = new Map<number, SiegeBar>(computeSiegeState(s).map((b) => [b.lot, b]));
+    const siege = new Map<number, SiegeBar>(computeSiegeState(s).map((b: SiegeBar) => [b.lot, b]));
     const NAMES: Record<number, string> = {
       [Lot.Sheriff]: "Police",
       [Lot.School]: "Elementary",
       [Lot.HighSchool]: "High School",
       [Lot.Supermarket]: "Grocery",
       [Lot.Church]: "Church",
+      [Lot.Bank]: "Bank",
       [Lot.GrainElevator]: "Grain Elevator",
       [Lot.Cannery]: "Cannery",
       [Lot.Sawmill]: "Sawmill",
@@ -1568,6 +1639,185 @@ export class Hud {
           if (target >= 0) this.camera?.flashTile(target, performance.now());
         };
       });
+    }
+  }
+
+  /**
+   * Compact Civic & Monopoly Active Buff Tray (Sprint 2 Task 2.5).
+   * Sleek 28px tray docked under the top bar.
+   * Displays 20×20 glowing badges for active decrees and monopolies with radial pie countdown sweeps,
+   * 1-click collapse toggle, and transparent click-through gutters.
+   */
+  private renderCivicTray(s: SimState, me: PlayerState): void {
+    if (!this.el.badgeList) return;
+
+    interface ActiveBuff {
+      id: string;
+      label: string;
+      icon: string;
+      color: string;
+      glow: string;
+      pct: number;
+      timeText: string;
+      tooltip: string;
+    }
+
+    const buffs: ActiveBuff[] = [];
+
+    // 1. Check Active Municipal Decrees
+    for (const d of s.activeDecrees) {
+      const def = CIVIC_DECREES[d.decree];
+      if (!def) continue;
+      const isMine = d.player === me.id;
+      const remainingSec = Math.ceil(d.ticksLeft / 10);
+      const pct = Math.max(0, Math.min(100, (d.ticksLeft / def.durTicks) * 100));
+
+      let iconName = "clock";
+      let color = "#f59e0b";
+      let glow = "rgba(245,158,11,0.35)";
+
+      switch (d.decree) {
+        case CivicDecreeId.TownCurfew:
+          iconName = "clock";
+          color = "#f59e0b";
+          glow = "rgba(245,158,11,0.4)";
+          break;
+        case CivicDecreeId.MunicipalInjunction:
+          iconName = "press";
+          color = "#ef4444";
+          glow = "rgba(239,68,68,0.4)";
+          break;
+        case CivicDecreeId.EmergencyJam:
+          iconName = "antenna";
+          color = "#a855f7";
+          glow = "rgba(168,85,247,0.4)";
+          break;
+        case CivicDecreeId.FoodRationing:
+          iconName = "house";
+          color = "#10b981";
+          glow = "rgba(16,185,129,0.4)";
+          break;
+        case CivicDecreeId.ParentTeacherNight:
+          iconName = "eye";
+          color = "#3b82f6";
+          glow = "rgba(59,130,246,0.4)";
+          break;
+        case CivicDecreeId.PepRally:
+          iconName = "crown";
+          color = "#ec4899";
+          glow = "rgba(236,72,153,0.4)";
+          break;
+        case CivicDecreeId.EvangelicalRevival:
+          iconName = "cross";
+          color = "#eab308";
+          glow = "rgba(234,179,8,0.4)";
+          break;
+      }
+
+      if (!this.seen.decrees.has(d.id)) {
+        this.seen.decrees.add(d.id);
+        playCivicDecreeSfx();
+      }
+
+      buffs.push({
+        id: `decree_${d.id}`,
+        label: def.name,
+        icon: iconName,
+        color,
+        glow,
+        pct,
+        timeText: `${remainingSec}s`,
+        tooltip: `${def.name.toUpperCase()} (${isMine ? "YOUR DECREE" : "RIVAL DECREE"})\nDistrict: ${d.district || "Town-wide"}\n${def.description}\nRemaining: ${remainingSec}s`,
+      });
+    }
+
+    // 2. Check Municipal Monopolies held by me
+    const monopolies = computeMonopolies(s, me.id);
+    if (monopolies.townMachine) {
+      if (!this.seen.monopolies.has("townMachine")) {
+        this.seen.monopolies.add("townMachine");
+        playMonopolyUnlockSfx();
+        this.pushFeed("Town Machine Monopoly achieved! Sheriff under full control.", true, "ally");
+      }
+      buffs.push({
+        id: "mono_machine",
+        label: "TOWN MACHINE",
+        icon: "crown",
+        color: "#eab308",
+        glow: "rgba(234,179,8,0.45)",
+        pct: 100,
+        timeText: "∞",
+        tooltip: "TOWN MACHINE MONOPOLY (Controlled: Sheriff's Office)\n• +20 CPA harassment threshold\n• Automated arrest of rival agents entering your turf",
+      });
+    }
+    if (monopolies.indoctrinationPipeline) {
+      if (!this.seen.monopolies.has("indoctrinationPipeline")) {
+        this.seen.monopolies.add("indoctrinationPipeline");
+        playMonopolyUnlockSfx();
+        this.pushFeed("Indoctrination Pipeline Monopoly achieved! Youth recruitment locked.", true, "ally");
+      }
+      buffs.push({
+        id: "mono_indoctrination",
+        label: "INDOCTRINATION",
+        icon: "mega",
+        color: "#ec4899",
+        glow: "rgba(236,72,153,0.45)",
+        pct: 100,
+        timeText: "∞",
+        tooltip: "INDOCTRINATION PIPELINE (Controlled: Elementary & High School)\n• +20% follower growth rate\n• +25 bonus followers on every neutral tile flip",
+      });
+    }
+    if (monopolies.foodAndFuelCartel) {
+      if (!this.seen.monopolies.has("foodAndFuelCartel")) {
+        this.seen.monopolies.add("foodAndFuelCartel");
+        playMonopolyUnlockSfx();
+        this.pushFeed("Food & Fuel Cartel Monopoly achieved! Logistics cornered.", true, "ally");
+      }
+      buffs.push({
+        id: "mono_cartel",
+        label: "CARTEL",
+        icon: "van",
+        color: "#06b6d4",
+        glow: "rgba(6,182,212,0.45)",
+        pct: 100,
+        timeText: "∞",
+        tooltip: "FOOD & FUEL CARTEL (Controlled: Supermarket & Gas Station)\n• +35% recruitment van transit speed\n• Rival building construction costs +30%",
+      });
+    }
+    if (monopolies.sacredCanopy) {
+      if (!this.seen.monopolies.has("sacredCanopy")) {
+        this.seen.monopolies.add("sacredCanopy");
+        playMonopolyUnlockSfx();
+        this.pushFeed("Sacred Canopy Monopoly achieved! Pulpits secured.", true, "ally");
+      }
+      buffs.push({
+        id: "mono_canopy",
+        label: "SACRED CANOPY",
+        icon: "candle",
+        color: "#8b5cf6",
+        glow: "rgba(139,92,246,0.45)",
+        pct: 100,
+        timeText: "∞",
+        tooltip: "SACRED CANOPY MONOPOLY (Controlled: Church & Chapel)\n• Faith floor permanently locked at 50\n• +50% Faith generation from Sermons",
+      });
+    }
+
+    // Render badges
+    let html = "";
+    if (buffs.length === 0) {
+      html = `<span style="font-size:8px;color:#6b563a;letter-spacing:0.5px;padding:0 4px">NO ACTIVE BUFFS</span>`;
+    } else {
+      for (const b of buffs) {
+        html += `<div class="fk-buff-badge" title="${esc(b.tooltip)}" style="--badge-col:${b.color};--badge-glow:${b.glow};--badge-border:${b.color}">
+          <div class="fk-buff-pie" style="--pie-pct:${b.pct.toFixed(1)}%"><i class="ic">${icon(b.icon, "currentColor", 10)}</i></div>
+          <span class="fk-buff-time">${b.timeText}</span>
+        </div>`;
+      }
+    }
+
+    if (this.el.badgeList.dataset.h !== html) {
+      this.el.badgeList.innerHTML = html;
+      this.el.badgeList.dataset.h = html;
     }
   }
 

@@ -164,6 +164,14 @@ export function hashState(s: SimState): string {
     f.u32(e.snapshotPermille);
     f.u32(e.ticksLeft);
   }
+  f.u32(s.activeDecrees.length);
+  for (const d of s.activeDecrees) {
+    f.u32(d.id);
+    f.u32(d.player);
+    f.str(d.decree);
+    f.u32(d.district);
+    f.u32(d.ticksLeft);
+  }
 
   // M1 systems: buildings, units, strikes, diplomacy, scandal, CPA.
   f.byte(s.revelationMode ? 1 : 0);

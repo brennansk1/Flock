@@ -17,6 +17,7 @@ import {
   Terrain,
   TileState,
   Landmark,
+  Lot,
   type AgentUnit,
   type Cohort,
   type PlayerId,
@@ -33,6 +34,7 @@ import {
   staffingRatio,
 } from "./buildings.js";
 import { heatGainMult, raidEffectMultAgainst, tryAbsorbMassApostasy, scarTicksFor } from "./doctrine.js";
+import { computeMonopolies, isEmergencyJamActive, controlsCivic, computeCivicControl } from "./civics.js";
 
 const TPS = 10;
 const HUNDRED = fromInt(100);
@@ -113,10 +115,14 @@ export function stepCouriers(s: SimState, b: Balance): void {
       for (let i = 0; i < plates.length; i++) {
         for (let j = i + 1; j < plates.length; j++) {
           const path = linePath(w, plates[i]!, plates[j]!);
-          const usd = min(
+          let usd = min(
             mul(b.economy.courierPerTile, fromInt(path.length)),
             b.economy.courierCap,
           );
+          const ownerPl = s.players.find((pl) => pl.id === pid);
+          if (ownerPl?.archetype === "circle" && controlsCivic(computeCivicControl(s), Lot.Bank, pid)) {
+            usd = mul(usd, fromInt(3)); // Franchise Megacenter: triples courier cash
+          }
           s.couriers.push({
             id: s.nextEntityId++,
             player: pid,
@@ -164,7 +170,10 @@ export function stepVans(s: SimState, b: Balance): void {
   for (const v of s.vans) {
     if (v.idx >= v.path.length - 1) continue;
     const onRoad = w.terrain[v.tile] === Terrain.Road;
-    const speed = onRoad ? fromFloat(8.0) : fromFloat(2.0);
+    let speed = onRoad ? fromFloat(8.0) : fromFloat(2.0);
+    if (computeMonopolies(s, v.player).foodAndFuelCartel) {
+      speed = mul(speed, fromFloat(1.35));
+    }
     v.moveProgress = add(v.moveProgress, mul(speed, b.dt));
     while (v.moveProgress >= ONE && v.idx < v.path.length - 1) {
       v.moveProgress = sub(v.moveProgress, ONE);
@@ -273,6 +282,12 @@ export function stepAgents(s: SimState, b: Balance): void {
 
     if (a.phase === "travel") {
       if (--a.travelTicks <= 0) a.phase = a.mission === "deprogram" ? "channel" : "gather";
+      continue;
+    }
+
+    // Town Machine monopoly: victim auto-arrests stealth agents in district
+    if (computeMonopolies(s, a.victim).townMachine) {
+      s.agents.splice(i, 1);
       continue;
     }
 
@@ -385,7 +400,9 @@ export function stepStrikes(s: SimState, b: Balance): void {
   for (let i = s.strikes.length - 1; i >= 0; i--) {
     const c = s.strikes[i]!;
     if (c.chargeTicksLeft > 0) {
-      c.chargeTicksLeft--;
+      if (!isEmergencyJamActive(s, c.player)) {
+        c.chargeTicksLeft--;
+      }
       continue;
     }
     if (c.warningTicksLeft > 0) {
@@ -483,8 +500,10 @@ export function stepCPA(s: SimState, b: Balance): void {
   if (!target) return;
 
   // Town Hall owned: CPA ignores you below Heat 75 (§12)
+  // Town Machine monopoly (Town Hall + Sheriff): raised to Heat 85!
+  const hasMachine = computeMonopolies(s, target.id).townMachine;
   const hasTownHall = ownsLandmark(s, target.id, Landmark.TownHall);
-  const harassFloor = hasTownHall ? fromInt(75) : b.heat.cpaHarass;
+  const harassFloor = hasMachine ? fromInt(85) : hasTownHall ? fromInt(75) : b.heat.cpaHarass;
 
   if (target.heat >= harassFloor && s.tick >= s.cpaNextPicketTick) {
     s.cpaNextPicketTick = s.tick + 60 * TPS;
@@ -557,9 +576,17 @@ function firstDistrictTile(s: SimState, pid: PlayerId, district: number): number
 }
 
 export function ownsLandmark(s: SimState, pid: PlayerId, kind: number): boolean {
+  if (pid === NEUTRAL) return false;
   const w = s.world;
   for (let t = 0; t < w.landmark.length; t++) {
-    if (w.landmark[t] === kind && w.owner[t] === pid) return true;
+    if (
+      w.landmark[t] === kind &&
+      w.owner[t] === pid &&
+      w.state[t] === TileState.Believer &&
+      w.scarTicks[t] === 0
+    ) {
+      return true;
+    }
   }
   return false;
 }

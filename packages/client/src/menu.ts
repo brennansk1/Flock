@@ -241,13 +241,25 @@ export function showMenu(): void {
       #fk-menu ::-webkit-scrollbar-thumb{background:${BORDER};border:1px solid #6b563a}
       #fk-menu ::-webkit-scrollbar-track{background:${PANEL}}
       @keyframes fkBlink{50%{opacity:.3}}
-      #fk-menu .nav button{font-family:'Pixelify Sans',monospace;font-size:13px;letter-spacing:.5px;padding:8px 14px;color:#cdbf9c;background:transparent;border:0;box-shadow:none;cursor:pointer}
-      #fk-menu .nav button.on{color:${INK};font-weight:600;box-shadow:0 3px 0 ${SHADOW}}
-      #fk-menu input,#fk-menu select{background:#0e0a05;color:${CREAM};border:0;box-shadow:inset 0 0 0 1px ${BORDER};padding:5px 9px;font-family:'VT323',monospace;font-size:18px}
-      #fk-menu input:focus,#fk-menu select:focus{outline:none;box-shadow:inset 0 0 0 1px #6b563a}
+      #fk-menu .nav button{font-family:'Pixelify Sans',monospace;font-size:13px;letter-spacing:.5px;padding:8px 16px;color:#cdbf9c;background:transparent;border:0;box-shadow:none;cursor:pointer;transition:all .15s ease}
+      #fk-menu .nav button:hover{color:${CREAM};background:rgba(255,255,255,0.06)}
+      #fk-menu .nav button.on{color:${INK};font-weight:700;box-shadow:0 3px 0 ${SHADOW}}
+      #fk-menu input,#fk-menu select{background:#0e0a05;color:${CREAM};border:0;box-shadow:inset 0 0 0 1px ${BORDER};padding:6px 10px;font-family:'VT323',monospace;font-size:18px;border-radius:2px;transition:box-shadow .15s ease}
+      #fk-menu input:focus,#fk-menu select:focus{outline:none;box-shadow:inset 0 0 0 2px var(--fk-menu-acc, #e0a422)}
       #fk-menu select option{background:${PANEL_IN};color:${CREAM}}
-      #fk-menu .row{display:flex;gap:9px;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid ${ROWLINE};font-size:13px}
-      #fk-menu .buy{font-family:'Pixelify Sans',monospace;font-size:12px;padding:4px 10px;color:${CREAM};background:${PANEL_IN};box-shadow:inset 0 0 0 1px #6b563a,0 2px 0 ${SHADOW};border:0;cursor:pointer}
+      #fk-menu .row{display:flex;gap:9px;align-items:center;justify-content:space-between;padding:8px 4px;border-bottom:1px solid ${ROWLINE};font-size:13px}
+      #fk-menu .buy{font-family:'Pixelify Sans',monospace;font-size:12px;padding:5px 12px;color:${CREAM};background:${PANEL_IN};box-shadow:inset 0 0 0 1px #6b563a,0 2px 0 ${SHADOW};border:0;cursor:pointer;transition:all .12s}
+      #fk-menu .buy:hover{background:#36291a;color:#fff}
+      #fk-menu [data-arch]{transition:transform .12s, box-shadow .12s}
+      #fk-menu [data-arch]:hover{transform:translateY(-2px)}
+      #fk-menu #go:hover,#fk-menu #host:hover,#fk-menu #joinp:hover,#fk-menu #tut:hover{filter:brightness(1.08)}
+      @media(max-width:860px){
+        #fk-menu .arch-grid{grid-template-columns:repeat(2,1fr) !important}
+        #fk-menu .play-modes{grid-template-columns:1fr !important}
+      }
+      @media(max-width:540px){
+        #fk-menu .arch-grid{grid-template-columns:1fr !important}
+      }
     </style>
     <div id="fk-pattern" style="${patternCss(ARCH[selectedArch])}"></div>
     <div style="position:relative;z-index:1;max-width:960px;margin:0 auto;padding:34px 18px 70px">
@@ -354,7 +366,7 @@ function renderPlay(panel: HTMLDivElement): void {
   panel.innerHTML = `
     <div style="font-family:'Press Start 2P',monospace;font-size:8px;letter-spacing:1px;color:${DIM};text-align:center;margin-bottom:6px">CHOOSE YOUR CONGREGATION</div>
     <div style="font-family:'VT323',monospace;font-size:15px;color:#84a23c;text-align:center;margin-bottom:14px">★ New here? The Prosperity Circle is the most forgiving — low Heat, steady money. Or just hit TUTORIAL.</div>
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:0 auto 24px">
+    <div class="arch-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:0 auto 24px">
       ${ARCH_IDS.map((id) => {
         const a = ARCH[id];
         return `<button data-arch="${id}" style="${cardCss(id === selectedArch, a)}">
@@ -379,7 +391,7 @@ function renderPlay(panel: HTMLDivElement): void {
         <span style="font-family:'Press Start 2P',monospace;font-size:10px;color:#f0b53e;letter-spacing:1px">🎓 TUTORIAL</span>
         <span style="font-size:13px;color:#a08a64">a guided first match — offline, 3 minutes, the same for everyone</span>
       </button>
-      <div style="display:grid;grid-template-columns:1.15fr 1fr 1.2fr;gap:12px;width:100%;align-items:start">
+      <div class="play-modes" style="display:grid;grid-template-columns:1.15fr 1fr 1.2fr;gap:12px;width:100%;align-items:start">
         <button id="go" style="${soloCss(a0)}">
           <div style="font-size:18px;font-weight:700;letter-spacing:.5px">▶ SOLO</div>
           <div style="font-size:12px;opacity:.85;margin-top:4px">Drop into a bot match. Instant.</div>

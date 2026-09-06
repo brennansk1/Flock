@@ -30,6 +30,7 @@ import type {
   CropCircle,
   Picket,
   RecapEvents,
+  ActiveDecree,
 } from "./types.js";
 import type { Street } from "./names.js";
 
@@ -73,6 +74,7 @@ export interface Snapshot {
   districtBuffs: DistrictBuff[];
   auras: Aura[];
   prophecies: Prophecy[];
+  activeDecrees: ActiveDecree[];
   revelationMode: boolean;
   disableCouriers: boolean;
   disableCPA: boolean;
@@ -141,6 +143,7 @@ export function toSnapshot(s: SimState): Snapshot {
     districtBuffs: s.districtBuffs.map((e) => ({ ...e })),
     auras: s.auras.map((e) => ({ ...e })),
     prophecies: s.prophecies.map((e) => ({ ...e })),
+    activeDecrees: s.activeDecrees.map((e) => ({ ...e })),
     revelationMode: s.revelationMode,
     disableCouriers: s.disableCouriers,
     disableCPA: s.disableCPA,
@@ -218,6 +221,7 @@ export function fromSnapshot(snap: Snapshot): SimState {
     districtBuffs: snap.districtBuffs.map((e) => ({ ...e })),
     auras: snap.auras.map((e) => ({ ...e })),
     prophecies: snap.prophecies.map((e) => ({ ...e })),
+    activeDecrees: (snap.activeDecrees ?? []).map((e) => ({ ...e })),
     revelationMode: snap.revelationMode,
     disableCouriers: snap.disableCouriers,
     disableCPA: snap.disableCPA,

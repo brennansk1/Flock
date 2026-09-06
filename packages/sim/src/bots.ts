@@ -20,8 +20,8 @@
 import { IntentType, type Intent } from "./intents.js";
 import { toInt } from "./fixed.js";
 import { nextRange, type RngState } from "./rng.js";
-import { Stance, Terrain, MAX_COHORTS, type PlayerId, type SimState, type PlayerState } from "./types.js";
-import { CIVIC_LOTS } from "./civics.js";
+import { Stance, Terrain, Lot, CivicDecreeId, MAX_COHORTS, type PlayerId, type SimState, type PlayerState } from "./types.js";
+import { CIVIC_LOTS, computeCivicControl } from "./civics.js";
 
 /** Civic/key-building lot types churches like to siege (bonus-bearing tiles). */
 const KEY_LOTS = new Set<number>(CIVIC_LOTS);
@@ -204,9 +204,45 @@ export function botTurn(sim: SimState, bot: BotState, rng: RngState): Intent[] {
   }
   // churches periodically point the wave at a key building instead of a plain
   // house — taking the school/sheriff/church swings a whole district (§M4).
-  if (bot.tier === "church" && nextRange(rng, 3) === 0) {
-    const kb = nearestKeyBuilding(w, origin, bot.playerId, 18);
-    if (kb >= 0) front = kb;
+  // Archetype-adapted building priorities (Task 5.2):
+  // - Dawn: HighSchool, RadioTower
+  // - Radiant: Supermarket, Church
+  // - Circle: Bank, TownHall
+  if (bot.tier === "church" && nextRange(rng, 2) === 0) {
+    let prefLots: Lot[] = [];
+    if (p.archetype === "dawn") prefLots = [Lot.HighSchool, Lot.Sheriff];
+    else if (p.archetype === "radiant") prefLots = [Lot.Supermarket, Lot.Church];
+    else if (p.archetype === "circle") prefLots = [Lot.Bank, Lot.Office];
+    else prefLots = [Lot.School, Lot.Library];
+
+    let targeted = -1;
+    for (const targetLot of prefLots) {
+      for (let r = 1; r <= 20; r++) {
+        const cx = origin % w.width;
+        const cy = (origin / w.width) | 0;
+        for (let dy = -r; dy <= r; dy++) {
+          for (let dx = -r; dx <= r; dx++) {
+            if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+            const x = cx + dx;
+            const y = cy + dy;
+            if (x < 0 || y < 0 || x >= w.width || y >= w.height) continue;
+            const t = y * w.width + x;
+            if (w.terrain[t] === Terrain.Citizen && w.lot[t] === targetLot && w.owner[t] !== bot.playerId) {
+              targeted = t;
+              break;
+            }
+          }
+          if (targeted >= 0) break;
+        }
+        if (targeted >= 0) break;
+      }
+      if (targeted >= 0) break;
+    }
+    if (targeted >= 0) front = targeted;
+    else {
+      const kb = nearestKeyBuilding(w, origin, bot.playerId, 18);
+      if (kb >= 0) front = kb;
+    }
   }
   sendMission(out, sim, bot, p, front, Stance.Spread);
 
@@ -292,6 +328,22 @@ export function botTurn(sim: SimState, bot: BotState, rng: RngState): Intent[] {
   // 4) prophecy / signature: spend the dramatic button when it's likely ready
   if (nextRange(rng, 25) === 0) {
     out.push({ t: IntentType.SIGNATURE, player: bot.playerId });
+  }
+
+  // 5) Civic Decrees: intelligently invoke active decrees when controlling key institutions
+  if (bot.tier === "church" && nextRange(rng, 4) === 0) {
+    const ctrl = computeCivicControl(sim);
+    if (ctrl.get(Lot.Sheriff) === bot.playerId) {
+      out.push({ t: IntentType.CIVIC_DECREE, player: bot.playerId, decree: CivicDecreeId.TownCurfew });
+    } else if (ctrl.get(Lot.HighSchool) === bot.playerId) {
+      out.push({ t: IntentType.CIVIC_DECREE, player: bot.playerId, decree: CivicDecreeId.PepRally });
+    } else if (ctrl.get(Lot.Supermarket) === bot.playerId) {
+      out.push({ t: IntentType.CIVIC_DECREE, player: bot.playerId, decree: CivicDecreeId.FoodRationing });
+    } else if (ctrl.get(Lot.Church) === bot.playerId) {
+      out.push({ t: IntentType.CIVIC_DECREE, player: bot.playerId, decree: CivicDecreeId.EvangelicalRevival });
+    } else if (ctrl.get(Lot.School) === bot.playerId) {
+      out.push({ t: IntentType.CIVIC_DECREE, player: bot.playerId, decree: CivicDecreeId.ParentTeacherNight });
+    }
   }
 
   return out;

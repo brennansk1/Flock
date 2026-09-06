@@ -19,6 +19,7 @@ import {
   type SimState,
   type TileId,
 } from "./types.js";
+import { computeMonopolies, isMunicipalInjunctionActive } from "./civics.js";
 
 const TPS = 10;
 
@@ -116,6 +117,13 @@ export function buildingCost(
   }
   if (civics && b && controlsCivic(civics, Lot.Sawmill, player))
     cost = mul(cost, b.civics.sawmillBuildMult);
+  // Food & Fuel Cartel monopoly: enemy building placement costs +30%
+  for (const pl of s.players) {
+    if (pl.id !== player && pl.alive && computeMonopolies(s, pl.id).foodAndFuelCartel) {
+      cost = mul(cost, fromFloat(1.30));
+      break;
+    }
+  }
   return cost;
 }
 
@@ -233,6 +241,9 @@ export function disableBuildingsNear(
 export function stepBuildings(s: SimState, b: Balance): void {
   for (const bd of s.buildings) {
     if (bd.buildTicksLeft > 0) {
+      if (isMunicipalInjunctionActive(s, s.world.district[bd.tile]!, bd.player)) {
+        continue;
+      }
       bd.buildTicksLeft--;
       continue;
     }

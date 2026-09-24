@@ -208,3 +208,27 @@ graph LR
 * **Prosperity Circle Theme**: Dual cash register "cha-ching" (triangle downward pitch $2200\text{ Hz} \to 400\text{ Hz}$ + high harmonic sine bells at B6 $1975.53\text{ Hz}$).
 * **Visitors' Fellowship Theme**: Theremin portamento sweeping $369.99\text{ Hz} \to 783.99\text{ Hz} \to 554.37\text{ Hz}$ modulated by a 6.5 Hz vibrato LFO + telemetry chirps.
 * **Fanfares**: Stately C-major brass fanfare for Civic Decrees; triumphant golden arpeggio for Monopoly Unlocks.
+
+---
+
+## 7. Developer Tooling Harness & Verification Scripts
+
+The codebase provides a comprehensive headless CLI harness in `tools/` that engineers (human or AI) can execute directly via shell commands:
+
+| Tool Script | Category | Purpose & CLI Invocation |
+| :--- | :--- | :--- |
+| `tools/audit_mapgen.mjs` | Verification | Automated 75-world mapgen invariant linter across 5 archetypes: `node tools/audit_mapgen.mjs [--seeds 50]`. Part of `npm test`. |
+| `tools/generate_curated_suite.mjs` | Visual QA | Generates 17 high-res PNG benchmarks in `docs/assets/curated/` across 5 archetypes, 4 seasons, and 4 lighting conditions. |
+| `tools/generate_catalog_inspection.mjs` | Visual QA | Dual-view asset inspector rendering studio slate (blank background) and in-situ map crops for all 121 catalog assets. |
+| `tools/spritesheet.mjs` | Visual QA | Renders live building, lot, and landmark sprites on an isolated studio canvas (`node tools/spritesheet.mjs [out.png]`). |
+| `tools/vehicle_spritesheet.mjs` | Visual QA | Renders vehicle silhouettes, directions, and color palettes. |
+| `tools/botleague.mjs` | Balance & Sim | Headless tournament runner simulating 200+ bot-vs-bot matches to verify faction win-rate parity: `node tools/botleague.mjs 200 6 48`. |
+| `tools/soak.mjs` | Network & Load | Headless WebSocket stress tester spinning up 20+ clients against `@flock/server` to detect desyncs: `node tools/soak.mjs 20 15`. |
+| `tools/mapmetrics.mjs` | Quality Metrics | Computes Shannon entropy of zoning, road connectivity ratios, and parcel distributions: `node tools/mapmetrics.mjs farm 96`. |
+| `tools/recapcard.mjs` | Graphics | Generates 1080×1350 post-match social recap cards. |
+| `tools/create_animated_town_gif.mjs` | Animation | Assembles multi-frame animated GIFs of living town activity. |
+| `tools/playtest_sim.mjs` | Interactive Debug | Headless interactive simulation stepper for debugging state transitions. |
+| `tools/xbrowser_determinism.mjs` | Invariance | Verifies bit-identical simulation StateHash across multiple JavaScript runtimes. |
+
+### License to Author Custom Development Tools
+Engineers and AI models are **explicitly empowered to author new scripts in `tools/`** (or ephemeral scratch scripts) as development progresses. Building custom profiling scripts, automated characterization harnesses, specialized spritesheet generators, or balancing tournament runners is strongly encouraged whenever it accelerates verification or saves token spend.

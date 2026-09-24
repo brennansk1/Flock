@@ -39,7 +39,7 @@ To bulk-design and polish large asset suites with high visual quality and minima
    * Define sprites in `packages/sim/src/townRender.ts` and `palette.ts` using compact character matrices or structural procedural primitives.
    * Never output thousands of lines of raw ASCII or coordinate lists into conversational context—keep code edits surgical and modular.
 2. **Dual-Harness Visual QA (Studio vs. In-Situ)**:
-   * **Harness A: Studio View (Blank Studio Slate)**: Run `node tools/spritesheet.mjs` or `node tools/generate_catalog_inspection.mjs`. Renders all new assets and variants in an isolated grid against dark slate (`#181512`) at $8\times$ zoom with 1px grid guides. Inspect via image tool to verify silhouette readability, contrast, and 1px panel seams in isolation.
+   * **Harness A: Studio View (Blank Studio Slate)**: Run `node tools/spritesheet.mjs` or `node tools/generate_catalog_inspection.mjs`. Renders all new assets in an isolated grid against dark slate (`#181512`) at $8\times$ zoom with 1px grid guides. Inspect via image tool to verify silhouette readability, contrast, and 1px panel seams in isolation.
    * **Harness B: In-Situ View (Procedural Map Context)**: Run `node tools/generate_curated_suite.mjs` on benchmark seeds (11, 42, 77) across the 4 seasons. Crop focal zones (Downtown Square, High School Campus, Suburban Cul-de-Sacs, Rail Siding, Waterways) to verify that buildings sit naturally on roads, align with sidewalks/curb cuts, respect zoning buffers, and blend into seasonal foliage.
 3. **Automated Fast-Fail Invariant Linting**:
    * Automated tests (`npm test`) verify pixel dimensions, palette color mappings, and physical setback rules (no non-exempt structures on water, 6-tile zoning buffer) before image generation, preventing token waste on buggy iterations.
@@ -48,7 +48,27 @@ To bulk-design and polish large asset suites with high visual quality and minima
 
 ---
 
-## 3. Cost Self-Awareness & Stage Checkpoint Protocol
+## 3. Developer Tooling Suite & License to Create Custom Tools
+
+The repository includes a suite of headless CLI utilities in `tools/` that you can execute via shell commands. **You have explicit permission and encouragement to create new tools and scripts in `tools/` as you go** whenever needed to aid development, automate batch QA, profile performance, run balance tournaments, or verify visual regressions:
+
+| Tool Script | Purpose & Usage |
+| :--- | :--- |
+| `tools/audit_mapgen.mjs` | Automated 75-world mapgen invariant linter across 5 archetypes (`node tools/audit_mapgen.mjs`). |
+| `tools/generate_curated_suite.mjs` | Generates 17 high-res benchmark PNG images into `docs/assets/curated/` across archetypes, seasons, and lighting. |
+| `tools/generate_catalog_inspection.mjs` | Dual-view studio view (blank slate) and in-game map crop for all catalog assets. |
+| `tools/spritesheet.mjs` | Renders live building, lot, and landmark sprites on an isolated canvas (`node tools/spritesheet.mjs`). |
+| `tools/vehicle_spritesheet.mjs` | Renders vehicle silhouettes, directions, and color variants. |
+| `tools/botleague.mjs` | Headless 200+ match tournament runner testing archetype win-rate parity (`node tools/botleague.mjs 200`). |
+| `tools/soak.mjs` | Headless WebSocket stress tester simulating 20+ clients to detect lockstep desyncs (`node tools/soak.mjs 20 15`). |
+| `tools/mapmetrics.mjs` | Computes Shannon entropy of zoning, road connectivity ratios, and parcel distributions (`node tools/mapmetrics.mjs farm 96`). |
+| `tools/create_animated_town_gif.mjs` | Assembles multi-frame animated GIFs of living town activity. |
+| `tools/recapcard.mjs` | Generates high-resolution (1080×1350) post-match social recap cards. |
+| `tools/xbrowser_determinism.mjs` | Verifies bit-identical simulation StateHash across multiple JavaScript runtimes. |
+
+---
+
+## 4. Cost Self-Awareness & Stage Checkpoint Protocol
 
 You do not have intrinsic real-time awareness of dollar cost in the sandbox. Therefore, **you must execute work in distinct stages and pause for user feedback**:
 * **Mandatory Checkpoint**: At the conclusion of each planned milestone/stage:
@@ -67,9 +87,9 @@ You do not have intrinsic real-time awareness of dollar cost in the sandbox. The
 
 ---
 
-## 4. Canonical Documentation Index
+## 5. Canonical Documentation Index
 
-* **Systems Architecture**: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) (100ms lockstep, dual-sim prediction, Glicko-2)
+* **Systems Architecture**: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) (100ms lockstep, dual-sim prediction, Glicko-2, developer tools)
 * **Procedural World Generation**: [`docs/WORLDGEN.md`](docs/WORLDGEN.md) (1980s town morphology, variants, animations, placement grammar)
 * **Master Game Design**: [`docs/GAME_DESIGN.md`](docs/GAME_DESIGN.md) (factions, combat, civics, anti-bounce design)
 * **SDD & Modernization Roadmap**: [`docs/ROADMAP_SDD.md`](docs/ROADMAP_SDD.md) (checkpoints, bulk sprite QA, feature backlog)
@@ -77,7 +97,7 @@ You do not have intrinsic real-time awareness of dollar cost in the sandbox. The
 
 ---
 
-## 5. Verification Gate (Mandatory)
+## 6. Verification Gate (Mandatory)
 
 Always run before ending any turn or declaring a stage complete:
 ```bash

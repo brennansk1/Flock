@@ -109,10 +109,12 @@ test("Street Prophet pylon converts nearby tiles without a front", () => {
   const target = 4 * 24 + 4;
   const ability: Intent = { t: IntentType.ABILITY, player: 1, ability: "street_prophet", target };
   const tiles0 = p.ownedTiles;
+  const earned0 = toInt(p.usdEarned);
   run(s, 300, turnsOf({ [s.tick]: [ability] })); // pylon lives 30s
   assert.ok(p.ownedTiles > tiles0, "pylon pressure should flip neutral tiles around it");
   assert.equal(s.pylons.length, 0, "pylon expired");
-  assert.ok(toInt(p.usd) < 50_000, "pylon cost paid");
+  const spent = 50_000 + (toInt(p.usdEarned) - earned0) - toInt(p.usd);
+  assert.ok(Math.abs(spent - 1_500) <= 2, `pylon cost paid ($${spent})`);
 });
 
 /** Hand a player extra believer tiles (rows from the top) to pass thresholds. */

@@ -1,161 +1,198 @@
 # FLOCK — Comprehensive Procedural World Generation Specification
 
-This document is the authoritative engineering and design specification for the procedural world generation and environmental rendering engine in **FLOCK** (`@flock/sim/src/mapgen.ts`, `gridRoads.ts`, `townRender.ts`, and `palette.ts`). It outlines the mathematical principles, generation pipeline, biome ecosystems, urban layout heuristics, environmental systems, and verification protocols.
+This document is the authoritative engineering and design specification for procedural world generation and environmental rendering in **FLOCK** (`@flock/sim/src/mapgen.ts`, `gridRoads.ts`, `townRender.ts`, `palette.ts`, and `assetCatalog.ts`).
 
 ---
 
-## 1. Core Architecture & Mathematical Foundations
+## 1. Core Principles & Mathematical Foundations
 
 ### 1.1 Strict Determinism & Lockstep Invariance
-FLOCK is a browser-first competitive multiplayer RTS. To achieve sub-100ms lockstep synchronization across 8–100 players without sending heavy state frames over the network, **world generation must be 100% deterministic**:
-* **Seeded PRNG**: All random choices are derived from an explicit `RngState` (seeded via `SplitMix32` / Xoroshiro). `Math.random()` is strictly prohibited as its V8/SpiderMonkey floating-point implementations vary across runtimes.
-* **Pure State Functions**: Given an integer `seed`, `generateWorld(seed, width, height)` generates bit-for-bit identical tile arrays (`terrain`, `biome`, `district`, `lot`, `pop`, `owner`).
-* **Fixed-Point Arithmetic**: Coordinate calculations, pathfinding cost calculations, and distance metrics use fixed-point or integer arithmetic (Q16.16) to avoid IEEE 754 floating-point divergence.
+FLOCK is a competitive multiplayer RTS running at 10 Hz lockstep across 4–100 players. World generation must be **bit-for-bit identical across all clients and servers**:
+* **Seeded PRNG**: All randomness is derived from an explicit `RngState` using golden-ratio stride: `seed ^ (0x6d61_7067 + Math.imul(attempt, 0x9e37_79b9))`. `Math.random()` is strictly prohibited.
+* **Pure State Functions**: Given an integer `seed`, `generateWorld(seed, width, height, opts)` generates identical flat typed arrays (`terrain`, `biome`, `district`, `lot`, `pop`, `owner`, `landmark`, `property`).
+* **Fixed-Point Arithmetic**: Spatial and path calculations use integer and Q16.16 fixed-point math to avoid IEEE 754 floating-point divergence.
 
 ### 1.2 The 8px Visual Grammar
-The game renders in a top-down pixel perspective at a fixed **8 pixels per tile**:
-* **Single LOD Philosophy**: There are no zoom-dependent asset LODs or high-res texture packs. Zooming magnifies the procedural 8×8 pixel art.
-* **Readable Silhouettes**: Every building, vehicle, tree, and resident must be instantly identifiable at 8px by its silhouette, shadow, and color palette.
-* **Micro-seam Delineation**: Adjacent modular building blocks use a 1-pixel shaded seam (`shade(c, 0.85)`) on shared boundaries. This creates realistic architectural paneling and prevents tall structures from merging into flat blobs.
+Rendering operates at a top-down pixel perspective with a fixed **8 pixels per tile** (`TILE_PX = 8`):
+* **Single LOD Philosophy**: There are no zoom-dependent asset LODs. Zooming ($1\times$ to $4\times$) magnifies the procedural 8×8 pixel art.
+* **Readable Silhouettes**: Every building, vehicle, tree, and resident is identifiable at 8px by silhouette, shadow, and color palette.
+* **1px Panel Seams**: Adjacent modular building blocks use a 1-pixel shaded seam (`shade(c, 0.85)`) on shared boundaries. Storefront party-walls render 1px vertical division lines (`shade(wall, 0.5)`).
 
 ---
 
 ## 2. Stage-by-Stage Generation Pipeline
 
-The generation pipeline executes in 10 sequential, deterministic stages:
+The generation pipeline in `mapgen.ts` executes up to **5 retry attempts** (`attempt = 0..4`) with scale factor `rScale = 1 + attempt * 0.12`.
 
 ```mermaid
 flowchart TD
-    S1["Stage 1: Seed & Grid Alloc"] --> S2["Stage 2: Hydrology & River Meander"]
-    S2 --> S3["Stage 3: Biomes & Ecotone Cellular Automata"]
-    S3 --> S4["Stage 4: Infrastructure Spine (Rail & Arterials)"]
-    S4 --> S5["Stage 5: Orthogonal Street Network"]
-    S5 --> S6["Stage 6: Zoning & District Allocations"]
-    S6 --> S7["Stage 7: Civic Keystone Landmarks"]
-    S7 --> S8["Stage 8: Multi-Tile Lot Parcels & Parking"]
-    S8 --> S9["Stage 9: Agriculture, Tracks & Shelterbelts"]
-    S9 --> S10["Stage 10: Wilderness & Faction Spawn Balance"]
+    S1["1. Grid Alloc & District Coeffs"] --> S2["2. Highways & Town Footprint"]
+    S2 --> S3["3. Railroad Spine & Industrial Siding"]
+    S3 --> S4["4. Biomes & Concentric Ecotones"]
+    S4 --> S5["5. Sinusoidal River Meander & Bridges"]
+    S5 --> S6["6. Lakes & BFS River Drainage"]
+    S6 --> S7["7. Farmsteads & Fill Farm Belt"]
+    S7 --> S8["8. Multi-Tile Civic Keystones & Parking"]
+    S8 --> S9["9. Town Archetype Post-Processing"]
+    S9 --> S10["10. Road Orthogonalization & Sanitization"]
+    S10 --> S11["11. Physical Constraint Passes"]
+    S11 --> S12["12. Population Floor Verification"]
 ```
 
-### Stage 1: Seed & Grid Allocation
-* World dimensions default to $96 \times 96$ tiles ($768 \times 768$ px) for standard matches, scaling up to $192 \times 192$ or $256 \times 256$ for mass multiplayer.
-* Flat typed arrays allocate `terrain: Uint8Array`, `biome: Uint8Array`, `district: Uint8Array`, `lot: Uint8Array`, and `pop: Uint16Array`.
+### Stage Details
+1. **Grid Allocation**: Allocates flat parallel typed arrays (`terrain`, `lot`, `district`, `state`, `pop`, `owner`, `susceptibility`, `dissent`, `scarTicks`, `landmark`, `holdTicks`, `flags`, `biome`, `property`).
+2. **Highways & Town Footprint**: Town center (`cx, cy`) placed within $\pm 4$ tiles of map center. Radius $r = \text{clamp}(16,\, \min(W, H) \times 0.32,\, \min(W, H) \times 0.28 \times rScale)$. 12-spoke boundary modulated by cosine interpolation, squashing N-S axis by $1.35\times$. Traces orthogonal street grid (`traceGridRoads`).
+3. **Railroad Spine & Siding**: Straight line 5–9 blocks off highway minimizing road cuts. Industrial siding stamps `Lot.GrainElevator` and `Lot.Depot`.
+4. **Biomes & Concentric Ecotones**: Mega-blobs or accent biome blobs stamped with organic multi-frequency noise.
+5. **River Meander**: Harmonic sinusoidal meander ($a_1 \sin k_1 y + a_2 \sin k_2 y$) down the roomier map side. Column frozen at road crossings for square bridges. Downstream widening (1-wide $\to$ 3-wide $\to$ 4-wide). Upstream millpond weir (`Lot.Dam`).
+6. **Lakes & Drainage**: BFS path carves 1-tile outlets connecting landlocked standing lakes to the river (except desert playas).
+7. **Farms & Agriculture**: 4–6 farmsteads along rural roads (house, barn, silo, setback driveway, shelterbelt). `fillFarmBelt` packs rural land with $11 \times 9$ coarse lattice cells of $6\times 6$ parcel fields.
+8. **Civic Keystones & Parcels**: Stamped multi-tile footprints with integrated paired parking lots.
+9. **Town Archetype Adjustments**: Archetype-specific overrides (`farm`, `oceanside`, `desert`, `mountain`, `lakeside`).
+10. **Road Sanitization**:
+    * `orthogonalizePaths`: Bridges diagonal road/dirt contacts.
+    * `extendEdgeRoads`: Extends streets ending within 8 tiles of map border to the boundary.
+    * `connectRoadComponents`: Multi-source BFS corridor connection eliminates orphan road islands.
+    * `pruneRoadStubs` & `pruneAllDeadEnds`: Recursively eliminates dangling dead-end spurs.
+11. **Physical Constraint Enforcement**:
+    * `enforceZoningBuffer`: $\ge 6$ tile Euclidean/Chebyshev buffer between Industrial and sensitive institutions (Schools, Churches).
+    * `enforceCivicParkingAdjacency`: 100% of civic/commercial anchors must possess an adjacent road-touching `Lot.Parking` tile (5 fallback passes).
+    * `enforceHydrologicalSetback`: $\ge 1$-tile grass buffer between water and all non-water-exempt buildings/farms.
+    * `enforceRoadFrontage`: Demotes interior lots without orthogonal road access to yards/gardens.
+    * `infillToFloor`: Upgrades empty yards to modest homes until population floors hold.
+12. **Verification Check**: Verifies populated tiles $\ge 640$ and souls $\ge 2{,}900$ (on $96\times 96$). Retries with larger $rScale$ if floors fail.
 
-### Stage 2: Hydrology & River Meandering
-* **River Curve**: Generated using a continuous mathematical spline driven by harmonic noise, cutting across the map from edge to edge.
-* **Stone & Gravel Shores**: River and lake edges generate 1-pixel buffer fringes of stone (`#8c867a`) and damp sand gravel (`#ad9c82`), preventing unnatural water-to-grass clipping.
-* **Riparian Bias**: Mature woodland and willow stands naturally cluster within 8 tiles of waterways. Forest placement strictly respects water proximity before claiming dry farmland.
-* **Bridges**: Where orthogonal roads cross water tiles, procedural wooden or stone trestle bridges are generated with guardrails and shadow pier pilings.
+---
 
-### Stage 3: Biome Distribution & Cellular Automata
-* Base terrain noise uses multi-frequency octave sampling with domain warping to produce smooth, non-rectilinear biome borders:
-  * **Temperate Plains** (`Biome.Temperate`): Rolling grassy pastures, scattered deciduous copses, and loamy fertile soil.
-  * **Pine Forest** (`Biome.Forest`): Deep forest green canopy floor (`#3a5928`), dense evergreen pines, fallen logs, and mossy stone boulders.
-  * **Desert Scrub** (`Biome.Desert`): Arid ochre sand (`#d9ba82`), sandstone ridges, dry sagebrush, and sparse saguaro cacti.
-  * **Autumn Woodlands** (`Biome.Autumn`): Golden-rust soil floor with deciduous groves that blaze in red, orange, and gold during Fall.
-  * **Mountain Foothills** (`Biome.Mountain`): Elevated granite cliffs, scree slopes, and alpine pine clusters.
-  * **Oceanside / Coastal** (`Biome.Oceanside`): Saltwater coastline with breaker shoals, dunes, and lighthouse promontories.
-* **Cellular Smoothing**: 3 passes of cellular automata smooth biome noise, eliminating isolated 1-tile speckles while preserving ecotones.
-* **Spillover Prevention**: Forest stands are strictly prevented from bleeding into Desert biomes; cacti only spawn sparsely via dedicated distribution loops.
+## 3. Biomes & Concentric Ecotones
 
-### Stage 4: Infrastructure Spine (Railroad & Main Arterials)
-* **Railroad Line**: A straight, continuous railway cuts across the map, anchored by wooden ties, steel rails, and gravel ballast.
-* **Rail Siding & Industrial Spur**: A turnout switch branches off the main rail line into an industrial rail siding, serving the **Grain Elevator** and **Freight Depot Station**.
-* **Crossbucks**: Railroad-street intersections automatically generate white diagonal crossbuck signals and warning road markings.
+### 3.1 Biomes
+* **Temperate (0)**: Green pastures, deciduous copses, loamy soil.
+* **Desert (1)**: Ochre sand, sandstone ridges, dry sagebrush, saguaro cactus stands, date palm oases.
+* **Forest (2)**: Deep damp loam floor (`#3a5928`), dense evergreen pines, fallen logs, mossy stone boulders.
+* **Autumn (3)**: Golden-rust soil floor (`#c9a054`), blazing red, orange, and golden canopies.
+* **Ocean (4)**: Saltwater coastline, dunes, sand beach strip, sea docks, lighthouse promontory.
 
-### Stage 5: Orthogonal Street Network
-* **Strict Orthogonality**: All streets travel strictly along cardinal directions ($N, S, E, W$). Diagonal streets are prohibited to maintain clean pathfinding grids.
-* **No Orphan Households**: Every residential lot and institution maintains guaranteed road frontage or footpath connection.
+### 3.2 3-Ring Ecotone Transitions & Edge Bleed
+Transitions between biomes grade across **3 concentric rings** using deterministic per-pixel hashing (`h = pixHash(gx, gy)`):
+* **Desert**: Ring 1: heavy sand (`h % 3 === 0`); Ring 2: sparse sand/scrub (`h % 6 === 0`); Ring 3: sparse scrub (`h % 12 === 0`).
+* **Forest & Autumn**: Loam/rust ground blended at Ring 1 (`h % 2 === 0`), Ring 2 (`h % 4 === 0`), Ring 3 (`h % 8 === 0`).
+* **`naturalEdgeBleed`**: Woods and lakes bleed sub-tile noise-modulated fringe into neighboring grass based on 1-D value noise (`reach = 1 + valueNoise * 3.2`).
+
+---
+
+## 4. The Five Town Archetypes
+
+| Archetype | Dominant Geography | Signature Assets | Keystone Rules |
+| :--- | :--- | :--- | :--- |
+| **`farm`** | Temperate prairie, meander river, farm belt | Grain Elevator, Silo, Red Gambrel Barn, Depot, Farmhouse | Default baseline. Skips archetype pass for byte-level determinism. |
+| **`oceanside`** | Ocean coastline along roomier map edge, 2-tile sand beach, estuary river mouth | Lighthouse (north of pier), Cannery + fish docks (south of pier), 4-tile highway pier | **Grain elevator is eradicated and replaced with a second Cannery**. Roads terminating in sea are trimmed. |
+| **`desert`** | Dominant Desert biome across map; temperate oasis in town center | Saguaro stands, dry wash arroyo, date palms at water, adobe houses with earthen roofs | Farmland and crops are strictly prohibited. Desert lakes are endorheic playas (no river outlet channel carved). |
+| **`mountain`** | Dense Forest valley walled in by 16 heavy conifer stands | 2-tile Sawmill on rail line with 1-tile dirt log yard | Farmland climbing into forest biome is automatically reverted to timber woods/grass. |
+| **`lakeside`** | Massive irregular lake blob ($R = 17\text{--}21$) directly abutting town | Resort shore: $\ge 5$ cabins (`Lot.None`, Suburbs pop 3), $\ge 3$ Docks, boat ramp | Giant water body ($\ge +250$ lake tiles over farm baseline); hydrological setback strictly enforced around resort shoreline. |
+
+---
+
+## 5. Road Network Architecture (`gridRoads.ts`)
+
+* **Strict Orthogonality**: All streets travel strictly along cardinal axes ($N, S, E, W$). **Zero diagonals.**
 * **Street Hierarchy**:
-  * *Highways (Main Arterials)*: 2-tile wide asphalt with painted yellow double-center lines (`#e6c832`).
-  * *Town Streets*: 1-tile wide asphalt with white dash stripes (`#ffffff`) and concrete sidewalks (`#b8b2a5`).
-  * *Lanes & Alleys*: Narrow access routes servicing rear backyards and industrial bays.
-
-### Stage 6: District Zoning & Urban Morphology
-* **Downtown Core (District 3)**: Centered around the map centroid ($cx, cy$). Features continuous storefronts, high population density, multi-story brick facades, and concrete plazas.
-* **Commercial Strip (District 6)**: Extends outward along highways; features diners, gas stations, supermarkets, and motel rows.
-* **Residential Suburbs (District 1)**: Cul-de-sacs and grid blocks with detached single-family homes, neat green lawns, driveways, picket fences, and backyard vegetable gardens.
-* **College Quad (District 2)**: Brick lecture halls, libraries, paved walking paths, manicured lawns, and shaded commons.
-* **Industrial Lobe (District 7)**: Warehouses, auto repair garages, gravel yards, corrugated steel sheds, and smokestacks adjacent to the railway.
-* **Outskirts / Trailer Park (District 5)**: Gravel lanes, manufactured trailer homes, propane tanks, and utility sheds on the urban periphery.
-
-### Stage 7: Civic Keystone Landmarks
-Every generated world guarantees placement of keystone civic institutions:
-1. **Megachurch**: The primary Revelation win-condition monument. Centrally located with radial road access.
-2. **Town Hall**: Neoclassical civic anchor with columned portico and municipal flag.
-3. **Sheriff's Station**: Generates an active Heat-cooling aura over nearby districts.
-4. **Radio Broadcast Tower**: High-elevation steel lattice transmission tower broadcasting cult sermons.
-5. **Municipal Water Tower**: Spherical steel tank on trestle legs providing defensive vision.
-6. **County Fairground**: Pavilions, agricultural show rings, and festival tents.
-7. **Classical Library**: Stone facade, grand steps, and pediment roof.
-8. **Historic Chapel**: Steeple, arched belfry window, and stained glass.
-9. **Schoolhouse**: Red brick exterior, white bell tower, and playground.
-
-### Stage 8: Multi-Tile Lot Parcels & Paired Parking
-* Large institutions (Supermarkets, High Schools, Warehouses, Factories) are placed as coherent **multi-tile footprints** ($2\times 1$, $2\times 2$, or $3\times 2$).
-* **Paired Parking Lots**: Commercial lots automatically claim adjacent road-facing tiles as asphalt parking aprons complete with white bay markings and parked vehicles.
-* **Hydrological Setback**: Civic and commercial structures (except Docks and Depots) enforce a 1-tile setback from water bodies to maintain realistic town planning.
-
-### Stage 9: Agriculture, Tracks & Shelterbelts
-* **Agricultural Fields**: Farmed countryside is organized into coherent $6\times 6$ tile parcels.
-* **5 Crop Varieties**:
-  1. *Golden Wheat*: Rich honey wheat rows with golden glints.
-  2. *Corn Rows*: Deep green corn stalks alternating with tilled shadows.
-  3. *Canola Blossom*: Bright yellow flower blankets.
-  4. *Rich Soybeans*: Compact verdant leafy rows.
-  5. *Tilled Furrows*: Dark loamy soil ridges.
-* **Sub-Tile Agricultural Dirt Paths**: 2-pixel wide dark dirt tracks (`#483726`) run along parcel boundaries, realistically modeling tractor tracks connecting farmsteads to rural highways.
-* **Hay Bales**: Rolled straw bales dot harvested fields exclusively during the Fall season.
-* **Irrigation Pivots**: Silver wheel-line sprinkler pipes stretch across selected fields.
-* **Orchards & Pastures**: Neat rows of fruit trees (showing seasonal blossoms or fruit) and fenced pastures with cattle and stock tanks.
-
-### Stage 10: Wilderness & Faction Spawn Balance
-* **Equidistant Spawns**: Competing player factions spawn in open country/forest margins equidistant from the Downtown core.
-* **Spawn Viability**: Every spawn zone guarantees $\ge 600$ neutral citizen tiles within 20 tiles, access to at least two district types, and no immediate landmark obstruction.
-* **Commune Compounds**: Faction compounds feature procedural visual upgrades across stages 1 through 5 (from pitch tents to fortified chapels, bus depots, and defensive walls).
+  1. *2-Lane Highway / Main Street*: Two painted rows (`highwayY`, `highwayY + 1`) spanning full map width ($x = 0 \dots W-1$).
+  2. *County Route*: Vertical artery (`highwayX`) spanning full map height ($y = 0 \dots H-1$).
+  3. *Avenues & Streets*: Stepped outward from arteries with organic jitter (5–6 lots downtown, 6–8 lots at fringe).
+  4. *Mid-Block Lanes*: Blocks with gap $\ge 7$ rows get a 1-tile residential lane through the center.
+  5. *Cul-de-Sacs*: 2–3 stub courts ending in a dead-end bulb ringing residential blocks.
+  6. *Country Roads*: Section-line continuations out to map edges with 40% probability of 2–5 tile jogs.
+  7. *Alleys*: Dirt lanes behind Main Street commercial lots at $hy - 2$ and $hy + 3$.
+  8. *Sidewalks*: 1px perimeter concrete sidewalks (`#b8b2a5`); Old Town features red brick sidewalks (`#8c685c`); curb cuts (`shade(asphalt, 0.85)`) fronting parking lots.
 
 ---
 
-## 3. Dynamic Environmental Systems
+## 6. Keystone Civic Landmarks & Multi-Tile Parcels
 
-### 3.1 The Four Seasons
+### 6.1 Landmarks (`Landmark` Enum)
+* **Town Hall (3)**: Centered at Downtown core (`cx, cy`).
+* **Megachurch (2)**: Town edge (`cx + r - 2, cy + 3`), citizen lot. Primary Revelation objective.
+* **Fairground (4)**: Opposite town edge (`cx - r + 2, cy - 3`), citizen lot.
+* **Radio Tower (1)**: Countryside ($15\% W, 15\% H$), dirt access lane.
+* **Water Tower (5)**: Countryside ($85\% W, 85\% H$), dirt access lane.
 
-The renderer dynamically shifts color palettes and sprite geometry based on the `season` parameter:
+### 6.2 Stamped Multi-Tile Parcels
+* **Supermarket**: $2\times 2$ grocery $+ 2\times 1$ parking lot (14 workers).
+* **High School**: $2\times 2$ building $+ 2\times 1$ parking $+ 2\times 2$ Ball Field (20 workers).
+* **Elementary School**: $2\times 2$ building $+ 2\times 1$ parking $+ 1\times 2$ Playground (16 workers).
+* **Church**: $2\times 2$ building $+ 1\times 2$ parking $+ 2\times 1$ Cemetery (8 workers) $+$ Parsonage.
+* **Fire Station**: $2\times 2$ building $+ 2\times 1$ vehicle apron (8 workers).
+* **Sheriff's Station**: $2\times 1$ station $+ 2\times 1$ cruiser parking (6 workers).
+* **Cinema**: $2\times 2$ theater $+ 2\times 1$ parking (10 workers).
+* **Factory & Warehouse**: $2\times 2$ footprint $+ 2\times 1$ truck yard (16 / 8 workers).
+* **Grain Elevator & Depot**: $2\times 1$ footprints placed on industrial rail siding.
+* **Library**: $1\times 1$ $+ 1\times 1$ parking (5 workers).
 
-| Season | Meadows & Ground | Tree Canopies & Woodlands | Agricultural Fields | Roofs & Architecture |
-|---|---|---|---|---|
-| **Spring** | Light vibrant green (`#6da344`) | Cherry & peach pink blossoms (`#ffd0e8`) | Tilled brown soil with young green sprouts (`#82cf3c`) | Standard materials; clean washed sidewalks |
-| **Summer** | Rich warm green (`#829c5e`), dark rich lawns | Deep forest green (`#2d5a27`) with sunlit rims | Ripe gold wheat, tall corn, blooming canola | Sun-warmed tiles with sharp drop shadows |
-| **Fall** | Golden rust floor (`#a49e60`) | Scarlet red, vivid orange, and rich golden canopies | Harvested tan stubble (`#baa57c`) with golden hay bales | Crisp autumn tones; fallen leaf speckles |
-| **Winter** | Pure white snow cover (`#eef4f8` / `#ffffff`) | Bare wood branch silhouettes with white snow caps | Snow-covered ridges; frozen dark earth tractor ruts | White snow caps on roofs; frozen ice-blue waterways (`#aed5e8`) |
-
-*Rule*: Red, orange, and yellow foliage renders **strictly in Fall**, preserving fresh spring and summer greens throughout the rest of the year.
-
-### 3.2 Diurnal Lighting Cycles (Time of Day)
-
-Pixel output is processed through a deterministic lighting shader:
-* **Dawn**: Soft rose and warm peach ambient color shift ($+15\%$ red, $+8\%$ green, $-5\%$ blue).
-* **Day**: Pure natural sunlight; baseline balanced contrast.
-* **Dusk**: Deep golden twilight with long-cast purple shadow filtration.
-* **Night**: Cool moonlit blue mask ($0.45\times$ base brightness with deep blue cast).
-  * **Luminous Glow Bypass**: Streetlights, vehicle headlights, illuminated storefronts, and lit residential windows (`C.windowLit`) bypass the night multiplier, shining with warm golden radiance against the dark.
+### 6.3 Physical Invariants
+* **Zoning Buffer**: Enforces minimum **6-tile buffer** between Industrial lots and sensitive institutions (Schools, Churches).
+* **Parking Adjacency**: 100% of civic/commercial anchors have an adjacent `Lot.Parking` tile touching a road.
+* **Hydrological Setback**: Enforces **$\ge 1$-tile grass buffer from water** for all non-exempt buildings. Water-exempt lots: `Parking`, `Dock`, `Depot`, `Dam`, `Lighthouse`, `Cannery`, `Sawmill`.
 
 ---
 
-## 4. Verification & Audit Protocols
+## 7. Agriculture & Rural Working Landscapes
 
-Every iteration of the world generator must pass the automated verification test suite:
+* **Field Parcels**: Anchored on rural roads outside town ($r + 6$), bounded by 1-tile grass shoulders and baulks. Organized into $6\times 6$ tile parcels.
+* **5 Crop Varieties** (hashed per parcel coordinate):
+  0. **Golden Wheat**: `#d4b247` base / `#f0d675` row
+  1. **Corn Rows**: `#54802a` base / `#e6c832` row
+  2. **Canola Blossom**: `#e6c832` base / `#62a838` row
+  3. **Rich Soybeans**: `#4f8c2e` base / `#3a6921` row
+  4. **Dark Soil Furrows**: `#6b523b` base / `#4e3b29` row
+* **Sub-Tile Tractor Dirt Paths**: 2px wide dark dirt tracks (`#483726`, winter `#5e5246`) at parcel boundaries simulating tractor ruts connecting farmsteads to rural roads.
+* **Seasonal Agricultural Details**:
+  * *Fall*: Golden hay bales (`#d8c88e`) dot fallow fields; barns spawn adjacent hay stacks.
+  * *Spring*: Brown soil with vibrant green young sprouts (`#82cf3c`).
+  * *Winter*: Frozen snow ridges over dark earth tractor ruts.
+* **Wheel-Line Irrigation**: Silver sprinkler pipe (`#d8dee2`) with two wheels (`#8a9399`) spanning fields.
+* **Pastures & Orchards**: Fenced pastures with grazing livestock (dairy cows `#ffffff`, brown cows `#8b5a2b`, horses `#7a4a2a`) and orchards with seasonal fruit/blossoms.
 
-### 4.1 Invariant Checklist
-1. **Determinism**: Identical seed generates identical state hash (`test/mapgen.test.ts`).
-2. **Connectivity**: 100% of residential tiles maintain orthogonal street or path access. Zero orphan houses.
-3. **Population Floors**: Standard $96\times 96$ competitive worlds must contain $\ge 640$ populated tiles and $\ge 2,900$ residents.
-4. **Road Integrity**: Streets are strictly orthogonal. No diagonal connections, no disconnected single-pixel roads.
-5. **Civic Guarantee**: Megachurch, Town Hall, Sheriff, Grain Elevator, Railroad, and Depot Station must be successfully planted.
-6. **Multi-Seed Audit**: The automated audit runner (`mapgen.test.ts`) verifies 75 consecutive worlds across 5 town archetypes (Farm, Oceanside, Desert, Mountain, Lakeside) across 15 seed families with zero invariant violations.
+---
 
-### 4.2 Executing Invariant Checks
+## 8. Environmental Rendering Engine (`townRender.ts`)
+
+### 8.1 Seasonal Palettes
+* **Spring**: Vibrant green meadow (`#6da344`), cherry/peach blossoms (`#ffd0e8`), tilled brown soil with green sprouts (`#82cf3c`), clean sidewalks.
+* **Summer**: Deep warm green meadow (`#829c5e`), dark tree canopies (`#2d5a27`), full crop rows, ripe fruit.
+* **Fall**: Golden rust meadow (`#a49e60`), scarlet/orange/gold canopies (`#b06f33`, `#c0a052`, `#96473a`), tan crop stubble (`#baa57c`), hay bales.
+* **Winter**: Pure white snow meadow (`#eef4f8` / `#ffffff`), snow-covered roofs, bare brown tree branches with snow caps (`#5c4c38`, `#ffffff`), frozen light-blue ice sheets (`#aed5e8`), snowmen in residential yards.
+
+### 8.2 Diurnal Lighting Filters
+* **Day**: Unmodified RGB baseline.
+* **Dawn**: Amber warmth: $\text{RGB} = [\min(255, R \times 1.12 + 15),\, \min(255, G \times 0.95 + 8),\, \min(255, B \times 0.82)]$.
+* **Dusk**: Violet twilight: $\text{RGB} = [\min(255, R \times 1.05 + 10),\, \min(255, G \times 0.82 + 5),\, \min(255, B \times 1.12 + 10)]$.
+* **Night**: Moonlight mask: $\text{RGB} = [R \times 0.22,\, G \times 0.32,\, B \times 0.55]$.
+* **Luminous Glow Bypass (`isLit`)**: Streetlights, vehicle headlights, illuminated storefronts, and lit residential windows (`C.windowLit = #ffd76a`) **completely bypass diurnal darkening**, glowing at full brightness in the dark.
+
+---
+
+## 9. Verification & Invariant Audit Protocol
+
+Automated test suites in `packages/sim/test/` (`mapgen.test.ts` and `archetypes.test.ts`) assert **10 core invariants across 75 consecutive worlds** (5 archetypes $\times$ 15 seed families):
+
+1. **Determinism**: Identical seed produces bit-identical buffers and state hashes. Replay snapshot roundtrip is 100% invariant.
+2. **Road Orthogonality**: 0 unbridged diagonal road contacts (`cornerOnly === 0`) and 0 isolated road pixels (`isolated === 0`).
+3. **World Naming**: Every world generates a valid Faker town name ($\ge 3$ chars), $\ge 10$ named street segments, and guaranteed `Main Street`.
+4. **Population Floors**: $96\times 96$ competitive worlds guarantee $\ge 640$ populated citizen tiles and $\ge 2{,}900$ residents.
+5. **Frontage Guarantee**: 100% of residential homes (pop $\ge 3$) maintain orthogonal access to a road or path (0 orphan homes).
+6. **Civic Guarantee**: 100% presence of keystone civic buildings: Elementary School, High School, Sheriff, Supermarket, Church, Fire Station, Gas Station, Warehouse, Bank, Post Office, Factory, Cinema, Library, Diner, Railroad, Grain Elevator, and Depot.
+7. **Parking Adjacency**: 100% of civic/commercial anchors have an adjacent `Lot.Parking` tile touching a road.
+8. **Hydrological Setback**: 0 residents living on water; no buildings on water except water-exempt lots; 1-tile grass buffer between water and crops/buildings.
+9. **Archetype Signature Guarantees**:
+   * Oceanside: $\ge 1500$ Ocean biome tiles, $\ge 1$ Lighthouse, $\ge 1$ Cannery, exactly 0 Grain Elevators.
+   * Mountain: $\ge 1500$ Woods tiles, $\ge 2$ Sawmill tiles on rail line, 0 farmland in Forest biome.
+   * Lakeside: $\ge +250$ lake tiles over farm baseline, $\ge 3$ Docks.
+   * Desert: $\ge 4000$ Desert biome tiles, $\ge 90\%$ of populated tiles on temperate oasis ground.
+10. **Rural Working Landscape**: Cultivated farmland $> 20\%$ of rural land; drainage basin $> 200$ water tiles with river/lake connectivity.
+
+Execute invariant audit:
 ```bash
 npm test
 ```
-All 131 tests and the 75-world audit must report `100% Invariants Met` and `Violations: 0`.
+All 135 tests must report `100% Invariants Met` and `Violations: 0`.

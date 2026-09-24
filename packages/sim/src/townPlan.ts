@@ -337,9 +337,140 @@ export function platMainStreet(
       w.lot[t] = SHOPS[nextRange(rng, SHOPS.length)]!;
       w.district[t] = core ? d : D.Downtown;
       w.pop[t] = 4 + nextRange(rng, 3);
-    } else if (core && d === D.Downtown && !fronts(w, t)) {
-      w.lot[t] = Lot.Parking; // rear lot behind the storefronts
+    } else if (core && !fronts(w, t)) {
+      w.lot[t] = Lot.Parking; // municipal / rear lot behind the storefronts
       w.pop[t] = 0;
+    }
+  }
+  platParking(w, rng);
+}
+
+/**
+ * PARKING (Stage 2): a 1980s town is built around the car. Beyond the rear
+ * lots behind Main St (above):
+ *  - every strip business on the Commercial highway (and every standalone
+ *    civic/industrial anchor) without an adjacent lot gets one next door;
+ *  - apartment blocks (ResHigh) park out back: interior lots become the
+ *    tenants' lot where they touch a street-facing building;
+ * Only open lots (no building, no house) are ever paved.
+ */
+export function platParking(w: World, rng: RngState): void {
+  const { width } = w;
+  const NEEDS: ReadonlySet<number> = new Set([
+    Lot.Shop, Lot.Diner, Lot.Motel, Lot.Cinema, Lot.Bank, Lot.PostOffice, Lot.Office, Lot.Supermarket,
+    Lot.Factory, Lot.Warehouse, Lot.Library, Lot.Church, Lot.FireStation, Lot.Sheriff, Lot.School, Lot.Courthouse,
+  ]);
+  const open = (t: number): boolean =>
+    w.terrain[t] === Terrain.Citizen && w.lot[t] === 0 && w.landmark[t] === 0 && w.pop[t]! < 3;
+  const hasLotNear = (t: number, r: number): boolean => {
+    const x = t % width;
+    const y = (t / width) | 0;
+    for (let oy = -r; oy <= r; oy++)
+      for (let ox = -r; ox <= r; ox++) {
+        const nx = x + ox;
+        const ny = y + oy;
+        if (nx < 0 || ny < 0 || nx >= width || ny >= w.height) continue;
+        if (w.lot[ny * width + nx] === Lot.Parking) return true;
+      }
+    return false;
+  };
+  // commercial blocks pave their interior: where most of a block's street
+  // frontage is storefronts, everything behind them is the shared lot
+  const SHOPFRONT: ReadonlySet<number> = new Set([
+    Lot.Shop, Lot.Diner, Lot.Bank, Lot.PostOffice, Lot.Office, Lot.Cinema, Lot.Supermarket, Lot.Motel,
+    Lot.Sheriff, Lot.FireStation, Lot.GasStation, Lot.Parking,
+  ]);
+  const seen = new Uint8Array(w.terrain.length);
+  for (let t = 0; t < w.terrain.length; t++) {
+    if (seen[t] || w.terrain[t] !== Terrain.Citizen) continue;
+    const blk = blockOf(w, t, seen);
+    if (blk.length > 64) continue; // not a city block (fringe / country)
+    let front = 0;
+    let shops = 0;
+    for (const b of blk) {
+      if (!fronts(w, b)) continue;
+      front++;
+      if (SHOPFRONT.has(w.lot[b]!)) shops++;
+    }
+    if (front === 0 || shops * 5 < front * 2) continue; // < 40% commercial frontage
+    for (const b of blk) {
+      if (fronts(w, b) || w.lot[b] !== 0 || w.landmark[b] !== 0) continue;
+      w.lot[b] = Lot.Parking;
+      w.pop[b] = 0;
+    }
+  }
+  // and every storefront row gets its rear lot: the open interior tile
+  // directly behind a shop (opposite its street) is paved for deliveries
+  // and staff — the "behind Main St" lot every 1980s downtown had
+  for (let t = 0; t < w.terrain.length; t++) {
+    if (w.terrain[t] !== Terrain.Citizen || !SHOPFRONT.has(w.lot[t]!) || w.lot[t] === Lot.Parking) continue;
+    const x = t % width;
+    for (const [dx, dy] of [[0, 1], [0, -1], [1, 0], [-1, 0]] as const) {
+      const sx = x - dx;
+      const sy = ((t / width) | 0) - dy;
+      if (sx < 0 || sy < 0 || sx >= width || sy >= w.height || !isWay(w, sy * width + sx)) continue;
+      // street on the (−dx,−dy) side → the rear is (+dx,+dy)
+      const rx = x + dx;
+      const ry = ((t / width) | 0) + dy;
+      if (rx < 0 || ry < 0 || rx >= width || ry >= w.height) continue;
+      const r = ry * width + rx;
+      if (w.terrain[r] === Terrain.Citizen && w.lot[r] === 0 && w.landmark[r] === 0 && !fronts(w, r)) {
+        w.lot[r] = Lot.Parking;
+        w.pop[r] = 0;
+      }
+    }
+  }
+  for (let t = 0; t < w.terrain.length; t++) {
+    if (w.terrain[t] !== Terrain.Citizen) continue;
+    const d = w.district[t]!;
+    const lot = w.lot[t]!;
+    // commercial strip / anchors: customer lot beside the building
+    if (NEEDS.has(lot) && d !== D.Downtown && !hasLotNear(t, 2)) {
+      for (const n of neighbors4(w, t)) {
+        if (open(n) || (w.terrain[n] === Terrain.Citizen && w.lot[n] === 0 && w.landmark[n] === 0 && d === D.Commercial)) {
+          w.lot[n] = Lot.Parking;
+          w.pop[n] = 0;
+          break;
+        }
+      }
+    }
+    // apartments park out back: interior (non-frontage) ResHigh lots
+    if (d === D.ResHigh && lot === 0 && !fronts(w, t) && nextRange(rng, 100) < 60) {
+      w.lot[t] = Lot.Parking;
+      w.pop[t] = 0;
+    }
+  }
+  // every lot needs a way in: a landlocked lot paves one open neighbouring
+  // lot that touches a street — its driveway (unreachable lots get pruned)
+  const done = new Uint8Array(w.terrain.length);
+  for (let t = 0; t < w.terrain.length; t++) {
+    if (done[t] || w.lot[t] !== Lot.Parking) continue;
+    const comp: number[] = [];
+    const st = [t];
+    done[t] = 1;
+    while (st.length) {
+      const c = st.pop()!;
+      comp.push(c);
+      for (const n of neighbors4(w, c)) {
+        if (!done[n] && w.lot[n] === Lot.Parking) {
+          done[n] = 1;
+          st.push(n);
+        }
+      }
+    }
+    if (comp.some((c) => fronts(w, c))) continue;
+    let paved = false;
+    for (const c of comp) {
+      for (const n of neighbors4(w, c)) {
+        if (w.terrain[n] === Terrain.Citizen && w.lot[n] === 0 && w.landmark[n] === 0 && fronts(w, n)) {
+          w.lot[n] = Lot.Parking;
+          w.pop[n] = 0;
+          done[n] = 1;
+          paved = true;
+          break;
+        }
+      }
+      if (paved) break;
     }
   }
 }

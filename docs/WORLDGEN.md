@@ -139,6 +139,21 @@ Transitions between biomes grade across **3 concentric rings** using determinist
 * **Parking Adjacency**: 100% of civic/commercial anchors have an adjacent `Lot.Parking` tile touching a road.
 * **Hydrological Setback**: Enforces **$\ge 1$-tile grass buffer from water** for all non-exempt buildings. Water-exempt lots: `Parking`, `Dock`, `Depot`, `Dam`, `Lighthouse`, `Cannery`, `Sawmill`.
 
+### 6.4 Urban Placement Grammar (Resolving Generation & Orientation Flaws)
+To eliminate past issues with awkward, unrealistic asset placement, the generator enforces strict urban planning grammar:
+1. **Street Frontage & Door Orientation**:
+   * Every building has a defined front, rear, and sides.
+   * Front doors, porches, and retail display windows **must face the nearest road/sidewalk**. Structures never generate backwards (e.g. back porch facing Main St) or facing into a neighboring blind wall.
+2. **Driveways & Curb Cuts**:
+   * Residential garages and commercial parking aprons must orthogonally connect to streets via dedicated driveway paving and 1px sidewalk curb cuts (`shade(asphalt, 0.85)`).
+3. **Cohesive Perimeter Blocks & Private Backyards**:
+   * Backyards belong behind residential structures. Houses form cohesive outward-facing perimeter rings enclosing private interior green spaces (fenced yards, vegetable patches, garden sheds, clotheslines, or circular above-ground pools) rather than arbitrary checkerboards.
+4. **Zoning Integrity & Separation**:
+   * Eliminate unrealistic juxtaposition: commercial retail stays clustered on Main Street and highways; residential homes form calm cul-de-sacs and avenues; noisy industrial yards (sawmills, warehouses, gravel pits) are strictly segregated along the railroad on the downwind edge of town.
+5. **Civic Institution Grounding**:
+   * The High School campus is placed as a unified compound: main building, sports field, and yellow bus loop adjacent to an arterial road.
+   * Town Hall anchors a central public square/park with monument, flagpole, and stone walkways.
+
 ---
 
 ## 7. Agriculture & Rural Working Landscapes
@@ -160,7 +175,7 @@ Transitions between biomes grade across **3 concentric rings** using determinist
 
 ---
 
-## 8. Environmental Rendering & The 1980s Vehicle Fleet (`townRender.ts`)
+## 8. Environmental Rendering, Variants & Micro-Animations (`townRender.ts`)
 
 ### 8.1 The 1980s Vehicle Fleet
 Vehicles on highways, town streets, and parking lots render distinct 1980s profiles at 8px:
@@ -172,7 +187,37 @@ Vehicles on highways, town streets, and parking lots render distinct 1980s profi
 * **Recruitment & Delivery Vans**: Boxy 1980s Dodge Ram Van / Chevy G20 with custom faction side graphics.
 * **BMX Bicycles**: Micro 2-pixel town kids riding along residential sidewalks.
 
-### 8.2 Seasonal Palettes
+### 8.2 Visual Asset Variants (Eliminating Copy-Paste Uniformity)
+To prevent the town from looking like a cloned stamp sheet, assets feature deterministic visual variants rolled via tile coordinate hashes:
+* **Residential Architecture Variants**:
+  - *Split-Level*: Attached side garage, driveway, and staggered rooflines.
+  - *Traditional Ranch*: Long horizontal profile, covered front porch, red-brick chimney.
+  - *Two-Story Colonial*: Gabled roof, upper dormer windows, central front door.
+  - *Modest Cottage*: Compact footprint with flower boxes, garden shed, or circular above-ground pool.
+  - *Color Palette Diversity*: Clapboard siding varies across cream white, pale yellow, dusty blue, sage green, and brick red.
+* **Commercial Storefront Variants**:
+  - Fabric awnings in alternating colors (forest green, burgundy, navy, mustard).
+  - Roof parapets, decorative brick cornices, and variable neon sign positions.
+* **Vehicle Palette Diversity**: Sedans and pickups render in authentic 1980s automotive colors (rust red, midnight blue, desert tan, primer gray, forest green, two-tone).
+* **Tree Species Mix**: Mature spreading oaks, conical pines, pale birch stands, and seasonal flowering dogwoods.
+
+### 8.3 Dynamic Micro-Animations (Living Town Environment)
+The world is never purely static. Deterministic procedural micro-animations (driven by `sim.tick` / `frameTick`) bring Mundane Falls to life:
+1. **Hydrological Flow**:
+   - River reach water ripples with drifting glints moving downstream.
+   - Ocean coastline surf breaks rhythmically in a 4-frame swell of white foam on sand beaches.
+   - Millpond dam weir sprays cascading white water foam.
+2. **Vehicle & Infrastructure Flashing Beacons**:
+   - Police cruisers: Alternating red and blue emergency rooftop strobe pulses (`(tick >> 2) % 2 === 0 ? C.strobeRed : C.strobeBlue`).
+   - School buses: Blinking amber hazard roof flashers.
+   - Radio Broadcast Tower: Slow 2-second breathing red aviation warning beacon atop the steel lattice.
+   - Commercial neon: Subtle intermittent flicker on the diner and cinema marquee.
+3. **Living Town Entities & Smoke**:
+   - Winter & Fall Chimney Smoke: Translucent gray smoke wisps rising and drifting from residential chimneys.
+   - Pasture Livestock: Grazing dairy cows and horses with periodic tail swishes and head-bob feeding motions.
+   - Pedestrians & BMX Kids: Alternating 2-pixel stepping feet and spinning bike wheels traversing sidewalks.
+
+### 8.4 Seasonal Palettes
 * **Spring**: Vibrant green meadow (`#6da344`), flowering cherry/dogwood blossoms (`#ffd0e8`), tilled brown soil with green sprouts (`#82cf3c`), clean sidewalks.
 * **Summer**: Deep warm green meadow (`#829c5e`), dark tree canopies (`#2d5a27`), full crop rows, ripe fruit.
 * **Fall**: Golden rust meadow (`#a49e60`), scarlet/orange/gold maple canopies (`#b06f33`, `#c0a052`, `#96473a`), tan crop stubble (`#baa57c`), hay bales, fallen leaf clusters along curbs.

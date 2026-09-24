@@ -11,7 +11,7 @@ The user has granted you **complete creative freedom and extensive refactoring/r
 * **The Docs are a Launchpad, Not Rigid Rails**: Treat existing planning documents in `docs/` as an informed baseline. Acknowledge that you possess superior frontier reasoning capabilities across large codebases and are expected to exercise your own judgment.
 * **License to Redesign Everything**: You have full permission to redesign the **strategy menus, HUD layout, player input models, economic formulas, civics, combat systems, or underlying engine architecture** if you identify a more fun, elegant, or immersive solution. Do not feel bound by legacy UI components or current balance numbers.
 * **The Four Non-Negotiable Anchors**:
-  1. **The 1980s American Small-Town Aesthetic**: The game world must authentically evoke the nostalgic, slightly eerie charm of 1980s Americana (the *Stranger Things* / Hawkins, Indiana era) with recognizable architecture, an 80s vehicle fleet, and natural environments.
+  1. **The 1980s American Small-Town Aesthetic**: The game world must authentically evoke the nostalgic, slightly eerie charm of 1980s Americana (the *Stranger Things* / Hawkins, Indiana era) with recognizable architecture, an 80s vehicle fleet, realistic natural environments, rich variants, and dynamic micro-animations.
   2. **Best Game Design Principles**: Deep strategic decision trees, asymmetric faction identities, anti-snowballing/anti-stalemate mechanics, transparent telegraphing, and high retention.
   3. **Token-Efficient Execution**: Programmatic bulk sprite generation, Dual-QA visual inspection (Studio Blank Slate vs In-Situ Map Crops), and pausing at stage checkpoints.
   4. **100% Lockstep Determinism**: All simulation math must remain bit-identical across clients (zero floating-point divergence, zero unseeded PRNG). `npm test` must always pass cleanly.
@@ -23,11 +23,11 @@ The user has granted you **complete creative freedom and extensive refactoring/r
 1. **Priority #1: Strategy, Menus & Core Gameplay Overhaul**
    * Redesign key strategic loops, menus, HUD controls, win conditions, and counter-play to ensure Flock is intensely fun, intuitive, and replayable.
    * Eliminate snowballing and stalemates; ensure every cult archetype has compelling, distinct decision trees.
-2. **Priority #2: 1980s American Small-Town Worldgen & Bulk Sprite Overhaul ("Stranger Things" Era)**
-   * Transform procedural world generation from basic blocky shapes into an authentic, recognizable 1980s American town (Hawkins, Indiana aesthetic).
-   * Recognizable architecture: courthouse square, Main St strip, red-brick high school, wood-clapboard suburbs, industrial rail siding, water tower.
-   * 1980s vehicle fleet (wood-paneled station wagons, boxy sedans, Blazers, bubble-light police cruisers, school buses, BMX bikes).
-   * Natural hydrology (shoaled rivers, timber trestle bridges, ocean surf) and rich seasonal foliage.
+2. **Priority #2: 1980s Small-Town Worldgen, Variants, Animations & Placement Grammar**
+   * **Realistic Urban Placement Grammar**: Fix unrealistic generation anomalies. Buildings must strictly face streets/sidewalks with front doors/porches; garages and parking must orthogonally connect via driveways and curb cuts; backyards stay behind houses in perimeter blocks; enforce strict zoning buffers (segregate industrial from schools/parks).
+   * **Visual Variants (No Copy-Paste)**: Multiple architectural styles per building type (split-level vs ranch vs two-story houses, variable siding and roof colors, diverse vehicle colors, tree species mix).
+   * **Dynamic Micro-Animations (Living Town)**: Deterministic procedural animations (river ripples, ocean surf foam, flashing police cruiser bubble-lights, blinking bus hazards, radio tower warning beacon, winter chimney smoke, grazing pasture livestock, stepping residents and BMX bikes).
+   * **1980s Aesthetic (Hawkins Era)**: Courthouse square, Main St strip, red-brick high school with sports fields, wood-clapboard suburbs, industrial rail siding with grain elevator, and 1980s vehicle fleet.
 
 ---
 
@@ -39,8 +39,8 @@ To bulk-design and polish large asset suites with high visual quality and minima
    * Define sprites in `packages/sim/src/townRender.ts` and `palette.ts` using compact character matrices or structural procedural primitives.
    * Never output thousands of lines of raw ASCII or coordinate lists into conversational context—keep code edits surgical and modular.
 2. **Dual-Harness Visual QA (Studio vs. In-Situ)**:
-   * **Harness A: Studio View (Blank Studio Slate)**: Run `node tools/spritesheet.mjs` or `node tools/generate_catalog_inspection.mjs`. Renders all new assets in an isolated grid against dark slate (`#181512`) at $8\times$ zoom with 1px grid guides. Inspect via image tool to verify silhouette readability, contrast, and 1px panel seams in isolation.
-   * **Harness B: In-Situ View (Procedural Map Context)**: Run `node tools/generate_curated_suite.mjs` on benchmark seeds (11, 42, 77) across the 4 seasons. Crop focal zones (Downtown Square, High School Campus, Suburban Cul-de-Sacs, Rail Siding, Waterways) to verify that buildings sit naturally on roads, align with sidewalks/curb cuts, and blend into seasonal foliage.
+   * **Harness A: Studio View (Blank Studio Slate)**: Run `node tools/spritesheet.mjs` or `node tools/generate_catalog_inspection.mjs`. Renders all new assets and variants in an isolated grid against dark slate (`#181512`) at $8\times$ zoom with 1px grid guides. Inspect via image tool to verify silhouette readability, contrast, and 1px panel seams in isolation.
+   * **Harness B: In-Situ View (Procedural Map Context)**: Run `node tools/generate_curated_suite.mjs` on benchmark seeds (11, 42, 77) across the 4 seasons. Crop focal zones (Downtown Square, High School Campus, Suburban Cul-de-Sacs, Rail Siding, Waterways) to verify that buildings sit naturally on roads, align with sidewalks/curb cuts, respect zoning buffers, and blend into seasonal foliage.
 3. **Automated Fast-Fail Invariant Linting**:
    * Automated tests (`npm test`) verify pixel dimensions, palette color mappings, and physical setback rules (no non-exempt structures on water, 6-tile zoning buffer) before image generation, preventing token waste on buggy iterations.
 4. **Logical Batching**:
@@ -70,7 +70,7 @@ You do not have intrinsic real-time awareness of dollar cost in the sandbox. The
 ## 4. Canonical Documentation Index
 
 * **Systems Architecture**: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) (100ms lockstep, dual-sim prediction, Glicko-2)
-* **Procedural World Generation**: [`docs/WORLDGEN.md`](docs/WORLDGEN.md) (1980s town morphology, pipeline, biomes, seasons)
+* **Procedural World Generation**: [`docs/WORLDGEN.md`](docs/WORLDGEN.md) (1980s town morphology, variants, animations, placement grammar)
 * **Master Game Design**: [`docs/GAME_DESIGN.md`](docs/GAME_DESIGN.md) (factions, combat, civics, anti-bounce design)
 * **SDD & Modernization Roadmap**: [`docs/ROADMAP_SDD.md`](docs/ROADMAP_SDD.md) (checkpoints, bulk sprite QA, feature backlog)
 * **Curated Visual Audit**: [`docs/VISUAL_AUDIT.md`](docs/VISUAL_AUDIT.md) (golden benchmark renders)

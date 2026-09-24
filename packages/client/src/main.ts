@@ -19,7 +19,7 @@ import { Hud, targetName } from "./hud.js";
 import { MissionWheel } from "./wheel.js";
 import { showMenu } from "./menu.js";
 import { watchEndgame } from "./hud/endgame.js";
-import { applySettings } from "./settings.js";
+import { applySettings, getSettings } from "./settings.js";
 
 async function boot(): Promise<void> {
   const app = new Application();
@@ -51,7 +51,9 @@ async function boot(): Promise<void> {
   }
 
   (isTutorial ? connectTutorial : connect)(
-    `${server}/?name=${encodeURIComponent(name)}&archetype=${archetype}${roomParams}`,
+    `${server}/?name=${encodeURIComponent(name)}&archetype=${archetype}${roomParams}${
+      getSettings().livery ? `&livery=${encodeURIComponent(getSettings().livery)}` : ""
+    }`,
     (g) => {
       loading.remove();
       const map = new MapRenderer(app, g.sim.world.width, g.sim.world.height);
@@ -110,6 +112,7 @@ async function boot(): Promise<void> {
       const endgame = watchEndgame(g);
       app.ticker.add(() => {
         map.showDissent = hud.showDissent;
+        map.setSkins(g.players);
         map.draw(g.sim);
         map.drawHighlight(performance.now()); // transient "look here" ring
         drawFoundingHints(map, foundingHints, g, recommended, app.ticker.lastTime);

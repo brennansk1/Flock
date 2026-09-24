@@ -296,3 +296,15 @@ test("skins are render-only: they change pixels, never the StateHash", () => {
   assert.deepEqual(sanitizeLoadout({ livery: "not_a_skin" }), {});
   assert.deepEqual(sanitizeLoadout({ livery: "recolor_frost" }, () => false), {}, "unowned skins are dropped");
 });
+
+test("strikes are priced for the real economy and actually charged", () => {
+  const s = duel();
+  const p1 = s.players[0]!;
+  p1.usd = fromInt(10_000);
+  const earned0 = toInt(p1.usdEarned);
+  const target = 10 * W + 30; // rival ground
+  run(s, 1, [{ t: IntentType.STRIKE, player: 1, strike: "pamphlet_bomb", target }]);
+  assert.equal(s.strikes.length, 1, "strike charging");
+  const spent = 10_000 + (toInt(p1.usdEarned) - earned0) - toInt(p1.usd);
+  assert.ok(Math.abs(spent - 3_000) <= 2, `pamphlet bomb costs $3k (spent ${spent})`);
+});

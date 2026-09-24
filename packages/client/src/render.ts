@@ -11,11 +11,18 @@
  */
 
 import { Application, Sprite, Texture, Graphics } from "pixi.js";
-import { renderTown, TILE_PX, type SimState } from "@flock/sim";
+import { renderTown, TILE_PX, type SimState, type SkinLoadout } from "@flock/sim";
 
 const MAX_LOD = 4;
 
 export class MapRenderer {
+  /** Per-player cosmetic loadouts from the roster (presentation only). */
+  private skins: Record<number, SkinLoadout> = {};
+  setSkins(players: readonly { id: number; skin?: SkinLoadout }[]): void {
+    const next: Record<number, SkinLoadout> = {};
+    for (const p of players) if (p.skin) next[p.id] = p.skin;
+    this.skins = next;
+  }
   private readonly app: Application;
   private canvas: HTMLCanvasElement;
   private ctx: CanvasRenderingContext2D;
@@ -265,6 +272,7 @@ export class MapRenderer {
       lod,
       view: { x: vx, y: vy, w: tilesAcross, h: tilesDown },
       showDissent: this.showDissent,
+      skins: this.skins,
     });
 
     if (this.canvas.width !== frame.width || this.canvas.height !== frame.height) {

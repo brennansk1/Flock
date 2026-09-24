@@ -66,6 +66,8 @@ export interface AbilityDefinition {
 export interface SignatureDefinition {
   name: string;
   blurb: string;
+  /** Why it can't be used right now ("" = ready). The HUD shows this verbatim. */
+  blocker?(s: SimState, p: PlayerState): string;
   apply(s: SimState, p: PlayerState, b: Balance): void;
 }
 

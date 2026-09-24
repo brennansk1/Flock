@@ -9,7 +9,6 @@ import {
   getArchetype,
   hasArchetype,
   toInt,
-  DAWN_KIT,
   type AbilityDefinition,
   type PlayerState,
   type SimState,
@@ -100,7 +99,7 @@ export class PowersPanel {
   }
 
   /** Live labels: cost, cooldown, affordability, armed highlight. */
-  update(me: PlayerState, _s: SimState, armedAbility: string | null): void {
+  update(me: PlayerState, s: SimState, armedAbility: string | null): void {
     if (this.builtFor !== me.archetype) this.build(me.archetype);
     const usd = me.usd;
     const faith = me.faith;
@@ -130,19 +129,11 @@ export class PowersPanel {
         hint += ` · ${tgt} · cooldown ${Math.round(e.def.cooldownTicks / 10)}s`;
       } else {
         // the SIGNATURE intent: once-per-match / gated by the cult's own rule
-        if (me.prophecyUsed) {
-          costText = "used";
-          cant = true;
-          hint = "Once per match — already spent.";
-        } else if (me.archetype === "dawn") {
-          const need = DAWN_KIT.prophecy.minSoulsPermille;
-          cant = me.soulsPermille < need;
-          costText = cant ? `${Math.floor(me.soulsPermille / 10)}/${need / 10}%` : "ready";
-          hint = `Needs ${need / 10}% of the town's souls · once per match`;
-        } else {
-          costText = "ready";
-          hint = "Once per match";
-        }
+        // The cult's own gate, straight from the registry (DLC-safe).
+        const why = getArchetype(me.archetype).signature?.blocker?.(s, me) ?? "";
+        cant = why !== "";
+        costText = me.prophecyUsed ? "used" : cant ? `${Math.floor(me.soulsPermille / 10)}%` : "ready";
+        hint = cant ? `${why[0]!.toUpperCase()}${why.slice(1)} · once per match` : "Once per match";
       }
       e.el.classList.toggle("cd", cd > 0);
       e.el.classList.toggle("cant", cd <= 0 && cant);

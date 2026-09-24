@@ -281,7 +281,7 @@ export interface PlayerState {
 /** Recap event log (§25): the raw material for headlines and cards. */
 export interface RecapEvents {
   betrayals: { traitor: PlayerId; victim: PlayerId; tick: number }[];
-  scandals: { attacker: PlayerId; victim: PlayerId; tick: number }[];
+  scandals: { attacker: PlayerId; victim: PlayerId; tick: number; followersLost?: number }[];
   schisms: { parent: PlayerId; splinter: PlayerId; tick: number }[];
   prophecies: { player: PlayerId; fulfilled: boolean; tick: number }[];
 }

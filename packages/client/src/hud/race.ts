@@ -11,7 +11,7 @@
  * at ~2 Hz; the countdown text reads the live PlayerState every tick.
  */
 import {
-  refreshVictoryStats,
+  computeVictoryStats,
   victoryPaths,
   dominationThreshold,
   exposeBlocker,
@@ -48,7 +48,7 @@ const OUTCOME_NAMES: Record<string, string> = {
 
 export function computeRace(g: GameSession): RaceModel {
   const s = g.sim;
-  const st = refreshVictoryStats(s);
+  const st = computeVictoryStats(s);
   const threshold = dominationThreshold(s, g.balance);
   const pathNames = new Map<string, string>(Object.entries(OUTCOME_NAMES));
   const rows: RaceRow[] = [];

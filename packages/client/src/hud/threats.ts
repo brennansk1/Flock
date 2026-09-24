@@ -8,11 +8,8 @@
 import {
   toFloat,
   toInt,
-  fromInt,
-  ownsLandmark,
-  computeMonopolies,
-  Landmark,
   type SimState,
+  cpaHarassFloor,
 } from "@flock/sim";
 import type { GameSession } from "../net.js";
 import { fmtSecs, homeTile, icon, seatName, type Camera } from "./common.js";
@@ -197,9 +194,7 @@ export class ThreatLane {
         const heat = me.heat;
         const hb = this.g.balance.heat;
         if (heat >= hb.cpaHarass) {
-          let floor = hb.cpaHarass;
-          if (computeMonopolies(s, meId).townMachine) floor = Math.max(floor, fromInt(85));
-          else if (ownsLandmark(s, meId, Landmark.TownHall)) floor = Math.max(floor, fromInt(75));
+          const floor = cpaHarassFloor(s, me, this.g.balance);
           if (heat >= floor) {
             const next = s.cpaNextPicketTick - s.tick;
             if (next > 0) {

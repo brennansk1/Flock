@@ -5,7 +5,14 @@ import { destroyBuildingsOnTile } from "../buildings.js";
 import { gainHeatScaled } from "../entities.js";
 import { HUNDRED, usd, faith, inBounds, isCitizen, districtAt, pct, both } from "./common.js";
 import type { ArchetypeDefinition } from "./types.js";
+import type { PlayerState } from "../types.js";
 import { DAWN_KIT, CULT_VICTORY } from "./kits.js";
+
+function prophecyBlocker(p: PlayerState): string {
+  if (p.prophecyUsed) return "already prophesied this match";
+  const need = DAWN_KIT.prophecy.minSoulsPermille;
+  return p.soulsPermille < need ? `needs ${need / 10}% of the town's souls` : "";
+}
 
 export const dawn: ArchetypeDefinition = {
   id: "dawn",
@@ -43,10 +50,10 @@ export const dawn: ArchetypeDefinition = {
   signature: {
     name: "Prophecy Countdown",
     blurb: "At 25% of the town: broadcast a doomsday timer. Hold your ground until it ends and the Rapture takes the border.",
+    blocker: (_s, p) => prophecyBlocker(p),
     apply(s, p, b) {
-      if (p.prophecyUsed) return;
+      if (prophecyBlocker(p) !== "") return;
       const k = DAWN_KIT.prophecy;
-      if (p.soulsPermille < k.minSoulsPermille) return;
       p.prophecyUsed = true;
       gainHeatScaled(p, b, k.heat);
       s.prophecies.push({
@@ -105,7 +112,7 @@ export const dawn: ArchetypeDefinition = {
     tagline: "The end is nigh. Recruit accordingly.",
     playstyle:
       "Fastest converter in town. Flood the streets with missions — every cohort out makes the whole cult hit harder. You run HOT: Heat climbs fast and your ground flips back easily.",
-    difficulty: 1,
+    difficulty: 2,
     accent: "#df5a2b",
     glyph: "candle",
   },

@@ -27,6 +27,8 @@ export interface VictoryStats {
   dissentSum: Map<number, number>;
   believerTiles: Map<number, number>;
   satellites: Map<number, number>;
+  /** Soul share per player (‰) as of this read. */
+  soulsPermille: Map<number, number>;
 }
 
 export function isHolyGround(s: SimState, t: number): boolean {
@@ -35,11 +37,18 @@ export function isHolyGround(s: SimState, t: number): boolean {
 }
 
 /**
- * One pass over the world: refresh every player's `soulsPermille` (share of
+ * One pass over the world (sim-side): refresh every player's `soulsPermille` (share of
  * the town's residents who believe in them; tile share on popless test
  * worlds) and gather the path aggregates.
  */
 export function refreshVictoryStats(s: SimState): VictoryStats {
+  const st = computeVictoryStats(s);
+  for (const p of s.players) p.soulsPermille = st.soulsPermille.get(p.id) ?? 0;
+  return st;
+}
+
+/** Pure read: the same aggregates without writing to the sim (HUD / tools). */
+export function computeVictoryStats(s: SimState): VictoryStats {
   const w = s.world;
   const pop = new Map<number, number>();
   const holyOwned = new Map<number, number>();
@@ -60,15 +69,16 @@ export function refreshVictoryStats(s: SimState): VictoryStats {
   for (const bd of s.buildings) {
     if (bd.type === "satellite") satellites.set(bd.player, (satellites.get(bd.player) ?? 0) + 1);
   }
+  const soulsPermille = new Map<number, number>();
   for (const p of s.players) {
-    p.soulsPermille =
+    soulsPermille.set(p.id,
       s.totalPop > 0
         ? Math.floor(((pop.get(p.id) ?? 0) * 1000) / s.totalPop)
         : s.populated > 0
           ? Math.floor((p.ownedTiles * 1000) / s.populated)
-          : 0;
+          : 0);
   }
-  return { holyTotal, holyOwned, dissentSum, believerTiles, satellites };
+  return { holyTotal, holyOwned, dissentSum, believerTiles, satellites, soulsPermille };
 }
 
 /** Map class for scaled targets: S ≤ 64², M ≤ 112², L beyond. */

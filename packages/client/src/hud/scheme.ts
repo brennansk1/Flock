@@ -10,12 +10,7 @@ import {
   exposeCost,
   EXPOSE,
   STRIKE_DEFS,
-  strikeCostMult,
-  ownsLandmark,
-  Landmark,
-  mul,
-  fromInt,
-  fromFloat,
+  strikeCost,
   toInt,
   toFloat,
   colorForPlayer,
@@ -53,9 +48,7 @@ const STRIKES: { id: StrikeType; name: string; ic: string; what: string }[] = [
 /** Live strike price for `me` (I3 Strong Signal −20%, Radio Tower −30%). */
 function strikePrice(g: GameSession, id: StrikeType): Fixed {
   const me = g.sim.players.find((p) => p.id === g.playerId)!;
-  let c = mul(fromInt(STRIKE_DEFS[id].cost), strikeCostMult(me));
-  if (ownsLandmark(g.sim, me.id, Landmark.RadioTower)) c = mul(c, fromFloat(0.7));
-  return c;
+  return strikeCost(g.sim, me, id);
 }
 
 export class SchemeMenu {

@@ -60,6 +60,8 @@ import {
   ownsLandmark,
   STRIKE_DEFS,
   WARNING_TICKS,
+  strikeCost,
+  strikeBlocker,
 } from "./entities.js";
 import {
   proposeAlliance,
@@ -705,9 +707,8 @@ export function applyIntent(s: SimState, intent: Intent, b: Balance): void {
       if (t < 0 || t >= w.owner.length) break;
       const victim = w.owner[t]!;
       if (victim === NEUTRAL || victim === p.id) break;
-      let cost = mul(fromInt(def.cost), strikeCostMult(p)); // I3 −20% (§10)
-      if (ownsLandmark(s, p.id, Landmark.RadioTower)) cost = mul(cost, fp(0.7)); // §12
-      if (p.usd < cost) break;
+      if (strikeBlocker(s, p, t, intent.strike) !== "") break;
+      p.usd = sub(p.usd, strikeCost(s, p, intent.strike)); // (was never charged)
       const isDeepSpaceTransmitter =
         getArchetype(p.archetype).passives.hidesStrikeWarning?.(s, p) ?? false;
       s.strikes.push({

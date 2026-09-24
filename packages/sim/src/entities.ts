@@ -11,7 +11,7 @@
 
 import { archCoeffs } from "./balance.js";
 import { getArchetype } from "./archetypes/registry.js";
-import { add, sub, mul, div, clamp, min, fromInt, fromFloat, ONE, type Fixed } from "./fixed.js";
+import { add, sub, mul, div, clamp, min, fromInt, fromFloat, toInt, ONE, type Fixed } from "./fixed.js";
 import { nextU32, nextRange } from "./rng.js";
 import type { Balance } from "./balance.js";
 import {
@@ -35,7 +35,8 @@ import {
   isOperational,
   staffingRatio,
 } from "./buildings.js";
-import { heatGainMult, raidEffectMultAgainst, tryAbsorbMassApostasy, scarTicksFor, hasDoctrine } from "./doctrine.js";
+import { heatGainMult, raidEffectMultAgainst, tryAbsorbMassApostasy, scarTicksFor, hasDoctrine, strikeCostMult } from "./doctrine.js";
+import type { StrikeType } from "./intents.js";
 import { breakAscension } from "./victory.js";
 import { computeMonopolies, isEmergencyJamActive, controlsCivic, computeCivicControl } from "./civics.js";
 
@@ -43,12 +44,37 @@ const TPS = 10;
 const HUNDRED = fromInt(100);
 
 export const STRIKE_DEFS = {
-  pamphlet_bomb: { cost: 400_000, chargeTicks: 30 * TPS, radius: 8, heat: 10 },
-  prime_time_expose: { cost: 900_000, chargeTicks: 60 * TPS, radius: 18, heat: 20 },
-  manifesto_drop: { cost: 1_600_000, chargeTicks: 90 * TPS, radius: 6, heat: 0 }, // heat→100
+  // Stage 1 rescale to the real economy (were $400k/$900k/$1.6M — never affordable).
+  pamphlet_bomb: { cost: 3_000, chargeTicks: 30 * TPS, radius: 8, heat: 10 },
+  prime_time_expose: { cost: 7_000, chargeTicks: 60 * TPS, radius: 18, heat: 20 },
+  manifesto_drop: { cost: 15_000, chargeTicks: 90 * TPS, radius: 6, heat: 0 }, // heat→100
 } as const;
 
 export const WARNING_TICKS = 10 * TPS; // §8: 10s incoming-warning banner
+
+/** Current strike price for `p` (Fixed): I3 −20%, Radio Tower −30% (§10/§12). */
+export function strikeCost(s: SimState, p: PlayerState, type: StrikeType): Fixed {
+  let cost = mul(fromInt(STRIKE_DEFS[type].cost), strikeCostMult(p));
+  if (ownsLandmark(s, p.id, Landmark.RadioTower)) cost = mul(cost, fromFloat(0.7));
+  return cost;
+}
+
+/** Why `p` can't strike `tile` with `type` right now ("" = it can). */
+export function strikeBlocker(s: SimState, p: PlayerState, tile: TileId, type: StrikeType): string {
+  if (!STRIKE_DEFS[type]) return "unknown strike";
+  if (tile < 0 || tile >= s.world.owner.length) return "no target";
+  const victim = s.world.owner[tile]!;
+  if (victim === NEUTRAL || victim === p.id) return "target a rival's ground";
+  if (p.usd < strikeCost(s, p, type)) return "not enough cash";
+  return "";
+}
+
+/** Heat at which the CPA starts picketing `p` (Town Hall 75, Town Machine 85, §12). */
+export function cpaHarassFloor(s: SimState, p: PlayerState, b: Balance): Fixed {
+  if (computeMonopolies(s, p.id).townMachine) return fromInt(85);
+  if (ownsLandmark(s, p.id, Landmark.TownHall)) return fromInt(75);
+  return b.heat.cpaHarass;
+}
 
 // ---------------------------------------------------------------- helpers
 
@@ -439,7 +465,10 @@ export function publishScandal(s: SimState, attacker: PlayerState, victimId: Pla
   const lossPct = getArchetype(victim.archetype).passives.scandalLossPct;
   if (lossPct) pct = lossPct(pct);
   if (counter) pct = pct >> 1;
+  const followersBefore = victim.followers;
   victim.followers = mul(victim.followers, sub(ONE, div(pct, HUNDRED)));
+  const rec = s.recap.scandals[s.recap.scandals.length - 1];
+  if (rec) rec.followersLost = toInt(sub(followersBefore, victim.followers));
   const faithLoss = fromInt(counter ? EXPOSE.faithLoss >> 1 : EXPOSE.faithLoss);
   victim.faith = victim.faith > faithLoss ? sub(victim.faith, faithLoss) : 0;
   const w = s.world;
@@ -559,9 +588,7 @@ export function stepCPA(s: SimState, b: Balance): void {
 
   // Town Hall owned: CPA ignores you below Heat 75 (§12)
   // Town Machine monopoly (Town Hall + Sheriff): raised to Heat 85!
-  const hasMachine = computeMonopolies(s, target.id).townMachine;
-  const hasTownHall = ownsLandmark(s, target.id, Landmark.TownHall);
-  const harassFloor = hasMachine ? fromInt(85) : hasTownHall ? fromInt(75) : b.heat.cpaHarass;
+  const harassFloor = cpaHarassFloor(s, target, b);
 
   if (target.heat >= harassFloor && s.tick >= s.cpaNextPicketTick) {
     s.cpaNextPicketTick = s.tick + 60 * TPS;

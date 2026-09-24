@@ -18,6 +18,7 @@ import {
   newPlayer,
   toInt,
   type RawBalance,
+  listSkins,
 } from "@flock/sim";
 import { getSettings, saveSettings } from "./settings.js";
 import rawBalance from "../../../balance.json";
@@ -684,6 +685,12 @@ function renderSettings(panel: HTMLDivElement): void {
       toggle("colorblind", "Colorblind patterns", s.colorblind) +
       slider("sfxVolume", "SFX volume", s.sfxVolume) +
       slider("musicVolume", "Music volume", s.musicVolume) +
+      `<div class="row"><span>Livery <span style="color:${DIM}">(owned skins show in online matches)</span></span><span>${[
+        { id: "", name: "Seat colour" },
+        ...listSkins().filter((k) => k.slot === "livery"),
+      ]
+        .map((k) => `<button data-livery="${k.id}" style="${toggleCss(s.livery === k.id)};margin-left:4px">${k.name.toUpperCase()}</button>`)
+        .join("")}</span></div>` +
       `<div style="font-family:'Press Start 2P',monospace;font-size:7px;color:${MUTED};margin:12px 0 6px">GAMEPLAY (SIMPLIFICATION OVERRIDES)</div>` +
       toggle("disableCouriers", "Disable Couriers (Passive Tithe)", s.disableCouriers) +
       toggle("disableCPA", "Disable CPA Interventions", s.disableCPA) +
@@ -696,6 +703,14 @@ function renderSettings(panel: HTMLDivElement): void {
       const next = saveSettings({ [key]: !getSettings()[key] });
       b.textContent = next[key] ? "ON" : "OFF";
       b.style.cssText = toggleCss(next[key]);
+    };
+  });
+  panel.querySelectorAll<HTMLButtonElement>("[data-livery]").forEach((b) => {
+    b.onclick = () => {
+      saveSettings({ livery: b.dataset.livery ?? "" });
+      panel.querySelectorAll<HTMLButtonElement>("[data-livery]").forEach((o) => {
+        o.style.cssText = `${toggleCss(o === b)};margin-left:4px`;
+      });
     };
   });
   panel.querySelectorAll<HTMLInputElement>("[data-slider]").forEach((el) => {

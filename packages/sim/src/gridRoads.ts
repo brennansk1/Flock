@@ -34,6 +34,10 @@ export interface GridTownShape {
   highwayY: number;
   highwayX: number;
   inTown: (x: number, y: number) => boolean;
+  /** Extra tiles per block (desert towns: wider, sparser blocks). */
+  gapAdd?: number;
+  /** Horizontal reach of the vertical streets (elongated valley towns). */
+  xReach?: number;
 }
 
 /** Paint one axis-aligned road segment (inclusive), Grass/Field only. */
@@ -124,7 +128,7 @@ export function traceGridRoads(w: World, rng: RngState, town: GridTownShape): St
   // read — wall-to-wall infill was crushing the space between buildings).
   const denseR = town.r * 0.45;
   const gap = (dist: number): number =>
-    dist < denseR ? 5 + nextRange(rng, 2) : 6 + nextRange(rng, 3);
+    (dist < denseR ? 5 + nextRange(rng, 2) : 6 + nextRange(rng, 3)) + (town.gapAdd ?? 0);
   const avenueSpans: { at: number; from: number; to: number }[] = [];
   for (const dir of [-1, 1]) {
     // the highway occupies hy..hy+1; step from its outer edge
@@ -149,7 +153,7 @@ export function traceGridRoads(w: World, rng: RngState, town: GridTownShape): St
   const streetSpans: { at: number; from: number; to: number }[] = [];
   for (const dir of [-1, 1]) {
     let x = mainX + dir * gap(0);
-    while (Math.abs(x - town.cx) <= town.r * 1.25 + 2 && x > 1 && x < w.width - 2) {
+    while (Math.abs(x - town.cx) <= (town.xReach ?? town.r * 1.25) + 2 && x > 1 && x < w.width - 2) {
       const ext = colExtent(town, w, x);
       if (ext) {
         const from = ext[0] + nextRange(rng, 3);

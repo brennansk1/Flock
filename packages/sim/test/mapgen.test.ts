@@ -246,11 +246,13 @@ test("the downtown core and the works exist in every town (quality sweep)", () =
     ] as const) {
       assert.ok(present.has(kind), `seed ${seed}: no ${name}`);
     }
-    // and the grocery is IN town, not on a farmstead (force-place spiral)
+    // and the grocery is IN town, not on a farmstead (force-place spiral):
+    // Stage 2 zoning puts it on the highway strip or downtown
     for (let t = 0; t < w.lot.length; t++) {
       if (w.lot[t] !== Lot.Supermarket) continue;
       const d = Math.hypot((t % 96) - 48, Math.floor(t / 96) - 48);
-      assert.ok(d < 20, `seed ${seed}: supermarket ${d.toFixed(0)} tiles from town center`);
+      assert.ok(d < 34, `seed ${seed}: supermarket ${d.toFixed(0)} tiles from town center`);
+      assert.ok(w.district[t] === 3 || w.district[t] === 6, `seed ${seed}: supermarket outside Downtown/Commercial (district ${w.district[t]})`);
       break;
     }
   }

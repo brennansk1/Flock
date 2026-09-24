@@ -218,3 +218,21 @@ Phase 1 of Stage 2: a no-code-change audit of every generation feature and every
 - cult vans and agents;
 - CPA vehicles;
 - night-light polish.
+
+## 5. Footprint scale (tiles per asset)
+
+Tile budgets are defined in code in `packages/sim/src/footprints.ts` (`FOOTPRINTS`, `footprintOf`). Mapgen stamps them, the renderer draws each footprint as one building, and the linters check placed lots against them.
+
+**Scale:** 1 tile ≈ 15 m (50 ft), one house lot. A block is 6 tiles road-to-road (5×5 buildable, about 300 ft). Small and medium buildings are true to scale. The stadium, the grain elevator and farm parcels are compressed to about 50% so they read as landmarks without swallowing the town.
+
+| Asset | Tiles (w along street × h deep) | Was |
+|---|---|---|
+| House / shop / diner / bank / chapel | 1×1 | 1×1 |
+| Courthouse | 3×3 (alt 3×2); the rest of its block is lawn | missing |
+| HS building | 3×2 | 2×2 |
+| HS stadium (`Track`: field + track + bleachers) | 6×4 (alt 5×3) | missing |
+| Elementary school / supermarket / church / warehouse / grain elevator | 2×2 | 2×2 |
+| Factory | 3×2 (alt 2×2) | 2×2 |
+| Motel | 3×1 (alt 2×1) | 2×1 |
+| Office / sheriff / gas / depot / parking | 2×1 | 2×1 |
+| Car · bus · BMX · person (px) | 3×2 · 6×2 · 2×1 · 1×1 | 3×2 · 3×1 · none · 1×1 |

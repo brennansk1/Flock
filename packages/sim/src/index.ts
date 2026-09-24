@@ -39,6 +39,7 @@ export * from "./victory.js";
 export * from "./skins.js";
 export * from "./townLife.js";
 export * from "./assetCatalog.js";
+export * from "./footprints.js";
 
 // Must stay last: registers built-in cults once every engine module is live.
 import "./archetypes/builtin.js";

@@ -10,7 +10,7 @@
  *  - per-archetype anchors exist: oceanside lighthouse + cannery (and NO
  *    grain elevator — the harbor replaced it), mountain sawmill + timber
  *    walls + no farmland climbing the forested slopes, lakeside big water +
- *    resort docks, desert dominant sand + a temperate oasis under the town;
+ *    resort docks, desert dominant sand with the town in it (green core only);
  *  - an archetype world survives the snapshot round-trip hash-identically.
  */
 
@@ -215,7 +215,7 @@ test("lakeside: a big water body beyond the farm baseline, resort docks on the s
   }
 });
 
-test("desert: dominant sand with a temperate oasis under the town", () => {
+test("desert: dominant sand, and the town sits in it (only the irrigated core is green)", () => {
   for (const seed of SEEDS) {
     const w = gen("desert", seed);
     let desert = 0;
@@ -229,10 +229,14 @@ test("desert: dominant sand with a temperate oasis under the town", () => {
       }
     }
     assert.ok(desert >= 4000, `seed ${seed}: only ${desert} desert tiles — sand isn't dominant`);
+    // Stage 2: a desert town is a desert town — most homes stand on sand
+    // (adobe), only the courthouse square and Main St core stay irrigated
     assert.ok(
-      temperatePop / popTiles >= 0.9,
-      `seed ${seed}: only ${((temperatePop / popTiles) * 100).toFixed(0)}% of homes on temperate ground — the oasis rule failed`,
+      temperatePop / popTiles <= 0.6,
+      `seed ${seed}: ${((temperatePop / popTiles) * 100).toFixed(0)}% of homes on temperate ground — the town isn't in the desert`,
     );
+    const court = w.lot.indexOf(Lot.Courthouse);
+    assert.ok(court >= 0 && w.biome[court] !== Biome.Desert, `seed ${seed}: the courthouse square isn't green`);
   }
 });
 

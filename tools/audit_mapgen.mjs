@@ -15,7 +15,89 @@ import {
   Biome,
   Lot,
   Districts,
+  Landmark,
+  footprintOf,
 } from "../packages/sim/dist/index.js";
+
+const RESIDENTIAL = new Set([Districts.Suburbs, Districts.College, Districts.OldTown, Districts.Trailer, Districts.ResHigh]);
+
+/** 4-connected components of tiles carrying `lot`. */
+function lotComponents(w, lot) {
+  const seen = new Uint8Array(w.lot.length), comps = [];
+  for (let t = 0; t < w.lot.length; t++) {
+    if (seen[t] || w.lot[t] !== lot) continue;
+    const st = [t], c = []; seen[t] = 1;
+    while (st.length) {
+      const k = st.pop(); c.push(k);
+      const x = k % w.width;
+      for (const n of [x > 0 ? k - 1 : -1, x < w.width - 1 ? k + 1 : -1, k - w.width, k + w.width])
+        if (n >= 0 && n < w.lot.length && !seen[n] && w.lot[n] === lot) { seen[n] = 1; st.push(n); }
+    }
+    comps.push(c);
+  }
+  return comps;
+}
+/** Does a component fill a rectangle matching the lot's footprint (or alt), either orientation? */
+function matchesFootprint(w, comp, lot) {
+  const xs = comp.map((t) => t % w.width), ys = comp.map((t) => (t / w.width) | 0);
+  const bw = Math.max(...xs) - Math.min(...xs) + 1, bh = Math.max(...ys) - Math.min(...ys) + 1;
+  if (bw * bh !== comp.length) return false;
+  const fp = footprintOf(lot), opts = [fp, fp.alt].filter(Boolean);
+  return opts.some((o) => (o.w === bw && o.h === bh) || (o.w === bh && o.h === bw));
+}
+
+/**
+ * Stage 2 placement-grammar invariants (town plan v3): street frontage,
+ * courthouse square, high-school campus, footprints, rock/water exclusivity.
+ */
+export function auditPlan(w, seed, townType = "farm") {
+  const v = [];
+  const bad = (rule, msg) => v.push({ rule, msg: `[${rule}] ${msg}` });
+  const way = (n) => n >= 0 && n < w.terrain.length && (w.terrain[n] === Terrain.Road || w.terrain[n] === Terrain.Dirt);
+  const fronts = (t) => { const x = t % w.width; return (x > 0 && way(t - 1)) || (x < w.width - 1 && way(t + 1)) || way(t - w.width) || way(t + w.width); };
+  let frontage = 0, gaps = 0;
+  for (let t = 0; t < w.terrain.length; t++) {
+    const tr = w.terrain[t];
+    // nothing is built on water or rock
+    const wet = w.lot[t] === Lot.Dam || w.lot[t] === Lot.Dock; // weirs and piers stand in the water by design
+    if ((tr === Terrain.Rock || (tr === Terrain.Lake && !wet)) && (w.lot[t] !== 0 || w.pop[t] !== 0))
+      bad("NO_BUILD_ON_WATER_ROCK", `lot ${w.lot[t]} / pop ${w.pop[t]} on terrain ${tr} at ${t}`);
+    if (tr !== Terrain.Citizen || w.lot[t] !== 0) continue;
+    const f = fronts(t);
+    // a house (pop ≥ 3) always fronts a street — it has a driveway to draw
+    if (w.pop[t] >= 3 && !f && w.district[t] !== 0) bad("HOUSE_FRONTAGE", `house at ${t} has no street frontage`);
+    if (f && RESIDENTIAL.has(w.district[t])) { frontage++; if (w.pop[t] < 3) gaps++; }
+  }
+  // residential blocks are perimeter blocks: the street wall is (nearly) continuous
+  const maxGap = townType === "desert" ? 0.5 : 0.12;
+  if (frontage > 0 && gaps / frontage > maxGap)
+    bad("FRONTAGE_GAPS", `${((100 * gaps) / frontage).toFixed(0)}% of residential street frontage is vacant (max ${maxGap * 100}%)`);
+  // the courthouse square
+  const court = lotComponents(w, Lot.Courthouse);
+  if (court.length !== 1) bad("COURTHOUSE", `${court.length} courthouses (want exactly 1)`);
+  else {
+    if (!matchesFootprint(w, court[0], Lot.Courthouse)) bad("FOOTPRINT", `courthouse ${court[0].length} tiles off-footprint`);
+    const th = w.landmark.indexOf(Landmark.TownHall);
+    if (th < 0 || w.lot[th] !== Lot.Courthouse) bad("COURTHOUSE", "Town Hall landmark is not on the courthouse");
+    for (const t of court[0]) for (const n of [t - 1, t + 1, t - w.width, t + w.width])
+      if (w.terrain[n] === Terrain.Citizen && w.lot[n] !== Lot.Courthouse && w.lot[n] !== Lot.Park) { bad("COURTHOUSE", `square lawn broken by lot ${w.lot[n]} at ${n}`); break; }
+  }
+  // one high school, and its stadium on the campus
+  const hs = lotComponents(w, Lot.HighSchool), track = lotComponents(w, Lot.Track);
+  if (hs.length !== 1) bad("CAMPUS", `${hs.length} high schools (want exactly 1)`);
+  if (track.length > 1) bad("CAMPUS", `${track.length} stadiums`);
+  for (const c of [...hs, ...track]) if (!matchesFootprint(w, c, w.lot[c[0]])) bad("FOOTPRINT", `lot ${w.lot[c[0]]} component of ${c.length} tiles off-footprint`);
+  if (hs.length === 1 && track.length === 1) {
+    const near = hs[0].some((a) => track[0].some((b) => Math.abs((a % w.width) - (b % w.width)) + Math.abs(((a / w.width) | 0) - ((b / w.width) | 0)) <= 2));
+    if (!near) bad("CAMPUS", "the stadium is not beside the high school");
+  }
+  // mountain towns sit in a real valley
+  if (townType === "mountain") {
+    const rock = w.terrain.reduce((a, tr) => a + (tr === Terrain.Rock ? 1 : 0), 0) / w.terrain.length;
+    if (rock < 0.08) bad("RELIEF", `mountain map is only ${(rock * 100).toFixed(1)}% rock`);
+  }
+  return v;
+}
 
 const DEFAULT_SEEDS = [11, 21, 42, 77, 99, 101, 202, 303, 404, 505, 606, 707, 808, 909, 1000];
 const TOWN_TYPES = ["farm", "oceanside", "desert", "mountain", "lakeside"];
@@ -230,15 +312,20 @@ export function runMapgenAudit(seeds = DEFAULT_SEEDS) {
   let totalViolations = 0;
   const failureLog = [];
 
-  for (const townType of TOWN_TYPES) {
-    for (const seed of seeds) {
+  // the full seed batch on the 64² skirmish map, plus the benchmark seeds on
+  // the 96² classic and 128² large maps (Stage 2 plan rules are size-aware)
+  const runs = [];
+  for (const townType of TOWN_TYPES) for (const seed of seeds) runs.push({ townType, seed, size: 64 });
+  for (const size of [96, 128]) for (const townType of TOWN_TYPES) for (const seed of [11, 42, 77]) runs.push({ townType, seed, size });
+  for (const { townType, seed, size } of runs) {
+    {
       totalRuns++;
-      const w = generateWorld(seed, 64, 64, { townType });
-      const violations = auditWorld(w, seed, townType);
+      const w = generateWorld(seed, size, size, { townType });
+      const violations = [...auditWorld(w, seed, townType), ...auditPlan(w, seed, townType)];
 
       if (violations.length > 0) {
         totalViolations += violations.length;
-        console.error(`  [FAIL] Archetype: ${townType.padEnd(10)} | Seed: ${String(seed).padEnd(6)} -> ${violations.length} violations`);
+        console.error(`  [FAIL] Archetype: ${townType.padEnd(10)} | Seed: ${String(seed).padEnd(6)} | ${size}² -> ${violations.length} violations`);
         violations.slice(0, 3).forEach((v) => console.error(`         * ${v.msg}`));
         failureLog.push({ seed, townType, violations });
       } else {

@@ -23,6 +23,8 @@
  * (players by array order, tiles ascending) — the lockstep contract.
  */
 
+import { archCoeffs } from "./balance.js";
+import { getArchetype } from "./archetypes/registry.js";
 import { add, sub, mul, div, min, fromInt, toInt, ONE, type Fixed } from "./fixed.js";
 import { cohortArrived } from "./cohorts.js";
 import type { Balance, ArchetypeCoeffs } from "./balance.js";
@@ -81,7 +83,7 @@ function fp(n: number): Fixed {
 }
 
 function coeffsOf(b: Balance, p: PlayerState): ArchetypeCoeffs {
-  return b.archetypes[p.archetype];
+  return archCoeffs(b, p.archetype);
 }
 
 function stanceOf(b: Balance, p: PlayerState): { commit: Fixed; mult: Fixed } {
@@ -184,12 +186,8 @@ function attackerGlobalMult(
   b: Balance,
 ): Fixed {
   let m = ONE;
-  if (p.archetype === "dawn") {
-    let cohorts = 0;
-    for (const pl of s.players) cohorts += pl.cohorts.length;
-    const fearPct = Math.min(15, cohorts * 2);
-    m = mul(m, add(ONE, div(fromInt(fearPct), HUNDRED)));
-  }
+  const archAttack = getArchetype(p.archetype).passives.attackMult;
+  if (archAttack) m = mul(m, archAttack(s, p));
   if (p.sermonBuffTicks > 0) m = mul(m, fp(1.05)); // vestigial (always 0)
   // Civic Momentum (§13 rev.): every key building you control bends the town
   // your way — a compounding global conversion bonus. Sieging one off a rival
@@ -244,12 +242,10 @@ function effectiveS(s: SimState, t: TileId): Fixed {
   return v;
 }
 
-/** Radiant Glow (§11.2): +0.4%/s retention per second held, cap +80% at 200s. */
-function glowMult(s: SimState, defender: PlayerState, t: TileId): Fixed {
-  if (defender.archetype !== "radiant") return ONE;
-  // 0.4%/s = 0.04%/tick; holdTicks capped at 2000 (= +80%)
-  const held = Math.min(2000, s.world.holdTicks[t]!);
-  return add(ONE, Math.round(held * 0.0004 * 65536));
+/** Archetype per-tile retention (e.g. Radiant Glow, §11.2). */
+function archTileRetainMult(s: SimState, defender: PlayerState, t: TileId): Fixed {
+  const f = getArchetype(defender.archetype).passives.retainTileMult;
+  return f ? f(s, defender, t) : ONE;
 }
 
 /** Stance home-defense side effects (§5): Tend +20%, CRUSADE −25%. */
@@ -413,11 +409,12 @@ export function resolveConversion(s: SimState, b: Balance): void {
           res = mul(res, homeDefenseMult(defender)); // B2 Uniforms (§10)
           // Grocery takeover: control the food, keep the flock (§13 rev.)
           if (controlsCivic(civics, Lot.Supermarket, defender.id)) res = mul(res, b.civics.groceryDefenseMult);
-          // Radiant Path Organic Co-Op: doubles district retention defense (+40%)
-          if (defender.archetype === "radiant" && controlsCivic(civics, Lot.Supermarket, defender.id)) res = mul(res, fp(1.40));
+          // Archetype civic retention (e.g. Radiant Organic Co-Op +40%)
+          const civicRetain = getArchetype(defender.archetype).passives.retainCivicMult;
+          if (civicRetain) res = mul(res, civicRetain(s, defender, civics));
           // Food Rationing active decree: +35% retention defense in supermarket district!
           if (isFoodRationingActive(s, w.district[t]!, defender.id)) res = mul(res, fp(1.35));
-          res = mul(res, glowMult(s, defender, t)); // Radiant Glow (§11.2)
+          res = mul(res, archTileRetainMult(s, defender, t)); // Radiant Glow (§11.2)
           res = mul(res, stanceDefenseMult(b, defender)); // Tend +20% / Crusade −25% (§5)
           if (defender.judasTicks > 0) res = mul(res, fp(0.5)); // JUDAS shock (§16)
           if (defender.retentionDebuffTicks > 0) res = mul(res, fp(0.5)); // Exposé (§8)
@@ -527,31 +524,8 @@ export function resolveConversion(s: SimState, b: Balance): void {
         loser.ownedTiles = Math.max(0, loser.ownedTiles - 1);
         loser.followers = loser.followers > residents ? sub(loser.followers, residents) : 0;
 
-        // Final Dawn Doomsday Bunker: captured holy ground detonates into an apostate scar
-        if (
-          loser.archetype === "dawn" &&
-          (w.lot[t] === Lot.Church || w.lot[t] === Lot.Chapel || w.landmark[t] === Landmark.Megachurch)
-        ) {
-          const scarDuration = b.conversion.apostateScarTicks;
-          const targetLot = w.lot[t]!;
-          const targetLmk = w.landmark[t]!;
-          for (let ct = 0; ct < w.owner.length; ct++) {
-            if (
-              (targetLot !== Lot.None && w.lot[ct] === targetLot) ||
-              (targetLmk !== Landmark.None && w.landmark[ct] === targetLmk)
-            ) {
-              if (w.owner[ct] === prevOwner && ct !== t) {
-                loser.ownedTiles = Math.max(0, loser.ownedTiles - 1);
-              }
-              w.owner[ct] = NEUTRAL;
-              w.state[ct] = TileState.Apostate;
-              w.scarTicks[ct] = scarDuration;
-              destroyBuildingsOnTile(s, ct);
-              for (const pl of s.players) s.progress.delete(ct * PROGRESS_STRIDE + pl.id);
-            }
-          }
-          continue;
-        }
+        // Archetype loss hooks (e.g. Final Dawn Doomsday Bunker) may consume the flip.
+        if (getArchetype(loser.archetype).passives.onTileLost?.(s, b, loser, t, prevOwner)) continue;
       }
     }
     p.followers = add(p.followers, residents);
@@ -567,11 +541,8 @@ export function resolveConversion(s: SimState, b: Balance): void {
 
     // Prosperity Circle Downline (§11.3): tiles flipped by creep alone
     // (never worked by a cohort this tick) pay 2× tithe forever.
-    if (p.archetype === "circle" && !(workedBy.get(winner)?.has(t) ?? false)) {
-      w.flags[t] = w.flags[t]! | TileFlag.Downline;
-    } else {
-      w.flags[t] = w.flags[t]! & ~TileFlag.Downline;
-    }
+    w.flags[t] = w.flags[t]! & ~TileFlag.Downline;
+    getArchetype(p.archetype).passives.onTileCaptured?.(s, p, t, workedBy.get(winner)?.has(t) ?? false);
 
     // CRUSADE captures stoke dissent on the taken tile (§3.4); B3 Curfews −40%.
     if (p.stance === Stance.Crusade) {

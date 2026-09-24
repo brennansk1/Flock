@@ -10,6 +10,7 @@
  * lives in conversion.ts.
  */
 
+import { archCoeffs } from "./balance.js";
 import { add, sub, mul, div, clamp, min, max, fromInt, ONE, type Fixed } from "./fixed.js";
 import { seedRng, type RngState } from "./rng.js";
 import type { Balance } from "./balance.js";
@@ -36,6 +37,7 @@ import {
 import { resolveConversion } from "./conversion.js";
 import { cohortTransit, cohortArrived } from "./cohorts.js";
 import { carveDirtLane } from "./mapgen.js";
+import { getArchetype, findAbility, DAWN_KIT, RADIANT_KIT, CIRCLE_KIT, VISITORS_KIT } from "./archetypes/index.js";
 import { newPlayer } from "./player.js";
 import {
   BUILDING_DEFS,
@@ -93,33 +95,12 @@ const MAX_PATH_TILES = 1024;
  *  (Rituals were cut in v3 M3.2b — Faith now buys doctrine directly.) */
 export const KIT = {
   sermon: { faithGain: 12, buffTicks: 15 * TPS, cooldown: 30 * TPS },
-  streetProphet: { cost: 12_000, cooldown: 45 * TPS, durTicks: 30 * TPS },
-  stockpileSermon: { cost: 30, cooldown: 90 * TPS, durTicks: 12 * TPS, afterDissent: 10 },
-  prophecy: {
-    minTiles: 1500,
-    /** dev-scale fallback: 10% of populated if the map is smaller than spec */
-    minShareOfPopulated: 0.1,
-    durTicks: 180 * TPS,
-    heat: 15,
-    winFaith: 30,
-    failFaith: 40,
-    failApostasyPct: 15,
-    failDissent: 20,
-    /** High-S band floor for the rapture flip */
-    highS: 65,
-    capShareOfMap: 0.12,
-    borderRange: 4,
-  },
-  // §11.2 Radiant Path
-  juiceCleanse: { cost: 20_000, cooldown: 60 * TPS },
-  retreat: { cost: 35_000, cooldown: 90 * TPS, radius: 8, durTicks: 25 * TPS },
-  // §11.3 Prosperity Circle
-  seminarBlitz: { cost: 60_000, cooldown: 75 * TPS, followers: 2_500 },
-  hostileAcquisition: { cost: 300_000, cooldown: 240 * TPS, maxTiles: 120 },
-  // §11.4 Visitors' Fellowship
-  cropCircle: { cost: 15_000, cooldown: 60 * TPS, durTicks: 60 * TPS },
-  radioStatic: { faithCost: 20, cooldown: 90 * TPS, radius: 8, dissent: 30 },
-  saucerLanding: { cost: 25_000, cooldown: 150 * TPS, capBonus: 2_000 },
+  // Archetype kits live with their cults (archetypes/kits.ts); re-exposed
+  // here for existing callers.
+  ...DAWN_KIT,
+  ...RADIANT_KIT,
+  ...CIRCLE_KIT,
+  ...VISITORS_KIT,
   agent: { cost: 6_000, maxAlive: 2 },
   van: { cost: 30_000 },
 } as const;
@@ -436,213 +417,23 @@ function applyRitual(s: SimState, p: PlayerState, b: Balance, intent: Intent): v
 
 function applyAbility(s: SimState, p: PlayerState, b: Balance, intent: Intent): void {
   if (intent.t !== IntentType.ABILITY) return;
-  switch (intent.ability) {
-    case "street_prophet": {
-      // §11.1 Final Dawn active 1: fear-pressure pylon.
-      if (p.archetype !== "dawn") return;
-      if (onCooldown(p, "street_prophet") || p.usd < fromInt(KIT.streetProphet.cost)) return;
-      const t = intent.target ?? -1;
-      if (t < 0 || t >= s.world.terrain.length || s.world.terrain[t] !== Terrain.Citizen) return;
-      p.usd = sub(p.usd, fromInt(KIT.streetProphet.cost));
-      s.pylons.push({ player: p.id, tile: t, ticksLeft: KIT.streetProphet.durTicks });
-      startCooldown(p, "street_prophet", KIT.streetProphet.cooldown);
-      return;
-    }
-    case "stockpile_sermon": {
-      // §11.1 Final Dawn active 2: one contested district, pressure ×3 for 12s.
-      if (p.archetype !== "dawn") return;
-      if (onCooldown(p, "stockpile_sermon") || p.faith < fromInt(KIT.stockpileSermon.cost)) return;
-      const t = intent.target ?? -1;
-      if (t < 0 || t >= s.world.district.length) return;
-      const district = s.world.district[t]!;
-      if (district === 0) return;
-      p.faith = sub(p.faith, fromInt(KIT.stockpileSermon.cost));
-      s.districtBuffs.push({ player: p.id, district, ticksLeft: KIT.stockpileSermon.durTicks });
-      startCooldown(p, "stockpile_sermon", KIT.stockpileSermon.cooldown);
-      return;
-    }
-
-    case "juice_cleanse": {
-      // §11.2 Radiant active 1: zero one district's dissent.
-      if (p.archetype !== "radiant") return;
-      if (onCooldown(p, "juice_cleanse") || p.usd < fromInt(KIT.juiceCleanse.cost)) return;
-      const t = intent.target ?? -1;
-      if (t < 0 || t >= s.world.district.length) return;
-      const district = s.world.district[t]!;
-      if (district === 0) return;
-      p.usd = sub(p.usd, fromInt(KIT.juiceCleanse.cost));
-      const w = s.world;
-      for (let i = 0; i < w.district.length; i++) {
-        if (w.district[i] === district && w.owner[i] === p.id) w.dissent[i] = 0;
-      }
-      startCooldown(p, "juice_cleanse", KIT.juiceCleanse.cooldown);
-      return;
-    }
-
-    case "free_retreat_weekend": {
-      // §11.2 Radiant active 2: radius-8 love-bomb, zero Heat. E1 discounts.
-      if (p.archetype !== "radiant") return;
-      const cost = mul(fromInt(KIT.retreat.cost), loveBombCostMult(p));
-      if (onCooldown(p, "retreat") || p.usd < cost) return;
-      const t = intent.target ?? -1;
-      if (t < 0 || t >= s.world.terrain.length) return;
-      p.usd = sub(p.usd, cost);
-      s.auras.push({
-        player: p.id,
-        tile: t,
-        radius: KIT.retreat.radius,
-        ticksLeft: KIT.retreat.durTicks,
-        kind: "retreat",
-      });
-      startCooldown(p, "retreat", KIT.retreat.cooldown);
-      return;
-    }
-
-    case "seminar_blitz": {
-      // §11.3 Circle active 1: the only money→manpower conversion in the game.
-      if (p.archetype !== "circle") return;
-      if (onCooldown(p, "seminar_blitz") || p.usd < fromInt(KIT.seminarBlitz.cost)) return;
-      p.usd = sub(p.usd, fromInt(KIT.seminarBlitz.cost));
-      const cap = followerCap(p, b, s);
-      p.followers = min(add(p.followers, fromInt(KIT.seminarBlitz.followers)), cap);
-      startCooldown(p, "seminar_blitz", KIT.seminarBlitz.cooldown);
-      return;
-    }
-
-    case "hostile_acquisition": {
-      // §11.3 Circle active 2: buy a neutral sub-region (≤120 tiles) outright.
-      if (p.archetype !== "circle") return;
-      if (onCooldown(p, "hostile_acquisition") || p.usd < fromInt(KIT.hostileAcquisition.cost))
-        return;
-      const t = intent.target ?? -1;
-      const w = s.world;
-      if (t < 0 || t >= w.owner.length) return;
-      if (w.owner[t] !== NEUTRAL || w.terrain[t] !== Terrain.Citizen) return;
-      p.usd = sub(p.usd, fromInt(KIT.hostileAcquisition.cost));
-      // BFS neutral tiles of the target's district, capped
-      const district = w.district[t]!;
-      const queue = [t];
-      const seen = new Set<number>([t]);
-      let bought = 0;
-      while (queue.length > 0 && bought < KIT.hostileAcquisition.maxTiles) {
-        const cur = queue.shift()!;
-        if (w.owner[cur] === NEUTRAL && w.state[cur] === TileState.Neutral) {
-          w.owner[cur] = p.id;
-          w.state[cur] = TileState.Believer;
-          bought++;
-        }
-        const x = cur % w.width;
-        const y = (cur / w.width) | 0;
-        for (const n of [
-          y > 0 ? cur - w.width : -1,
-          x > 0 ? cur - 1 : -1,
-          x < w.width - 1 ? cur + 1 : -1,
-          y < w.height - 1 ? cur + w.width : -1,
-        ]) {
-          if (n < 0 || seen.has(n)) continue;
-          if (w.district[n] !== district || w.terrain[n] !== Terrain.Citizen) continue;
-          if (w.owner[n] !== NEUTRAL) continue;
-          seen.add(n);
-          queue.push(n);
-        }
-      }
-      p.ownedTiles += bought;
-      startCooldown(p, "hostile_acquisition", KIT.hostileAcquisition.cooldown);
-      return;
-    }
-
-    case "crop_circle": {
-      // §11.4 Visitors active 1: +30 S on a district, for EVERYONE (bait/gift/trap).
-      if (p.archetype !== "visitors") return;
-      if (onCooldown(p, "crop_circle") || p.usd < fromInt(KIT.cropCircle.cost)) return;
-      const t = intent.target ?? -1;
-      if (t < 0 || t >= s.world.district.length) return;
-      const district = s.world.district[t]!;
-      if (district === 0) return;
-      p.usd = sub(p.usd, fromInt(KIT.cropCircle.cost));
-      s.cropCircles.push({ district, ticksLeft: KIT.cropCircle.durTicks });
-      startCooldown(p, "crop_circle", KIT.cropCircle.cooldown);
-      return;
-    }
-
-    case "radio_static": {
-      // §11.4 Visitors active 2 (v3 retarget): JAM THE SIGNAL. The old effect
-      // knocked out Broadcast Towers, which no longer exist — so a burst of
-      // static now sows DISSENT through every enemy-held tile in range, loosening
-      // their grip so cohorts (or ambient creep) can pry the ground loose.
-      if (p.archetype !== "visitors") return;
-      if (onCooldown(p, "radio_static") || p.faith < fromInt(KIT.radioStatic.faithCost)) return;
-      const t = intent.target ?? -1;
-      if (t < 0 || t >= s.world.owner.length) return;
-      p.faith = sub(p.faith, fromInt(KIT.radioStatic.faithCost));
-      const w = s.world;
-      const r = KIT.radioStatic.radius;
-      const r2 = r * r;
-      const tx = t % w.width;
-      const ty = (t / w.width) | 0;
-      const amt = fromInt(KIT.radioStatic.dissent);
-      for (let dy = -r; dy <= r; dy++) {
-        for (let dx = -r; dx <= r; dx++) {
-          if (dx * dx + dy * dy > r2) continue;
-          const x = tx + dx;
-          const y = ty + dy;
-          if (x < 0 || y < 0 || x >= w.width || y >= w.height) continue;
-          const tt = y * w.width + x;
-          const o = w.owner[tt]!;
-          if (o !== 0 && o !== p.id && w.state[tt] === TileState.Believer) {
-            w.dissent[tt] = min(add(w.dissent[tt]!, amt), HUNDRED);
-          }
-        }
-      }
-      startCooldown(p, "radio_static", KIT.radioStatic.cooldown);
-      return;
-    }
-
-    case "saucer_landing": {
-      // §11.4 Visitors SIGNATURE: satellite chapel on ANY tile, even across water.
-      if (p.archetype !== "visitors") return;
-      if (onCooldown(p, "saucer_landing") || p.usd < fromInt(KIT.saucerLanding.cost)) return;
-      const t = intent.target ?? -1;
-      const w = s.world;
-      if (t < 0 || t >= w.owner.length) return;
-      if (w.terrain[t] !== Terrain.Citizen || w.owner[t] !== NEUTRAL) return;
-      if (w.state[t] !== TileState.Neutral) return;
-      p.usd = sub(p.usd, fromInt(KIT.saucerLanding.cost));
-      w.owner[t] = p.id;
-      w.state[t] = TileState.Believer;
-      p.followers = add(p.followers, fromInt(w.pop[t]!)); // the household looks up
-      p.ownedTiles++;
-      s.buildings.push({
-        id: s.nextEntityId++,
-        player: p.id,
-        type: "satellite",
-        tile: t,
-        buildTicksLeft: 0,
-        disabledTicks: 0,
-      });
-      carveDirtLane(w, t); // pilgrims need a way in
-      startCooldown(p, "saucer_landing", KIT.saucerLanding.cooldown);
-      return;
-    }
-  }
+  const found = findAbility(intent.ability);
+  if (!found || found.arch !== p.archetype) return;
+  const a = found.def;
+  const cost = a.cost(p);
+  if (onCooldown(p, a.cooldownKey)) return;
+  if (cost.usd !== undefined && p.usd < cost.usd) return;
+  if (cost.faith !== undefined && p.faith < cost.faith) return;
+  const ctx = { s, p, b, target: intent.target ?? -1 };
+  if (!a.validate(ctx)) return;
+  if (cost.usd !== undefined) p.usd = sub(p.usd, cost.usd);
+  if (cost.faith !== undefined) p.faith = sub(p.faith, cost.faith);
+  a.effect(ctx);
+  startCooldown(p, a.cooldownKey, a.cooldownTicks);
 }
 
 function applySignature(s: SimState, p: PlayerState, b: Balance): void {
-  // §11.1 Final Dawn SIGNATURE — Prophecy Countdown. Other signatures land
-  // with their archetype kits (Radiant=Labs, Circle=Ledger, Visitors=Saucer).
-  if (p.archetype !== "dawn" || p.prophecyUsed) return;
-  const minTiles = Math.min(
-    KIT.prophecy.minTiles,
-    Math.max(1, Math.floor(s.populated * KIT.prophecy.minShareOfPopulated)),
-  );
-  if (p.ownedTiles < minTiles) return;
-  p.prophecyUsed = true;
-  gainHeat(p, b, KIT.prophecy.heat);
-  s.prophecies.push({
-    player: p.id,
-    snapshotPermille: Math.floor((p.ownedTiles * 1000) / Math.max(1, s.populated)),
-    ticksLeft: KIT.prophecy.durTicks,
-  });
+  getArchetype(p.archetype).signature?.apply(s, p, b);
 }
 
 /** Apply a single validated intent. Mutating, deterministic, no I/O. */
@@ -920,7 +711,7 @@ export function applyIntent(s: SimState, intent: Intent, b: Balance): void {
       if (ownsLandmark(s, p.id, Landmark.RadioTower)) cost = mul(cost, fp(0.7)); // §12
       if (p.usd < cost) break;
       const isDeepSpaceTransmitter =
-        p.archetype === "visitors" && ownsLandmark(s, p.id, Landmark.RadioTower);
+        getArchetype(p.archetype).passives.hidesStrikeWarning?.(s, p) ?? false;
       s.strikes.push({
         id: s.nextEntityId++,
         player: p.id,
@@ -1029,8 +820,8 @@ function stepEconomy(s: SimState, b: Balance): void {
       let mod = add(fp(0.8), div(p.faith, fromInt(250))); // faith_growth_mod
       if (p.stance === Stance.Tend) mod = mul(mod, fp(1.1)); // nurture recruits better
       else if (p.stance === Stance.Crusade) mod = mul(mod, fp(0.8));
-      if (b.archetypes[p.archetype]?.growth) {
-        mod = mul(mod, b.archetypes[p.archetype].growth);
+      if (archCoeffs(b, p.archetype).growth) {
+        mod = mul(mod, archCoeffs(b, p.archetype).growth);
       }
       // High-school takeover: youth recruitment feeds the flock (§13 rev.)
       if (controlsCivic(civics, Lot.HighSchool, p.id)) mod = mul(mod, b.civics.highschoolGrowthMult);
@@ -1053,7 +844,7 @@ function stepEconomy(s: SimState, b: Balance): void {
       dissentTax = sub(ONE, div(avgDissent, fromInt(200))); // 100 avg = half income
     }
     let tithePerSec = mul(mul(b.economy.tithePerFollower, p.followers), mul(incomeAvg, dissentTax));
-    tithePerSec = mul(tithePerSec, b.archetypes[p.archetype].income);
+    tithePerSec = mul(tithePerSec, archCoeffs(b, p.archetype).income);
     tithePerSec = mul(tithePerSec, titheMult(p)); // B1 Tithing Drill +10% (§10)
     // Economic anchor (§2A mechanics, B1.4.20): whoever holds the town's
     // granary — or the cannery that replaced it on the coast — skims the
@@ -1090,7 +881,7 @@ function stepEconomy(s: SimState, b: Balance): void {
     // Heat decay (§3.5) base −0.08/s; Town Hall extra −0.25/s (§12); crusade gain.
     let heat = p.heat;
     if (p.stance === Stance.Crusade)
-      heat = add(heat, mul(mul(b.stances.crusade.heatPerS, b.archetypes[p.archetype].heat), dt));
+      heat = add(heat, mul(mul(b.stances.crusade.heatPerS, archCoeffs(b, p.archetype).heat), dt));
     heat = sub(heat, mul(b.heat.decay, dt));
     if (p.atonementTicks > 0) heat = sub(heat, mul(fp(0.35), dt)); // Apology vents Heat fast!
     if (ownsLandmark(s, p.id, Landmark.TownHall)) heat = sub(heat, mul(fp(0.25), dt));
@@ -1362,15 +1153,12 @@ function checkVictory(s: SimState, b: Balance): void {
     }
   }
 
-  // (4) [Revelation] Economic: The Ledger — bank ≥ map target (§11.3/§18).
-  if (s.revelationMode) {
-    const target = fromInt(1_200_000); // S-map target; M/L wire in with map sizes
-    for (const p of contenders) {
-      if (p.archetype === "circle" && p.usd >= target) {
-        s.status = MatchStatus.Ended;
-        s.winner = p.id;
-        return;
-      }
+  // (4) Archetype victory paths (e.g. Circle's Ledger), in seat order.
+  for (const p of contenders) {
+    if (getArchetype(p.archetype).victory?.achieved(s, p, b)) {
+      s.status = MatchStatus.Ended;
+      s.winner = p.id;
+      return;
     }
   }
 

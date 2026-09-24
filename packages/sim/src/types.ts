@@ -2,6 +2,7 @@
  * Core simulation types (Part II). All gameplay scalars that participate in sim
  * math are stored as Fixed (Q16.16). Counts and ids are plain integers.
  */
+import type { ArchetypeId } from "./archetypes/types.js";
 
 import type { Fixed } from "./fixed.js";
 import type { RngState } from "./rng.js";
@@ -221,7 +222,8 @@ export const MAX_COHORTS = 3;
 /** Per-player runtime state (§3). */
 export interface PlayerState {
   id: PlayerId;
-  archetype: "dawn" | "radiant" | "circle" | "visitors";
+  /** Registered archetype id (see archetypes/registry.ts). */
+  archetype: ArchetypeId;
   alive: boolean;
   stance: Stance;
   followers: Fixed;

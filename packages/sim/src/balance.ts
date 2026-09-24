@@ -7,6 +7,8 @@
  * ever see a float.
  */
 
+import { listArchetypes } from "./archetypes/registry.js";
+import type { ArchetypeId } from "./archetypes/types.js";
 import { fromFloat, type Fixed } from "./fixed.js";
 
 /** Shape of balance.json as authored (floats). */
@@ -49,7 +51,8 @@ export interface RawBalance {
   heat: { decay: number; cpa_harass: number; cpa_siege: number };
   schism: { territory_share: number; avg_dissent: number; sustain_s: number; secede_share: number };
   scandal: { evidence_per_s: number; notify_at: number; dmg_heat_coef: number; dmg_min: number; dmg_max: number };
-  archetypes: Record<"dawn" | "radiant" | "circle" | "visitors", { r0: number; retain: number; income: number; heat: number; growth?: number }>;
+  /** Per-archetype tuning; any registered archetype missing here uses its definition defaults. */
+  archetypes: Record<string, { r0: number; retain: number; income: number; heat: number; growth?: number }>;
   victory: {
     domination_pct: Record<"S" | "M" | "L", number>;
     economic_usd: Record<"S" | "M" | "L", number>;
@@ -144,7 +147,7 @@ export interface Balance {
     crusade: { commit: Fixed; mult: Fixed; heatPerS: Fixed; dissentPerCapture: Fixed };
   };
   heat: { decay: Fixed; cpaHarass: Fixed; cpaSiege: Fixed };
-  archetypes: Record<"dawn" | "radiant" | "circle" | "visitors", ArchetypeCoeffs>;
+  archetypes: Record<ArchetypeId, ArchetypeCoeffs>;
   charismaItems: Fixed;
   property: {
     parcelRadius: number;
@@ -183,13 +186,17 @@ export interface Balance {
 
 export function loadBalance(raw: RawBalance): Balance {
   const dt = fromFloat(raw.sim.tick_ms / 1000);
-  const arche = (k: "dawn" | "radiant" | "circle" | "visitors"): ArchetypeCoeffs => ({
-    r0: fromFloat(raw.archetypes[k].r0),
-    retain: fromFloat(raw.archetypes[k].retain),
-    income: fromFloat(raw.archetypes[k].income),
-    heat: fromFloat(raw.archetypes[k].heat),
-    growth: fromFloat(raw.archetypes[k].growth ?? 1.0),
-  });
+  const archetypes: Record<ArchetypeId, ArchetypeCoeffs> = {};
+  for (const def of listArchetypes()) {
+    const r = raw.archetypes[def.id] ?? def.coeffs;
+    archetypes[def.id] = {
+      r0: fromFloat(r.r0),
+      retain: fromFloat(r.retain),
+      income: fromFloat(r.income),
+      heat: fromFloat(r.heat),
+      growth: fromFloat(r.growth ?? def.coeffs.growth),
+    };
+  }
   return {
     tickMs: raw.sim.tick_ms,
     hashEveryTurns: raw.sim.hash_every_turns,
@@ -233,12 +240,7 @@ export function loadBalance(raw: RawBalance): Balance {
       cpaHarass: fromFloat(raw.heat.cpa_harass),
       cpaSiege: fromFloat(raw.heat.cpa_siege),
     },
-    archetypes: {
-      dawn: arche("dawn"),
-      radiant: arche("radiant"),
-      circle: arche("circle"),
-      visitors: arche("visitors"),
-    },
+    archetypes,
     charismaItems: fromFloat(raw.charisma_items),
     property: {
       parcelRadius: raw.property?.parcel_radius ?? 2,
@@ -274,4 +276,11 @@ export function loadBalance(raw: RawBalance): Balance {
       tendFaithPerS: fromFloat(raw.missions?.tend_faith_per_s ?? 0.4),
     },
   };
+}
+
+/** Coefficients for a registered archetype (throws on an unknown id). */
+export function archCoeffs(b: Balance, id: ArchetypeId): ArchetypeCoeffs {
+  const c = b.archetypes[id];
+  if (!c) throw new Error(`no balance coefficients for archetype: ${id}`);
+  return c;
 }

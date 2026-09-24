@@ -6,6 +6,7 @@
  * Pattern redundancy is the colorblind-safety mechanism: Dawn=radiating-crack,
  * Radiant=gradient-bloom, Circle=pinstripe, Visitors=starfield.
  */
+import type { ArchetypeId } from "./archetypes/types.js";
 
 export type RGB = [number, number, number];
 
@@ -108,7 +109,7 @@ function pixHash(x: number, y: number): number {
   return (h ^ (h >>> 16)) >>> 0;
 }
 
-export type Archetype = "dawn" | "radiant" | "circle" | "visitors";
+export type Archetype = ArchetypeId;
 
 /**
  * Archetype territory pattern (§30), evaluated per *pixel* of the rendered

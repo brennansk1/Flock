@@ -26,6 +26,7 @@
  * Apostate scarred tiles (from bombs/raids) do not count toward control.
  */
 
+import { archCoeffs } from "./balance.js";
 import {
   NEUTRAL,
   Lot,
@@ -375,7 +376,7 @@ export function executeCivicDecree(
   if (def.costUsd > 0) p.usd = sub(p.usd, fromInt(def.costUsd));
   if (def.costFaith > 0) p.faith = sub(p.faith, fromInt(def.costFaith));
   if (def.gainHeat > 0) {
-    p.heat = clamp(add(p.heat, mul(fromInt(def.gainHeat), b.archetypes[p.archetype].heat)), 0, HUNDRED);
+    p.heat = clamp(add(p.heat, mul(fromInt(def.gainHeat), archCoeffs(b, p.archetype).heat)), 0, HUNDRED);
   }
 
   // Set cooldown

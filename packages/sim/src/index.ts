@@ -9,6 +9,7 @@
 export * from "./fixed.js";
 export * from "./rng.js";
 export * from "./types.js";
+export * from "./archetypes/index.js";
 export * from "./intents.js";
 export * from "./balance.js";
 export * from "./hash.js";
@@ -36,3 +37,6 @@ export * from "./names.js";
 export * from "./civics.js";
 export * from "./townLife.js";
 export * from "./assetCatalog.js";
+
+// Must stay last: registers built-in cults once every engine module is live.
+import "./archetypes/builtin.js";

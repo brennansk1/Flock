@@ -7,13 +7,14 @@
  * This is META (outside lockstep), so plain arithmetic is fine. It never reads
  * live sim state — only an end-of-match summary the caller assembles.
  */
+import type { ArchetypeId } from "./archetypes/types.js";
 
 export const DAILY_REWARD_RELICS = 30; // §23
 export const STREAK_MILESTONES = [7, 30, 100] as const; // cosmetic unlocks (§23)
 
 /** End-of-match facts a Daily Prophecy can test (the caller fills this in). */
 export interface DailySummary {
-  archetype: "dawn" | "radiant" | "circle" | "visitors";
+  archetype: ArchetypeId;
   won: boolean;
   placement: number;
   peakFollowers: number;

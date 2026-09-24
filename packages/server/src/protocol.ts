@@ -8,12 +8,12 @@
  * authority is the anti-cheat (§34).
  */
 
-import type { Intent, Turn, RawBalance, Snapshot } from "@flock/sim";
+import type { ArchetypeId, Intent, Turn, RawBalance, Snapshot } from "@flock/sim";
 
 export interface WirePlayer {
   id: number;
   name: string;
-  archetype: "dawn" | "radiant" | "circle" | "visitors";
+  archetype: ArchetypeId;
   /** true for AI seats (bots + established churches) — humans never set it. */
   bot?: boolean;
 }

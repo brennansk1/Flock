@@ -17,6 +17,7 @@
  *              (focus the strongest border rival), prophecy/signature, scandal.
  */
 
+import { getArchetype } from "./archetypes/registry.js";
 import { IntentType, type Intent } from "./intents.js";
 import { toInt } from "./fixed.js";
 import { nextRange, type RngState } from "./rng.js";
@@ -209,11 +210,7 @@ export function botTurn(sim: SimState, bot: BotState, rng: RngState): Intent[] {
   // - Radiant: Supermarket, Church
   // - Circle: Bank, TownHall
   if (bot.tier === "church" && nextRange(rng, 2) === 0) {
-    let prefLots: Lot[] = [];
-    if (p.archetype === "dawn") prefLots = [Lot.HighSchool, Lot.Sheriff];
-    else if (p.archetype === "radiant") prefLots = [Lot.Supermarket, Lot.Church];
-    else if (p.archetype === "circle") prefLots = [Lot.Bank, Lot.Office];
-    else prefLots = [Lot.School, Lot.Library];
+    const prefLots = getArchetype(p.archetype).bot.prefLots;
 
     let targeted = -1;
     for (const targetLot of prefLots) {

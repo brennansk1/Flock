@@ -264,7 +264,7 @@ export function playVisitorsFellowshipTheme(): void {
 }
 
 /** Play signature theme for the selected archetype. */
-export function playFactionTheme(archetype: "dawn" | "radiant" | "circle" | "visitors"): void {
+export function playFactionTheme(archetype: string): void {
   switch (archetype) {
     case "dawn":
       playFinalDawnTheme();

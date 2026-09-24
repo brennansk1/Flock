@@ -48,12 +48,14 @@ import {
   type BotState,
   type BotTier,
   type MatchRecap,
+  archetypeIds,
 } from "@flock/sim";
 import type { ServerMsg, WirePlayer, MatchResult } from "./protocol.js";
 import { moderateChat } from "./moderation.js";
 
 const RATE_LIMIT_PER_SEC = 20;
-const ARCHETYPES = ["dawn", "radiant", "circle", "visitors"] as const;
+/** Bot archetype pool: every registered cult (registration order — deterministic). */
+const ARCHETYPES = archetypeIds();
 
 /** Drifter name generator (§21): a silly two-part grammar. */
 const BOT_FIRST = [

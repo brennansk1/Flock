@@ -7,6 +7,7 @@
  * supplement-lab adjacency).
  */
 
+import type { ArchetypeId } from "./archetypes/types.js";
 import { add, mul, fromInt, fromFloat, ONE, type Fixed } from "./fixed.js";
 import type { Balance } from "./balance.js";
 import { controlsCivic } from "./civics.js";
@@ -38,7 +39,7 @@ export interface BuildingDef {
    */
   staff: number;
   /** archetype gate, if any */
-  archetype?: "radiant";
+  archetype?: ArchetypeId;
 }
 
 /** How far the congregation will walk to run a building. */

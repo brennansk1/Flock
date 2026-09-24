@@ -8,6 +8,7 @@
  * Frame layout matches renderTown's: { width, height, data: Uint8ClampedArray }.
  */
 
+import { getArchetype } from "./archetypes/registry.js";
 import { PLAYER_COLORS, colorForPlayer, hexToRgb, shade, territoryPixel, type RGB, type Archetype } from "./palette.js";
 import type { MatchRecap, PlayerRecap } from "./recap.js";
 
@@ -119,12 +120,6 @@ function centered(frame: CardFrame, str: string, y: number, scale: number, c: RG
   text(frame, str, (frame.width - textWidth(str, scale)) / 2, y, scale, c);
 }
 
-const ARCHETYPE_LABEL: Record<Archetype, string> = {
-  dawn: "THE FINAL DAWN",
-  radiant: "THE RADIANT PATH",
-  circle: "THE PROSPERITY CIRCLE",
-  visitors: "THE VISITORS FELLOWSHIP",
-};
 
 function fmtMoney(n: number): string {
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(1)}M`;
@@ -220,7 +215,7 @@ export function renderRecapCard(recap: MatchRecap, names: Record<number, string>
   const name = names[winId] ?? `SECT #${winId}`;
   // auto-fit the title so long cult names never truncate mid-word
   centered(frame, name, 450, fitScale(name, 7, CARD_W - 90), ink);
-  centered(frame, ARCHETYPE_LABEL[winArch], 540, 4, dim);
+  centered(frame, getArchetype(winArch).theme.name.toUpperCase().replace("'", ""), 540, 4, dim);
 
   // auto-headline (priority grammar already baked into recap.players[].headline)
   const headline = winner?.headline ?? "ONE TOWN. NO REGRETS.";

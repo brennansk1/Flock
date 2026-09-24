@@ -9,6 +9,8 @@
  * draws from the sim RNG, which lives in the hashed state.
  */
 
+import { archCoeffs } from "./balance.js";
+import { getArchetype } from "./archetypes/registry.js";
 import { add, sub, mul, div, clamp, min, fromInt, fromFloat, ONE, type Fixed } from "./fixed.js";
 import { nextU32, nextRange } from "./rng.js";
 import type { Balance } from "./balance.js";
@@ -79,7 +81,7 @@ export function linePath(w: { width: number }, from: TileId, to: TileId): TileId
 }
 
 export function gainHeatScaled(p: PlayerState, b: Balance, amount: number): void {
-  const gain = mul(mul(fromInt(amount), b.archetypes[p.archetype].heat), heatGainMult(p));
+  const gain = mul(mul(fromInt(amount), archCoeffs(b, p.archetype).heat), heatGainMult(p));
   p.heat = clamp(add(p.heat, gain), 0, HUNDRED);
 }
 
@@ -120,9 +122,8 @@ export function stepCouriers(s: SimState, b: Balance): void {
             b.economy.courierCap,
           );
           const ownerPl = s.players.find((pl) => pl.id === pid);
-          if (ownerPl?.archetype === "circle" && controlsCivic(computeCivicControl(s), Lot.Bank, pid)) {
-            usd = mul(usd, fromInt(3)); // Franchise Megacenter: triples courier cash
-          }
+          const courierMult = ownerPl ? getArchetype(ownerPl.archetype).passives.courierMult : undefined;
+          if (ownerPl && courierMult) usd = mul(usd, courierMult(s, ownerPl)); // e.g. Circle Franchise Megacenter ×3
           s.couriers.push({
             id: s.nextEntityId++,
             player: pid,
@@ -387,7 +388,8 @@ export function publishScandal(s: SimState, attacker: PlayerState, victimId: Pla
 
   // lose clamp(Heat × 0.6, 5, 35)% of followers; ×1.5 vs Prosperity Circle
   let pct = clamp(mul(victim.heat, fromFloat(0.6)), fromInt(5), fromInt(35));
-  if (victim.archetype === "circle") pct = mul(pct, fromFloat(1.5));
+  const lossPct = getArchetype(victim.archetype).passives.scandalLossPct;
+  if (lossPct) pct = lossPct(pct);
   victim.followers = mul(victim.followers, sub(ONE, div(pct, HUNDRED)));
   victim.faith = victim.faith > fromInt(25) ? sub(victim.faith, fromInt(25)) : 0;
   return true;

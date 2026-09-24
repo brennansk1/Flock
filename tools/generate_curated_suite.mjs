@@ -77,7 +77,7 @@ async function run() {
   ];
 
   for (const arc of archetypes) {
-    const world = generateWorld(arc.seed, SIZE, SIZE, { archetype: arc.archetype });
+    const world = generateWorld(arc.seed, SIZE, SIZE, { townType: arc.archetype });
     const sim = createSim({ seed: arc.seed, balance, world, spawns: [], timerTicks: 0, dominationPermille: 1000 });
     renderAndSave(arc.name, sim, 1);
   }

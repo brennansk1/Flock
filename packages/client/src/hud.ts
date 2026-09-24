@@ -154,6 +154,7 @@ const LANDMARK_NAMES: Record<number, string> = {
 const TERRAIN_NAMES: Record<number, string> = {
   [Terrain.Woods]: "the woods",
   [Terrain.Lake]: "open water",
+  [Terrain.Rock]: "the ridge",
   [Terrain.Grass]: "open country",
   [Terrain.Field]: "crop fields",
   [Terrain.Dirt]: "a dirt lane",
@@ -196,6 +197,8 @@ const CIVIC_NAMES: Record<number, string> = {
   [Lot.GrainElevator]: "Grain Elevator",
   [Lot.Cannery]: "Cannery",
   [Lot.Sawmill]: "Sawmill",
+  [Lot.Courthouse]: "County Courthouse",
+  [Lot.Track]: "Running Track",
   [Lot.Lighthouse]: "Lighthouse",
 };
 

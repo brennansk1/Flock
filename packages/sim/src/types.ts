@@ -52,6 +52,12 @@ export const Terrain = {
   Pasture: 9,
   /** Railroad right-of-way — unbuildable, unclaimable; ideas cross it. */
   Rail: 10,
+  /**
+   * Rock ridge / mountainside (Stage 2, mountain & desert archetypes):
+   * unbuildable, unclaimable, unconvertible — a natural wall like open
+   * water. Ideas don't cross it (conversion treats it as nature).
+   */
+  Rock: 11,
 } as const;
 export type Terrain = (typeof Terrain)[keyof typeof Terrain];
 
@@ -142,6 +148,10 @@ export const Lot = {
   Cannery: 34,
   /** Timber keystone (§2A mountain archetype). */
   Sawmill: 35,
+  /** Stage 2 Courthouse Square: the county courthouse filling the square's centre. */
+  Courthouse: 36,
+  /** Stage 2 high-school campus: cinder running track around the football field. */
+  Track: 37,
 } as const;
 export type Lot = (typeof Lot)[keyof typeof Lot];
 

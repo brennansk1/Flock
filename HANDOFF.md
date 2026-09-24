@@ -12,7 +12,7 @@
 
 You are stepping into a working, highly tested TypeScript monorepo (~20k LOC) implementing **Flock**, a browser-first competitive multiplayer (.io) cult-building strategy game combining the territory tension of *OpenFront* / *Galcon* with the asymmetric faction flavor of *Cult of the Lamb*.
 
-Your mission is to transition this brownfield codebase into a commercially successful, visually captivating, deeply strategic game ready for public launch and widespread player adoption.
+Your mission is to transition this brownfield codebase into a **commercially successful, highly marketable, and genuinely sellable indie game**. The game must be designed not just to function, but to sell: it needs spectator-friendly visual juice, intuitive UI/UX, deep retention loops, and an extensible architecture ready for live-ops monetization (cosmetic skins for vehicles/buildings/cultists and modular pluggable new cult archetypes).
 
 ---
 
@@ -35,6 +35,19 @@ When delegating tasks to subagents in Claude Code:
 * **Max 2 Concurrent Subagents**: You may spawn a **maximum of 2 subagents at any given time**. Never exceed 2 active subagents simultaneously to maintain token budget control and oversight.
 * **Strict Domain Separation (Zero File Overlap)**: Subagents must operate on completely distinct files, packages, and architectural surfaces (e.g., Subagent 1 on `packages/sim/` and Subagent 2 on `packages/client/`). They must **never** edit or write to the same files concurrently, eliminating race conditions and merge conflicts.
 * **No Recursive Delegation**: Subagents must be explicitly instructed **never to spawn subagents of their own**. All delegation is strictly single-tier (Parent Lead Agent $\to$ Worker Subagent).
+
+### 2.4 Commercial Viability & Extensible Monetization Architecture (Marketability, Skins & New Cults)
+Flock is being built not as a raw tech demo, but as a **commercially viable, highly marketable, sellable indie strategy title** that can sustain long-term player interest and commercial expansion:
+* **Marketable & Streamable Gameplay**:
+  * The game must have immediate visual punch and "spectator clarity" (crisp animations, recognizable 1980s town elements, dramatic front clashes, viral recap cards).
+  * Onboarding and UX must be friction-free: an intuitive strategy menu and responsive HUD that makes complex asymmetric RTS mechanics instantly understandable to new players.
+* **Pluggable Cosmetic Skin Architecture**:
+  * The architecture must cleanly decouple cosmetic visual identifiers (vehicle liveries, van decals, commune compound architecture, cultist attire/robes, flag banners) from simulation logic.
+  * Cosmetics must be cosmetic-only: they must never alter simulation math or introduce network desyncs. The client renderer should accept player skin loadouts seamlessly.
+* **Modular Cult Archetype Registry (DLC & Expansion Ready)**:
+  * Do NOT hardcode cult behaviors in monolithic switch-statements across the codebase.
+  * Structure cult archetypes around a modular registry interface (`ArchetypeDefinition`: passives, signature rituals/abilities, doctrine affinity trees, and visual themes).
+  * This ensures the codebase can easily scale post-launch by dropping in new cult archetypes (expansions, seasonal DLC, themed updates) with zero friction.
 
 ---
 

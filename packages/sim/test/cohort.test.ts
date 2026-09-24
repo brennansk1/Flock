@@ -160,17 +160,15 @@ test("a spread cohort converts the doors around its target — presence, not adj
   assert.ok(flipped > 0, "presence converts around the target with zero adjacency");
 });
 
-test("a crusade wears the flock down and stokes Heat", () => {
+test("a crusade wears the flock down (Heat now comes from conversions — see stage1.test.ts)", () => {
   const s = spawned();
   const p = s.players[0]!;
   step(s, turn(1, [
     { t: IntentType.MISSION_SEND, player: 1, tile: 15 * 32 + 15, permille: 600, mode: Stance.Crusade },
   ]), balance);
   const massAtSend = p.cohorts[0]!.mass;
-  const heatAtSend = p.heat;
   for (let i = 2; i < 400; i++) step(s, turn(i), balance);
   assert.ok(p.cohorts[0]!.mass < massAtSend, "attrition bit the deployed mass");
-  assert.ok(p.heat > heatAtSend, "the hard sell drew Heat");
 });
 
 test("the hash sees cohort state", () => {

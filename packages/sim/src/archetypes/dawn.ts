@@ -3,9 +3,9 @@ import { add, div, fromInt, ONE } from "../fixed.js";
 import { Landmark, Lot, NEUTRAL, TileState, PROGRESS_STRIDE } from "../types.js";
 import { destroyBuildingsOnTile } from "../buildings.js";
 import { gainHeatScaled } from "../entities.js";
-import { HUNDRED, usd, faith, inBounds, isCitizen, districtAt } from "./common.js";
+import { HUNDRED, usd, faith, inBounds, isCitizen, districtAt, pct, both } from "./common.js";
 import type { ArchetypeDefinition } from "./types.js";
-import { DAWN_KIT } from "./kits.js";
+import { DAWN_KIT, CULT_VICTORY } from "./kits.js";
 
 export const dawn: ArchetypeDefinition = {
   id: "dawn",
@@ -42,12 +42,11 @@ export const dawn: ArchetypeDefinition = {
   ],
   signature: {
     name: "Prophecy Countdown",
-    blurb: "Broadcast a doomsday timer. If you hold your ground until it ends, the Rapture takes the border.",
+    blurb: "At 25% of the town: broadcast a doomsday timer. Hold your ground until it ends and the Rapture takes the border.",
     apply(s, p, b) {
       if (p.prophecyUsed) return;
       const k = DAWN_KIT.prophecy;
-      const minTiles = Math.min(k.minTiles, Math.max(1, Math.floor(s.populated * k.minShareOfPopulated)));
-      if (p.ownedTiles < minTiles) return;
+      if (p.soulsPermille < k.minSoulsPermille) return;
       p.prophecyUsed = true;
       gainHeatScaled(p, b, k.heat);
       s.prophecies.push({
@@ -88,7 +87,18 @@ export const dawn: ArchetypeDefinition = {
       return true;
     },
   },
-  bot: { prefLots: [Lot.HighSchool, Lot.Sheriff] },
+  victory: {
+    id: "rapture",
+    name: "The Rapture",
+    blurb: "Hold 30% of the town's souls and most of its holy ground — churches, chapels, the Megachurch.",
+    progress: (_s, p, _b, st) =>
+      both(pct(p.soulsPermille, CULT_VICTORY.rapture.soulsPermille), pct((st.holyOwned.get(p.id) ?? 0) * 2, st.holyTotal + 1)),
+    achieved: (_s, p, _b, st) =>
+      st.holyTotal > 0 &&
+      p.soulsPermille >= CULT_VICTORY.rapture.soulsPermille &&
+      (st.holyOwned.get(p.id) ?? 0) * 2 > st.holyTotal,
+  },
+  bot: { prefLots: [Lot.Church, Lot.Chapel, Lot.HighSchool], doctrine: ["T1", "T2", "B1", "T3", "B2", "T4", "E3"] },
   theme: {
     name: "The Final Dawn",
     short: "DOOMSDAY",

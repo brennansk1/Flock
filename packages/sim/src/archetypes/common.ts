@@ -26,6 +26,16 @@ export function districtAt(s: SimState, t: TileId): number {
   return inBounds(s, t) ? s.world.district[t]! : 0;
 }
 
+/** Progress (‰) toward `need`, capped at 1000. */
+export function pct(have: number, need: number): number {
+  return need <= 0 ? 1000 : Math.min(1000, Math.floor((have * 1000) / need));
+}
+
+/** Two-part path progress: the mean of both parts (each capped). */
+export function both(a: number, b: number): number {
+  return (Math.min(1000, a) + Math.min(1000, b)) >> 1;
+}
+
 export function addCapped(v: Fixed, amt: Fixed): Fixed {
   return min(add(v, amt), HUNDRED);
 }

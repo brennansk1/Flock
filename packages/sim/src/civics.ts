@@ -10,7 +10,7 @@
  *   School (elementary)  → Passive: stronger ambient spread
  *                          Active: Parent-Teacher Night (2x ambient creep for 30s)
  *   High School          → Passive: faster follower growth
- *                          Active: Pep Rally (+1,200 followers / overflow to tithe)
+ *                          Active: Pep Rally (+300 followers / overflow to tithe)
  *   Supermarket (grocery)→ Passive: your flock holds firmer
  *                          Active: Food Rationing (+35% retention for 25s)
  *   Church               → Passive: Faith climbs
@@ -99,7 +99,7 @@ export const CIVIC_DECREES: Record<CivicDecreeId, CivicDecreeDef> = {
     name: "Town Curfew",
     lot: Lot.Sheriff,
     isLandmark: false,
-    costUsd: 10_000,
+    costUsd: 1_000,
     costFaith: 0,
     gainHeat: 10,
     cooldownTicks: 900, // 90s
@@ -111,19 +111,19 @@ export const CIVIC_DECREES: Record<CivicDecreeId, CivicDecreeDef> = {
     name: "Pep Rally",
     lot: Lot.HighSchool,
     isLandmark: false,
-    costUsd: 12_000,
+    costUsd: 1_200,
     costFaith: 0,
     gainHeat: 0,
     cooldownTicks: 1000, // 100s
     durTicks: 0, // instant
-    description: "Spawns +1,200 followers (overflow converted to $0.50 tithe).",
+    description: "Spawns +300 followers (overflow converted to $0.50 tithe).",
   },
   [CivicDecreeId.ParentTeacherNight]: {
     id: CivicDecreeId.ParentTeacherNight,
     name: "Parent-Teacher Night",
     lot: Lot.School,
     isLandmark: false,
-    costUsd: 6_000,
+    costUsd: 600,
     costFaith: 0,
     gainHeat: 0,
     cooldownTicks: 600, // 60s
@@ -135,7 +135,7 @@ export const CIVIC_DECREES: Record<CivicDecreeId, CivicDecreeDef> = {
     name: "Food Rationing",
     lot: Lot.Supermarket,
     isLandmark: false,
-    costUsd: 15_000,
+    costUsd: 1_500,
     costFaith: 15,
     gainHeat: 0,
     cooldownTicks: 1200, // 120s
@@ -159,7 +159,7 @@ export const CIVIC_DECREES: Record<CivicDecreeId, CivicDecreeDef> = {
     name: "Municipal Injunction",
     lot: Landmark.TownHall,
     isLandmark: true,
-    costUsd: 30_000,
+    costUsd: 3_000,
     costFaith: 0,
     gainHeat: 20,
     cooldownTicks: 1500, // 150s
@@ -171,7 +171,7 @@ export const CIVIC_DECREES: Record<CivicDecreeId, CivicDecreeDef> = {
     name: "Emergency Jam",
     lot: Landmark.RadioTower,
     isLandmark: true,
-    costUsd: 40_000,
+    costUsd: 4_000,
     costFaith: 0,
     gainHeat: 0,
     cooldownTicks: 1200, // 120s
@@ -390,7 +390,7 @@ export function executeCivicDecree(
   // Apply decree effects
   switch (decreeId) {
     case CivicDecreeId.PepRally: {
-      const toAdd = fromInt(1200);
+      const toAdd = fromInt(300);
       const available = sub(cap, p.followers);
       if (available > 0) {
         if (toAdd <= available) {
@@ -401,7 +401,7 @@ export function executeCivicDecree(
           p.usd = add(p.usd, mul(fromInt(overflow), fromInt(1) >> 1)); // $0.50 per follower
         }
       } else {
-        // completely at or over cap: all 1,200 converted to $0.50 tithe cash = $600
+        // completely at or over cap: all 300 converted to $0.50 tithe cash = $600
         p.usd = add(p.usd, fromInt(600));
       }
       break;

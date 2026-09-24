@@ -60,7 +60,7 @@ function runMatch({ seed, world: WORLD, players, tiers, town = "farm" }) {
   }, balance);
   for (let n = 1; n <= TIMER && sim.status === 0; n++) {
     const intents = [];
-    for (const b of bots) if (botShouldAct(b, sim.tick)) intents.push(...botTurn(sim, b, rng));
+    for (const b of bots) if (botShouldAct(b, sim.tick)) intents.push(...botTurn(sim, b, rng, balance));
     step(sim, { n, intents, seedSlice: (n * 2654435761) >>> 0 }, balance);
   }
   const standings = [...sim.players].filter((p) => p.spawned).sort((a, b) => b.ownedTiles - a.ownedTiles);

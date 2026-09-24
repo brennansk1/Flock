@@ -59,7 +59,7 @@ test("FOUNDING: the sim holds its breath until the window closes", () => {
   assert.ok(toInt(s.players[0]!.usd) > usd0, "economy starts when founding ends");
 });
 
-test("Doctrinal victory: Faith 100 held 90s + 20s Megachurch channel (Revelation)", () => {
+test("Revelation: hold the Megachurch at Faith 90+ through the Ascension countdown", () => {
   const w = world16();
   w.landmark[5] = Landmark.Megachurch;
   const s = createSim({
@@ -70,7 +70,6 @@ test("Doctrinal victory: Faith 100 held 90s + 20s Megachurch channel (Revelation
       { id: 1, archetype: "radiant" },
       { id: 2, archetype: "dawn" },
     ],
-    revelationMode: true,
     timerTicks: 0,
     dominationPermille: 1000,
   });
@@ -80,13 +79,15 @@ test("Doctrinal victory: Faith 100 held 90s + 20s Megachurch channel (Revelation
   ]), balance);
   assert.equal(s.world.owner[5], 1, "p1 holds the Megachurch");
   s.players[0]!.faith = fromInt(100);
-  // hold 90s + channel 20s; megachurch trickle keeps faith pinned at 100
-  for (let i = 0; i < 1150 && s.status !== MatchStatus.Ended; i++) {
+  step(s, turn(s.tick), balance);
+  assert.equal(s.players[0]!.ascendPath, "revelation", "Revelation countdown starts");
+  for (let i = 0; i < balance.victory.ascendTicks + 5 && s.status !== MatchStatus.Ended; i++) {
     s.players[0]!.faith = fromInt(100); // pin against drift for the test
     step(s, turn(s.tick), balance);
   }
-  assert.equal(s.status, MatchStatus.Ended, "doctrinal victory fires");
+  assert.equal(s.status, MatchStatus.Ended, "Revelation victory fires");
   assert.equal(s.winner, 1);
+  assert.equal(s.winPath, "revelation");
 });
 
 test("recap headlines follow the Appendix B priority order", () => {

@@ -3,9 +3,9 @@ import { add, mul, fromInt, ONE } from "../fixed.js";
 import { Lot } from "../types.js";
 import { controlsCivic } from "../civics.js";
 import { loveBombCostMult } from "../doctrine.js";
-import { fp, usd, inBounds, districtAt } from "./common.js";
+import { fp, usd, inBounds, districtAt, pct, both } from "./common.js";
 import type { ArchetypeDefinition } from "./types.js";
-import { RADIANT_KIT } from "./kits.js";
+import { RADIANT_KIT, CULT_VICTORY } from "./kits.js";
 
 export const radiant: ArchetypeDefinition = {
   id: "radiant",
@@ -17,6 +17,7 @@ export const radiant: ArchetypeDefinition = {
       blurb: "Wipe every trace of dissent from your tiles in one district.",
       slot: "primary",
       targeting: "district",
+      aim: "own",
       cooldownKey: "juice_cleanse",
       cooldownTicks: RADIANT_KIT.juiceCleanse.cooldown,
       cost: () => usd(RADIANT_KIT.juiceCleanse.cost),
@@ -54,13 +55,29 @@ export const radiant: ArchetypeDefinition = {
     // Organic Co-Op: Supermarket control → +40% retention.
     retainCivicMult: (_s, defender, civics) =>
       controlsCivic(civics, Lot.Supermarket, defender.id) ? fp(1.4) : ONE,
-    // The Glow: +0.4%/s retention per second held, cap +80% at 200s.
+    // The Glow: +0.8%/s retention per second held, cap +80% at 100s (STAGE1 §7).
     retainTileMult(s, _defender, t) {
-      const held = Math.min(2000, s.world.holdTicks[t]!);
-      return add(ONE, Math.round(held * 0.0004 * 65536));
+      const held = Math.min(1000, s.world.holdTicks[t]!);
+      return add(ONE, held * 52); // 0.08%/tick in Q16.16 (≈ 0.0008 × 65536)
     },
   },
-  bot: { prefLots: [Lot.Supermarket, Lot.Church] },
+  victory: {
+    id: "wellness",
+    name: "Total Wellness",
+    blurb: "Hold 35% of the town's souls with average dissent at 8 or below. A calm, happy, paying flock.",
+    progress(_s, p, _b, st) {
+      const tiles = st.believerTiles.get(p.id) ?? 0;
+      const avg = tiles > 0 ? Math.floor((st.dissentSum.get(p.id) ?? 0) / tiles) : 0;
+      const calm = avg <= fromInt(CULT_VICTORY.wellness.maxAvgDissent) ? 1000 : pct(fromInt(CULT_VICTORY.wellness.maxAvgDissent), avg);
+      return both(pct(p.soulsPermille, CULT_VICTORY.wellness.soulsPermille), tiles > 0 ? calm : 0);
+    },
+    achieved(_s, p, _b, st) {
+      const tiles = st.believerTiles.get(p.id) ?? 0;
+      if (tiles === 0 || p.soulsPermille < CULT_VICTORY.wellness.soulsPermille) return false;
+      return (st.dissentSum.get(p.id) ?? 0) <= fromInt(CULT_VICTORY.wellness.maxAvgDissent) * tiles;
+    },
+  },
+  bot: { prefLots: [Lot.Supermarket, Lot.Church], doctrine: ["B3", "B2", "E3", "B1", "T1", "B4", "I1"] },
   theme: {
     name: "The Radiant Path",
     short: "WELLNESS",

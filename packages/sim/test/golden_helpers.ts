@@ -37,11 +37,11 @@ export function playGolden(seed: number, ticks: number, size = 48, players = 4, 
     intents: spawns.map((s, i) => ({ t: IntentType.SPAWN, player: s.id, tile: (c + ring[i]![1]!) * size + (c + ring[i]![0]!) })),
   }, balance);
   // Bankroll everyone so every cash-priced kit branch is exercised.
-  for (const p of sim.players) p.usd = fromInt(3_000_000);
+  for (const p of sim.players) p.usd = fromInt(20_000);
   const out: string[] = [];
   for (let n = 1; n <= ticks && sim.status === 0; n++) {
     const intents: Intent[] = [];
-    for (const b of bots) if (botShouldAct(b as any, sim.tick)) intents.push(...botTurn(sim, b as any, rng));
+    for (const b of bots) if (botShouldAct(b as any, sim.tick)) intents.push(...botTurn(sim, b as any, rng, balance));
     // Scripted kit usage (bots don't cast ABILITY): exercise every archetype
     // branch so the characterization covers the whole kit surface.
     if (n % 90 === 0) {
@@ -57,6 +57,6 @@ export function playGolden(seed: number, ticks: number, size = 48, players = 4, 
     if (seen) for (const p of sim.players) for (const k of Object.keys(p.cooldowns)) seen.add(k);
     if (n % 500 === 0) out.push(hashState(sim));
   }
-  out.push(`${sim.tick}:${sim.status}:${sim.winner}:${hashState(sim)}`);
+  out.push(`${sim.tick}:${sim.status}:${sim.winner}:${sim.winPath}:${hashState(sim)}`);
   return out;
 }

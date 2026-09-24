@@ -264,10 +264,14 @@ export interface PlayerState {
   schismRiskTicks: number;
   /** lifetime $ earned — timer tiebreak + recap stat (§1/§25) */
   usdEarned: Fixed;
-  /** Doctrinal victory (§18): consecutive ticks at Faith 100 (Revelation). */
-  faithHoldTicks: number;
-  /** Doctrinal victory: Megachurch channel progress after the hold. */
-  channelTicks: number;
+  /** Share of the town's residents who believe in this cult (‰), refreshed each tick. */
+  soulsPermille: number;
+  /** Exposes this cult has published this match (drives Expose price). */
+  exposes: number;
+  /** Victory path currently ascending ("" = none) — see victory.ts. */
+  ascendPath: string;
+  /** Ticks left on the public Ascension countdown (0 with a path = win). */
+  ascendTicks: number;
   /** Land parcels bought (§18 rev.) — drives escalating BUY_PROPERTY cost. */
   parcels: number;
   /** Deployed cohorts (v3 missions) — at most MAX_COHORTS live entries. */
@@ -496,8 +500,8 @@ export interface SimState {
   activeDecrees: ActiveDecree[];
 
   // ---- M1 systems ----
-  /** Revelation mode: economic + (future) doctrinal victory paths active (§18). */
-  revelationMode: boolean;
+  /** Victory path that ended the match ("" while running / timer / elimination). */
+  winPath: string;
   disableCouriers: boolean;
   disableCPA: boolean;
   disableSchisms: boolean;

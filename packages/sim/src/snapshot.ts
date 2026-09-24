@@ -75,7 +75,7 @@ export interface Snapshot {
   auras: Aura[];
   prophecies: Prophecy[];
   activeDecrees: ActiveDecree[];
-  revelationMode: boolean;
+  winPath: string;
   disableCouriers: boolean;
   disableCPA: boolean;
   disableSchisms: boolean;
@@ -144,7 +144,7 @@ export function toSnapshot(s: SimState): Snapshot {
     auras: s.auras.map((e) => ({ ...e })),
     prophecies: s.prophecies.map((e) => ({ ...e })),
     activeDecrees: s.activeDecrees.map((e) => ({ ...e })),
-    revelationMode: s.revelationMode,
+    winPath: s.winPath,
     disableCouriers: s.disableCouriers,
     disableCPA: s.disableCPA,
     disableSchisms: s.disableSchisms,
@@ -222,7 +222,7 @@ export function fromSnapshot(snap: Snapshot): SimState {
     auras: snap.auras.map((e) => ({ ...e })),
     prophecies: snap.prophecies.map((e) => ({ ...e })),
     activeDecrees: (snap.activeDecrees ?? []).map((e) => ({ ...e })),
-    revelationMode: snap.revelationMode,
+    winPath: snap.winPath,
     disableCouriers: snap.disableCouriers,
     disableCPA: snap.disableCPA,
     disableSchisms: snap.disableSchisms,

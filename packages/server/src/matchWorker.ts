@@ -499,7 +499,7 @@ export class MatchWorker {
   private runBots(): void {
     for (const bot of this.bots) {
       if (!botShouldAct(bot, this.sim.tick)) continue;
-      const intents = botTurn(this.sim, bot, this.botRng);
+      const intents = botTurn(this.sim, bot, this.botRng, this.balance);
       for (const intent of intents) this.pending.push(intent);
     }
   }

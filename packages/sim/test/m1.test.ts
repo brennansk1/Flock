@@ -23,6 +23,7 @@ import {
   IntentType,
   Stance,
   TileState,
+  Terrain,
   Landmark,
   MatchStatus,
   Districts,
@@ -192,25 +193,22 @@ test("deprogramming raid scars a blob and spikes district dissent", () => {
   assert.ok(scarred > 0, "apostate scar tissue exists");
 });
 
-test("scandal: evidence gathers, notifies at 50%, and publishing burns the victim", () => {
+test("expose: gated on the victim's Heat, burns followers, prices up per use", () => {
   const s = duel();
   p(s, 1).usd = fromInt(50_000);
-  p(s, 2).heat = fromInt(50); // dirty victim takes real scandal damage
-  run(s, 1, [{ t: IntentType.AGENT_DISPATCH, player: 1, district: Districts.Trailer, mission: "scandal" }]);
-  // evidence at 1.2%/s → 50% in ~42s, plus ~24s travel
-  run(s, 800);
-  const file = s.scandals.find((sc) => sc.attacker === 1 && sc.victim === 2);
-  assert.ok(file, "evidence file exists");
-  assert.ok(file!.notified, "target was notified at 50%");
-  run(s, 600);
-  assert.ok(toFloat(file!.evidence) >= 100, `evidence complete (${toFloat(file!.evidence)})`);
+  p(s, 2).heat = fromInt(10); // quiet cult: not exposable
+  run(s, 1, [{ t: IntentType.PUBLISH_SCANDAL, player: 1, target: 2 }]);
+  assert.equal(p(s, 1).exposes, 0, "a cool cult can't be exposed");
+  p(s, 2).heat = fromInt(50); // loud cult
   const followersBefore = toInt(p(s, 2).followers);
-  run(s, 2, [{ t: IntentType.PUBLISH_SCANDAL, player: 1, target: 2 }]);
-  assert.ok(file!.published, "scandal published");
-  assert.ok(
-    toInt(p(s, 2).followers) < followersBefore * 0.8,
-    "victim at heat 50 loses ~30% of followers",
-  );
+  const usdBefore = toInt(p(s, 1).usd);
+  run(s, 1, [{ t: IntentType.PUBLISH_SCANDAL, player: 1, target: 2 }]);
+  assert.equal(p(s, 1).exposes, 1, "expose landed");
+  const spent = usdBefore - toInt(p(s, 1).usd);
+  assert.ok(spent > 3_900 && spent <= 4_000, `first expose costs $4k less a tick of tithe (${spent})`);
+  assert.ok(toInt(p(s, 2).followers) < followersBefore * 0.8, "victim at heat 50 loses ~30% of followers");
+  run(s, 1, [{ t: IntentType.PUBLISH_SCANDAL, player: 1, target: 2 }]);
+  assert.equal(p(s, 1).exposes, 1, "cooldown blocks an immediate repeat");
 });
 
 // ---------------- strikes ----------------
@@ -325,7 +323,7 @@ test("Radiant: Juice Cleanse zeroes one district's dissent", () => {
   assert.ok(maxDissent < 1, `district dissent zeroed (max ${maxDissent})`);
 });
 
-test("Circle: Seminar Blitz buys followers; Ledger wins in Revelation mode", () => {
+test("Circle: Seminar Blitz grows the flock 25%; The Ledger ascends and wins", () => {
   const world = createWorld(W, W);
   world.districtCoeffs = districtCoeffTable();
   const s = createSim({
@@ -338,7 +336,6 @@ test("Circle: Seminar Blitz buys followers; Ledger wins in Revelation mode", () 
     ],
     timerTicks: 0,
     dominationPermille: 1000,
-    revelationMode: true,
   });
   step(s, turn(0, [
     { t: IntentType.SPAWN, player: 1, tile: 8 * W + 8 },
@@ -348,13 +345,23 @@ test("Circle: Seminar Blitz buys followers; Ledger wins in Revelation mode", () 
   const me = p(s, 1);
   me.usd = fromInt(100_000);
   const before = toInt(me.followers);
-  run(s, 2, [{ t: IntentType.ABILITY, player: 1, ability: "seminar_blitz" }]);
-  assert.ok(toInt(me.followers) >= before + 2_400, "blitz adds ~2,500 followers");
+  run(s, 1, [{ t: IntentType.ABILITY, player: 1, ability: "seminar_blitz" }]);
+  assert.ok(toInt(me.followers) >= Math.floor(before * 1.24), "blitz adds ~25% of the flock");
 
-  me.usd = fromInt(1_300_000); // over the S-map Ledger target
+  // The Ledger: 20% of the town + the S-map bank target, held through the countdown.
+  const w = s.world;
+  for (let t = 0, got = me.ownedTiles; t < w.owner.length && got < 240; t++) {
+    if (w.owner[t] === 0 && w.terrain[t] === Terrain.Citizen) {
+      w.owner[t] = 1; w.state[t] = TileState.Believer; me.ownedTiles++; got++;
+    }
+  }
+  me.usd = fromInt(200_000); // over the S-map Ledger target ($150k)
   run(s, 2);
-  assert.equal(s.status, MatchStatus.Ended, "economic victory fires in Revelation");
+  assert.equal(me.ascendPath, "ledger", "the Ledger countdown is running");
+  run(s, balance.victory.ascendTicks + 2);
+  assert.equal(s.status, MatchStatus.Ended, "the Ledger wins once the countdown survives");
   assert.equal(s.winner, 1);
+  assert.equal(s.winPath, "ledger");
 });
 
 test("Visitors: Saucer Landing claims remote ground and keeps the cult alive", () => {

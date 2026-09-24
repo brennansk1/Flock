@@ -1,11 +1,12 @@
 /** §11.3 The Prosperity Circle — corporate MLM. Money is the weapon. */
-import { add, min, mul, fromInt, fromFloat, ONE } from "../fixed.js";
+import { add, div, min, mul, fromInt, fromFloat, ONE } from "../fixed.js";
 import { Lot, NEUTRAL, Terrain, TileState, TileFlag } from "../types.js";
 import { computeCivicControl, controlsCivic } from "../civics.js";
 import { followerCap } from "../sim.js";
-import { usd, inBounds } from "./common.js";
+import { usd, inBounds, pct, both } from "./common.js";
 import type { ArchetypeDefinition } from "./types.js";
-import { CIRCLE_KIT } from "./kits.js";
+import { CIRCLE_KIT, CULT_VICTORY } from "./kits.js";
+import { mapClass } from "../victory.js";
 
 export const circle: ArchetypeDefinition = {
   id: "circle",
@@ -14,7 +15,7 @@ export const circle: ArchetypeDefinition = {
     {
       id: "seminar_blitz",
       name: "Seminar Blitz",
-      blurb: "Buy a stadium seminar: +2,500 followers instantly (up to your cap).",
+      blurb: "Buy a stadium seminar: your flock grows 25% instantly (up to your cap).",
       slot: "primary",
       targeting: "none",
       cooldownKey: "seminar_blitz",
@@ -23,13 +24,14 @@ export const circle: ArchetypeDefinition = {
       validate: () => true,
       effect: ({ s, p, b }) => {
         const cap = followerCap(p, b, s);
-        p.followers = min(add(p.followers, fromInt(CIRCLE_KIT.seminarBlitz.followers)), cap);
+        const gain = div(mul(p.followers, fromInt(CIRCLE_KIT.seminarBlitz.flockPermille)), fromInt(1000));
+        p.followers = min(add(p.followers, gain), cap);
       },
     },
     {
       id: "hostile_acquisition",
       name: "Hostile Takeover",
-      blurb: "Buy out up to 120 contiguous neutral tiles in a district.",
+      blurb: "Buy out up to 40 contiguous neutral homes in a district.",
       slot: "secondary",
       targeting: "tile",
       cooldownKey: "hostile_acquisition",
@@ -82,11 +84,13 @@ export const circle: ArchetypeDefinition = {
   victory: {
     id: "ledger",
     name: "The Ledger",
-    blurb: "Bank the town's fortune. Reach the Ledger target to buy the whole town.",
-    progress: (_s, p) => Math.min(1000, Math.floor((Math.floor(p.usd / ONE) * 1000) / CIRCLE_KIT.ledgerUsd)),
-    achieved: (s, p) => s.revelationMode && p.usd >= fromInt(CIRCLE_KIT.ledgerUsd),
+    blurb: "Hold 20% of the town's souls and bank the Ledger target. Then buy the rest.",
+    progress: (s, p, b) =>
+      both(pct(p.soulsPermille, CULT_VICTORY.ledger.soulsPermille), pct(p.usd, b.victory.ledgerUsd[mapClass(s)])),
+    achieved: (s, p, b) =>
+      p.soulsPermille >= CULT_VICTORY.ledger.soulsPermille && p.usd >= b.victory.ledgerUsd[mapClass(s)],
   },
-  bot: { prefLots: [Lot.Bank, Lot.Office] },
+  bot: { prefLots: [Lot.Bank, Lot.Office], doctrine: ["B1", "I1", "I2", "E3", "T1", "I3", "I4"] },
   theme: {
     name: "The Prosperity Circle",
     short: "M.L.M.",

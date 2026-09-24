@@ -1268,10 +1268,10 @@ export class Hud {
       let hint = needUsd ? ` (costs ${fmtMoney(needUsd)})` : needFaith ? ` (costs ${needFaith} Faith)` : "";
       if (def.id === "prophecy") {
         // Prophecy is gated by territory + once-per-match, not resources (§11.1)
-        const minTiles = Math.min(KIT.prophecy.minTiles, Math.max(1, Math.floor(s.populated * KIT.prophecy.minShareOfPopulated)));
-        cant = me.prophecyUsed || me.ownedTiles < minTiles;
-        costText = me.prophecyUsed ? "used" : `${me.ownedTiles}/${minTiles}⬢`;
-        hint = ` — needs ${minTiles} tiles, once per match`;
+        const need = KIT.prophecy.minSoulsPermille;
+        cant = me.prophecyUsed || me.soulsPermille < need;
+        costText = me.prophecyUsed ? "used" : `${Math.floor(me.soulsPermille / 10)}/${need / 10}%`;
+        hint = ` — needs ${need / 10}% of the town's souls, once per match`;
       } else if (def.passive) {
         costText = "passive";
         cant = false;

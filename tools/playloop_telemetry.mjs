@@ -36,6 +36,8 @@ const ARCHES = ["dawn", "radiant", "circle", "visitors"];
 const TPS = 10;
 const SAMPLE = 10 * TPS;
 const ABILITY_EVERY = 30; // scripted caster thinks every 3s
+/** Bots cast their own kits since Stage 1; SCRIPTED=1 re-enables the old overlay. */
+const SCRIPTED = process.env.SCRIPTED === "1";
 const CHECKPOINTS_MIN = [2, 5, 10, 15, 20];
 const F = 65536;
 const toF = (x) => x / F;
@@ -211,9 +213,9 @@ for (let m = 0; m < MATCHES; m++) {
 
   for (let n = 1; n < TIMER + 5 && s.status === MatchStatus.Live; n++) {
     const intents = [];
-    for (const b of bots) if (botShouldAct(b, s.tick)) intents.push(...botTurn(s, b, rng));
+    for (const b of bots) if (botShouldAct(b, s.tick)) intents.push(...botTurn(s, b, rng, balance));
     // scripted ability layer (only for original seats)
-    if (n % ABILITY_EVERY === 0) {
+    if (SCRIPTED && n % ABILITY_EVERY === 0) {
       for (const p of s.players) {
         if (!p.alive || !p.spawned || !archOf.has(p.id)) continue;
         const def = getArchetype(p.archetype);
@@ -317,10 +319,8 @@ for (let m = 0; m < MATCHES; m++) {
   if (winnerP) {
     const share = (souls.get(winnerP.id) ?? 0) * 1000 / s.totalPop;
     const contenders = s.players.filter((p) => p.alive && p.spawned).length;
-    M.reason = share >= s.dominationPermille ? "domination"
-      : contenders === 1 ? "last_standing"
-      : getArchetype(winnerP.archetype).victory?.achieved(s, winnerP, balance) ? "victory_path"
-      : s.tick >= TIMER ? "timer" : "other";
+    M.reason = s.winPath || (s.tick >= TIMER ? "timer" : "other");
+    void share; void contenders;
   }
   M.leaderAt5Won = M.leaderAt5 != null && winnerP ? M.leaderAt5 === winnerP.id : null;
   const standings = s.players.filter((p) => archOf.has(p.id)).sort((a, b) => (souls.get(b.id) ?? 0) - (souls.get(a.id) ?? 0));

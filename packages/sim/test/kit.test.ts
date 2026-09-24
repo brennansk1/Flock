@@ -89,6 +89,7 @@ function soloSim(): SimState {
     world,
     spawns: [{ id: 1, archetype: "dawn" }],
     timerTicks: 0, // untimed for kit tests
+    dominationPermille: 1000, // no Domination ascension in kit tests
   });
   step(s, { n: 0, intents: [{ t: IntentType.SPAWN, player: 1, tile: 12 * 24 + 12 }], seedSlice: 0 }, balance);
   s.players[0]!.followers = fromInt(1000); // classic dynamics for kit tests
@@ -132,10 +133,11 @@ test("Prophecy Countdown: fulfilled when territory grows, punished when it stall
   // GROWTH case: declare, keep creeping (ambient creep grows territory) → rapture.
   const grow = soloSim();
   const gp = grow.players[0]!;
-  grantTiles(grow, 1, 60); // dev-scale declare threshold is 10% of populated (§11.1 KIT)
+  grantTiles(grow, 1, 140); // declare needs 25% of the town (STAGE1 §7)
   const declare: Intent = { t: IntentType.SIGNATURE, player: 1 };
+  run(grow, 1, turnsOf({})); // souls refresh at end of tick
   run(grow, 2, turnsOf({ [grow.tick]: [declare] }));
-  assert.equal(grow.prophecies.length, 1, "prophecy declared (dev-scale threshold)");
+  assert.equal(grow.prophecies.length, 1, "prophecy declared at 25% souls");
   assert.ok(toFloat(gp.heat) > 0, "declaration adds heat");
   const tilesAtDeclare = gp.ownedTiles;
   run(grow, 1801, turnsOf({})); // 3:00 timer + resolution tick
@@ -148,7 +150,7 @@ test("Prophecy Countdown: fulfilled when territory grows, punished when it stall
   // surrounding the blob with scars).
   const stall = soloSim();
   const sp = stall.players[0]!;
-  grantTiles(stall, 1, 60);
+  grantTiles(stall, 1, 140);
   // scar every remaining neutral tile: creep has nothing to flip → no growth
   const w = stall.world;
   for (let t = 0; t < w.owner.length; t++) {
@@ -159,7 +161,7 @@ test("Prophecy Countdown: fulfilled when territory grows, punished when it stall
   }
   // identical control twin that never declares — isolates the prophecy penalty
   const control = soloSim();
-  grantTiles(control, 1, 60);
+  grantTiles(control, 1, 140);
   const cw = control.world;
   for (let t = 0; t < cw.owner.length; t++) {
     if (cw.owner[t] === 0 && cw.state[t] === TileState.Neutral) {
@@ -168,6 +170,8 @@ test("Prophecy Countdown: fulfilled when territory grows, punished when it stall
     }
   }
 
+  run(stall, 1, turnsOf({}));
+  run(control, 1, turnsOf({}));
   run(stall, 2, turnsOf({ [stall.tick]: [declare] }));
   assert.equal(stall.prophecies.length, 1);
   const faithBefore = toFloat(sp.faith);
@@ -194,9 +198,15 @@ test("domination threshold ends the match with a winner", () => {
     timerTicks: 0,
   });
   step(s, { n: 0, intents: [{ t: IntentType.SPAWN, player: 1, tile: 8 * 16 + 8 }], seedSlice: 0 }, balance);
-  // spawn blob is ~29 tiles of 256 ≈ 11% > 10%
-  assert.equal(s.status, MatchStatus.Ended, "match should end on domination");
+  // spawn blob is ~29 tiles of 256 ≈ 11% > 10% → the Ascension countdown starts
+  assert.equal(s.status, MatchStatus.Live, "domination starts an Ascension, not an instant win");
+  assert.equal(s.players[0]!.ascendPath, "domination");
+  for (let n = 1; n <= balance.victory.ascendTicks + 1 && s.status === MatchStatus.Live; n++) {
+    step(s, { n, intents: [], seedSlice: n }, balance);
+  }
+  assert.equal(s.status, MatchStatus.Ended, "match should end once the countdown survives");
   assert.equal(s.winner, 1);
+  assert.equal(s.winPath, "domination");
 });
 
 test("timer expiry crowns the largest cult", () => {

@@ -37,6 +37,7 @@ import {
 import { resolveConversion } from "./conversion.js";
 import { cohortTransit, cohortArrived } from "./cohorts.js";
 import { carveDirtLane } from "./mapgen.js";
+import { refreshVictoryStats, stepAscension } from "./victory.js";
 import { getArchetype, findAbility, DAWN_KIT, RADIANT_KIT, CIRCLE_KIT, VISITORS_KIT } from "./archetypes/index.js";
 import { newPlayer } from "./player.js";
 import {
@@ -66,7 +67,7 @@ import {
   breakAlliance,
   stepSchism,
 } from "./diplomacy.js";
-import { pickDoctrine, titheMult, ownDissentMult, loveBombCostMult, strikeCostMult, tryAbsorbMassApostasy } from "./doctrine.js";
+import { hasDoctrine, pickDoctrine, titheMult, ownDissentMult, loveBombCostMult, strikeCostMult, tryAbsorbMassApostasy } from "./doctrine.js";
 import {
   computeCivicControl,
   controlsCivic,
@@ -142,12 +143,10 @@ export function createSim(opts: {
   balance: Balance;
   world: World;
   spawns: PlayerSpawn[];
-  /** domination threshold in per-mille; default 720 (72%, S/M maps §1) */
+  /** Domination threshold in per-mille; default from balance (65%). 1000 disables. */
   dominationPermille?: number;
   /** match timer in ticks; default 12 min (S map §1); 0 = untimed */
   timerTicks?: number;
-  /** Revelation mode (§18/§19): alternate victory paths active */
-  revelationMode?: boolean;
   disableCouriers?: boolean;
   disableCPA?: boolean;
   disableSchisms?: boolean;
@@ -169,7 +168,7 @@ export function createSim(opts: {
     progress: new Map(),
     populated,
     totalPop,
-    dominationPermille: opts.dominationPermille ?? 720,
+    dominationPermille: opts.dominationPermille ?? opts.balance.victory.dominationPermille,
     timerTicks: opts.timerTicks ?? 12 * 60 * TPS,
     status: MatchStatus.Live,
     winner: 0,
@@ -178,7 +177,7 @@ export function createSim(opts: {
     auras: [],
     prophecies: [],
     activeDecrees: [],
-    revelationMode: opts.revelationMode ?? false,
+    winPath: "",
     disableCouriers: opts.disableCouriers ?? false,
     disableCPA: opts.disableCPA ?? false,
     disableSchisms: opts.disableSchisms ?? false,
@@ -229,7 +228,7 @@ export const COMMUNE_MAX_STAGE = 5;
 /** Cost to raise the commune the NEXT stage: $15,000 × 1.35^(stage−1). Same
  *  escalation the old multi-compound build used — reused as the money sink. */
 export function compoundCost(p: PlayerState): Fixed {
-  let cost = fromInt(15000);
+  let cost = fromInt(2000); // STAGE1 §6 rescale (was 15k — never affordable)
   const growth = fp(1.35);
   for (let i = 1; i < p.compounds; i++) cost = mul(cost, growth);
   return cost;
@@ -442,9 +441,8 @@ export function applyIntent(s: SimState, intent: Intent, b: Balance): void {
   if (!p || !p.alive) return;
   switch (intent.t) {
     case IntentType.SET_STANCE:
-      if (!isEmergencyJamActive(s, p.id)) {
-        p.stance = intent.stance;
-      }
+      // Retired (STAGE1 §2): the per-mission mode replaced the global stance.
+      // Kept in the protocol for old clients; deliberately a no-op.
       break;
 
     case IntentType.CIVIC_DECREE:
@@ -880,9 +878,9 @@ function stepEconomy(s: SimState, b: Balance): void {
 
     // Heat decay (§3.5) base −0.08/s; Town Hall extra −0.25/s (§12); crusade gain.
     let heat = p.heat;
-    if (p.stance === Stance.Crusade)
-      heat = add(heat, mul(mul(b.stances.crusade.heatPerS, archCoeffs(b, p.archetype).heat), dt));
     heat = sub(heat, mul(b.heat.decay, dt));
+    // I4 Official Story: the story holds while you're under the radar — 2× decay below 60.
+    if (hasDoctrine(p, "I4") && heat < b.heat.cpaHarass) heat = sub(heat, mul(b.heat.decay, dt));
     if (p.atonementTicks > 0) heat = sub(heat, mul(fp(0.35), dt)); // Apology vents Heat fast!
     if (ownsLandmark(s, p.id, Landmark.TownHall)) heat = sub(heat, mul(fp(0.25), dt));
     // Sheriff takeover: complaints get lost in the filing (§13 rev.)
@@ -942,7 +940,6 @@ function stepEffects(s: SimState, b: Balance): void {
         if (!c.recalling && cohortArrived(s, p, c, b)) {
           if (c.mode === Stance.Crusade) {
             c.mass = mul(c.mass, attr); // the hard sell wears the flock down
-            p.heat = clamp(add(p.heat, mul(mul(b.stances.crusade.heatPerS, fp(0.5)), b.dt)), 0, HUNDRED);
           } else if (c.mode === Stance.Tend) {
             // Tend gathers the faithful (v3 §2): a working tend mission is the
             // Faith engine — this is how you bank conviction to buy doctrine.
@@ -957,21 +954,6 @@ function stepEffects(s: SimState, b: Balance): void {
       }
     }
 
-    // Doctrinal victory progress (§18, Revelation): Faith pinned at 100 for
-    // 90s, then a 20s uninterrupted channel at an owned Megachurch.
-    if (s.revelationMode && p.alive) {
-      if (p.faith >= HUNDRED) {
-        p.faithHoldTicks++;
-        if (p.faithHoldTicks >= 90 * TPS && ownsLandmark(s, p.id, Landmark.Megachurch)) {
-          p.channelTicks++;
-        } else {
-          p.channelTicks = 0; // megachurch lost mid-channel = interrupted
-        }
-      } else {
-        p.faithHoldTicks = 0;
-        p.channelTicks = 0;
-      }
-    }
     for (const key of Object.keys(p.cooldowns).sort()) {
       const left = p.cooldowns[key]! - 1;
       if (left <= 0) delete p.cooldowns[key];
@@ -1106,76 +1088,35 @@ function checkVictory(s: SimState, b: Balance): void {
   }
 
   const contenders = s.players.filter((p) => p.alive && p.spawned);
+  const stats = refreshVictoryStats(s);
 
-  // (1) Domination threshold — measured in SOULS, not acreage. The game is
-  // about converting the town; tile share is only the fallback for popless
-  // test worlds.
-  if (s.totalPop > 0) {
-    const w = s.world;
-    const popByOwner = new Map<PlayerId, number>();
-    for (let t = 0; t < w.owner.length; t++) {
-      const o = w.owner[t]!;
-      if (o === NEUTRAL || w.state[t] !== TileState.Believer) continue;
-      popByOwner.set(o, (popByOwner.get(o) ?? 0) + w.pop[t]!);
-    }
-    for (const p of contenders) {
-      if ((popByOwner.get(p.id) ?? 0) * 1000 >= s.totalPop * s.dominationPermille) {
-        s.status = MatchStatus.Ended;
-        s.winner = p.id;
-        return;
-      }
-    }
-  } else {
-    for (const p of contenders) {
-      if (s.populated > 0 && p.ownedTiles * 1000 >= s.populated * s.dominationPermille) {
-        s.status = MatchStatus.Ended;
-        s.winner = p.id;
-        return;
-      }
-    }
-  }
-
-  // (2) Last cult standing (only meaningful once the lobby had rivals).
+  // Last cult standing (only meaningful once the lobby had rivals).
   if (contenders.length === 1 && s.players.filter((p) => p.spawned).length >= 2) {
     s.status = MatchStatus.Ended;
     s.winner = contenders[0]!.id;
+    s.winPath = "last_standing";
     return;
   }
 
-  // (3) [Revelation] Doctrinal: Faith 100 held 90s + 20s Megachurch channel (§18).
-  if (s.revelationMode) {
-    for (const p of contenders) {
-      if (p.channelTicks >= 20 * 10) {
-        s.status = MatchStatus.Ended;
-        s.winner = p.id;
-        return;
-      }
-    }
-  }
+  // Every other win is an Ascension: a met path held through a public
+  // countdown (victory.ts). Domination, Revelation and each cult's own path.
+  if (stepAscension(s, b, contenders, stats)) return;
 
-  // (4) Archetype victory paths (e.g. Circle's Ledger), in seat order.
-  for (const p of contenders) {
-    if (getArchetype(p.archetype).victory?.achieved(s, p, b)) {
-      s.status = MatchStatus.Ended;
-      s.winner = p.id;
-      return;
-    }
-  }
-
-  // (5) Timer expiry → highest tiles, then $ earned, then Faith (§1).
+  // Timer expiry → most souls, then cash, then Faith.
   if (s.timerTicks > 0 && s.tick >= s.timerTicks && contenders.length > 0) {
     let best = contenders[0]!;
     for (const p of contenders.slice(1)) {
       if (
-        p.ownedTiles > best.ownedTiles ||
-        (p.ownedTiles === best.ownedTiles && p.usd > best.usd) ||
-        (p.ownedTiles === best.ownedTiles && p.usd === best.usd && p.faith > best.faith)
+        p.soulsPermille > best.soulsPermille ||
+        (p.soulsPermille === best.soulsPermille && p.usd > best.usd) ||
+        (p.soulsPermille === best.soulsPermille && p.usd === best.usd && p.faith > best.faith)
       ) {
         best = p;
       }
     }
     s.status = MatchStatus.Ended;
     s.winner = best.id;
+    s.winPath = "timer";
   }
 }
 

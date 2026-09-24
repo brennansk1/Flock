@@ -3,9 +3,9 @@ import { add, min, fromInt } from "../fixed.js";
 import { Landmark, Lot, NEUTRAL, Terrain, TileState } from "../types.js";
 import { ownsLandmark } from "../entities.js";
 import { carveDirtLane } from "../mapgen.js";
-import { HUNDRED, usd, faith, inBounds, districtAt } from "./common.js";
+import { HUNDRED, usd, faith, inBounds, districtAt, pct, both } from "./common.js";
 import type { ArchetypeDefinition } from "./types.js";
-import { VISITORS_KIT } from "./kits.js";
+import { VISITORS_KIT, CULT_VICTORY } from "./kits.js";
 
 export const visitors: ArchetypeDefinition = {
   id: "visitors",
@@ -31,6 +31,7 @@ export const visitors: ArchetypeDefinition = {
       blurb: "Jam the signal: +30 dissent on every rival believer tile within radius 8.",
       slot: "secondary",
       targeting: "tile",
+      aim: "rival",
       cooldownKey: "radio_static",
       cooldownTicks: VISITORS_KIT.radioStatic.cooldown,
       cost: () => faith(VISITORS_KIT.radioStatic.faithCost),
@@ -63,6 +64,7 @@ export const visitors: ArchetypeDefinition = {
       blurb: "Land a satellite chapel on ANY neutral home — even across water. +2,000 flock cap.",
       slot: "signature",
       targeting: "tile",
+      aim: "remote",
       cooldownKey: "saucer_landing",
       cooldownTicks: VISITORS_KIT.saucerLanding.cooldown,
       cost: () => usd(VISITORS_KIT.saucerLanding.cost),
@@ -97,7 +99,16 @@ export const visitors: ArchetypeDefinition = {
     // Deep Space Transmitter: holding the Radio Tower hides your strike warnings.
     hidesStrikeWarning: (s, p) => ownsLandmark(s, p.id, Landmark.RadioTower),
   },
-  bot: { prefLots: [Lot.School, Lot.Library] },
+  victory: {
+    id: "contact",
+    name: "First Contact",
+    blurb: "Hold 20% of the town's souls with 4 saucer chapels standing. They're coming back — for you.",
+    progress: (_s, p, _b, st) =>
+      both(pct(p.soulsPermille, CULT_VICTORY.contact.soulsPermille), pct(st.satellites.get(p.id) ?? 0, CULT_VICTORY.contact.satellites)),
+    achieved: (_s, p, _b, st) =>
+      p.soulsPermille >= CULT_VICTORY.contact.soulsPermille && (st.satellites.get(p.id) ?? 0) >= CULT_VICTORY.contact.satellites,
+  },
+  bot: { prefLots: [Lot.School, Lot.Library], doctrine: ["T1", "T2", "I1", "I2", "T3", "B1", "E3"] },
   theme: {
     name: "The Visitors' Fellowship",
     short: "U.F.O.",

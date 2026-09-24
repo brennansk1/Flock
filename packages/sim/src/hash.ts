@@ -108,8 +108,10 @@ export function hashState(s: SimState): string {
     f.u32(p.retentionDebuffTicks);
     f.u32(p.schismRiskTicks);
     f.fix(p.usdEarned);
-    f.u32(p.faithHoldTicks);
-    f.u32(p.channelTicks);
+    f.u32(p.soulsPermille);
+    f.u32(p.exposes);
+    f.str(p.ascendPath);
+    f.u32(p.ascendTicks);
     f.u32(p.parcels);
     // v3 cohorts (push order is deterministic state)
     f.u32(p.cohorts.length);
@@ -174,7 +176,7 @@ export function hashState(s: SimState): string {
   }
 
   // M1 systems: buildings, units, strikes, diplomacy, scandal, CPA.
-  f.byte(s.revelationMode ? 1 : 0);
+  f.str(s.winPath);
   f.byte(s.disableCouriers ? 1 : 0);
   f.byte(s.disableCPA ? 1 : 0);
   f.byte(s.disableSchisms ? 1 : 0);

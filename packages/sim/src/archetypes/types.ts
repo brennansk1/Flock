@@ -14,6 +14,7 @@
 import type { Fixed } from "../fixed.js";
 import type { Balance } from "../balance.js";
 import type { PlayerId, PlayerState, SimState, TileId } from "../types.js";
+import type { VictoryStats } from "../victory.js";
 
 /** Archetype ids are open strings so expansions can register new cults. */
 export type ArchetypeId = string;
@@ -49,6 +50,8 @@ export interface AbilityDefinition {
   /** HUD placement: primary/secondary actives or the signature power. */
   slot: "primary" | "secondary" | "signature";
   targeting: AbilityTargeting;
+  /** Bot targeting hint: the frontier (default), own ground, a rival, or anywhere. */
+  aim?: "frontier" | "own" | "rival" | "remote";
   cooldownKey: string;
   cooldownTicks: number;
   /** Current price (Fixed). The host checks & charges it. */
@@ -92,9 +95,9 @@ export interface VictoryPathDefinition {
   name: string;
   blurb: string;
   /** Progress toward the win in permille (0..1000), for the Victory Race HUD. */
-  progress(s: SimState, p: PlayerState, b: Balance): number;
-  /** True when the win condition is met this tick. */
-  achieved(s: SimState, p: PlayerState, b: Balance): boolean;
+  progress(s: SimState, p: PlayerState, b: Balance, st: VictoryStats): number;
+  /** True when the win condition is met this tick (then the Ascension countdown runs). */
+  achieved(s: SimState, p: PlayerState, b: Balance, st: VictoryStats): boolean;
 }
 
 /** Presentation-only identity (menus, HUD accents, recap). Never read by the sim. */
@@ -117,6 +120,11 @@ export interface ArchetypeDefinition {
   signature?: SignatureDefinition;
   passives: ArchetypePassives;
   victory?: VictoryPathDefinition;
-  bot: { prefLots: readonly number[] };
+  bot: {
+    /** Key lots this cult's bots siege first (its victory ground). */
+    prefLots: readonly number[];
+    /** Doctrine build order for bots. */
+    doctrine: readonly string[];
+  };
   theme: ArchetypeTheme;
 }

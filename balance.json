@@ -47,7 +47,9 @@
   "heat": {
     "decay": 0.08,
     "cpa_harass": 60,
-    "cpa_siege": 85
+    "cpa_siege": 85,
+    "flip_heat": 0.25,
+    "crusade_flip_mult": 2
   },
   "schism": {
     "territory_share": 0.35,
@@ -103,9 +105,16 @@
       "M": 3000000,
       "L": 6000000
     },
-    "doctrinal": {
-      "faith_hold_s": 90,
-      "channel_s": 20
+    "ascend_s": 45,
+    "revelation_faith": 90,
+    "domination_default_pct": 65,
+    "tipping_start_s": 480,
+    "tipping_end_s": 720,
+    "tipping_floor_pct": 50,
+    "ledger_usd": {
+      "S": 150000,
+      "M": 300000,
+      "L": 500000
     }
   },
   "charisma_items": 1.0,

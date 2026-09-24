@@ -23,6 +23,7 @@
  * (players by array order, tiles ascending) — the lockstep contract.
  */
 
+import { gainHeatFixed } from "./entities.js";
 import { archCoeffs } from "./balance.js";
 import { getArchetype } from "./archetypes/registry.js";
 import { add, sub, mul, div, min, fromInt, toInt, ONE, type Fixed } from "./fixed.js";
@@ -170,6 +171,8 @@ interface ContestedWork {
   /** Effective attackers per worked tile (mass/doors, capped). */
   attackersPerTile: Fixed;
   stanceMult: Fixed;
+  /** Worked by a Crusade cohort (captures run hotter and stoke dissent). */
+  crusade: boolean;
 }
 
 /**
@@ -342,7 +345,7 @@ export function resolveConversion(s: SimState, b: Balance): void {
       }
       const st = modeOf(b, c.mode);
       const perTile = min(div(c.mass, fromInt(tiles.length)), b.conversion.maxEffPerBorderTile);
-      work.push({ player: p, tiles, attackersPerTile: perTile, stanceMult: st.mult });
+      work.push({ player: p, tiles, attackersPerTile: perTile, stanceMult: st.mult, crusade: c.mode === Stance.Crusade });
       for (const t of tiles) {
         const o = w.owner[t]!;
         if (o !== NEUTRAL) defendedCount.set(o, (defendedCount.get(o) ?? 0) + 1);
@@ -510,6 +513,8 @@ export function resolveConversion(s: SimState, b: Balance): void {
     if (!set) workedBy.set(wk.player.id, (set = new Set()));
     for (const t of wk.tiles) set.add(t);
   }
+  const crusadeWorked = new Set<number>(); // tile * PROGRESS_STRIDE + player
+  for (const wk of work) if (wk.crusade) for (const t of wk.tiles) crusadeWorked.add(t * PROGRESS_STRIDE + wk.player.id);
 
   for (const [t, winner] of flipped) {
     const prevOwner = w.owner[t]!;
@@ -544,8 +549,12 @@ export function resolveConversion(s: SimState, b: Balance): void {
     w.flags[t] = w.flags[t]! & ~TileFlag.Downline;
     getArchetype(p.archetype).passives.onTileCaptured?.(s, p, t, workedBy.get(winner)?.has(t) ?? false);
 
+    // Notoriety (STAGE1 §4): every conversion raises Heat; Crusade twice as much.
+    const byCrusade = crusadeWorked.has(t * PROGRESS_STRIDE + winner);
+    gainHeatFixed(p, b, byCrusade ? mul(b.heat.flipHeat, b.heat.crusadeFlipMult) : b.heat.flipHeat);
+
     // CRUSADE captures stoke dissent on the taken tile (§3.4); B3 Curfews −40%.
-    if (p.stance === Stance.Crusade) {
+    if (byCrusade) {
       const gain = mul(b.stances.crusade.dissentPerCapture, ownDissentMult(p));
       w.dissent[t] = min(add(w.dissent[t]!, gain), HUNDRED);
     }

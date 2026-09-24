@@ -128,5 +128,6 @@ test("Church brains attempt the rich intent set; Drifters never build", () => {
     }
   }
   assert.ok(seen.has(IntentType.MISSION_SEND), "church expands via missions");
-  assert.ok(seen.has(IntentType.SET_STANCE), "church has stance discipline");
+  assert.ok(seen.has(IntentType.DOCTRINE_PICK), "church follows its doctrine build");
+  assert.ok(!seen.has(IntentType.SET_STANCE), "the retired global stance is never sent");
 });

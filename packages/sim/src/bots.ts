@@ -23,6 +23,9 @@ import { toInt } from "./fixed.js";
 import { nextRange, type RngState } from "./rng.js";
 import { Stance, Terrain, Lot, CivicDecreeId, MAX_COHORTS, type PlayerId, type SimState, type PlayerState } from "./types.js";
 import { CIVIC_LOTS, computeCivicControl } from "./civics.js";
+import { exposeBlocker } from "./entities.js";
+import { compoundCost, followerCap } from "./sim.js";
+import type { Balance } from "./balance.js";
 
 /** Civic/key-building lot types churches like to siege (bonus-bearing tiles). */
 const KEY_LOTS = new Set<number>(CIVIC_LOTS);
@@ -179,7 +182,49 @@ function nearestKeyBuilding(w: SimState["world"], from: number, playerId: Player
 }
 
 
-export function botTurn(sim: SimState, bot: BotState, rng: RngState): Intent[] {
+/**
+ * Cast the cult's abilities (registry-driven, so expansion cults get bots for
+ * free). Picks a target by the ability's `aim` hint; the sim validates the rest.
+ */
+function castKit(
+  out: Intent[],
+  sim: SimState,
+  bot: BotState,
+  p: PlayerState,
+  rng: RngState,
+  own: number,
+  front: number,
+): void {
+  for (const a of getArchetype(p.archetype).abilities) {
+    if ((p.cooldowns[a.cooldownKey] ?? 0) > 0) continue;
+    const c = a.cost(p);
+    if ((c.usd !== undefined && p.usd < c.usd) || (c.faith !== undefined && p.faith < c.faith)) continue;
+    let target = front;
+    if (a.aim === "own") target = own;
+    else if (a.aim === "rival") target = bot.grudge ? sampleOwned(sim, rng, bot.grudge, 40) : -1;
+    else if (a.aim === "remote") {
+      target = -1;
+      const w = sim.world;
+      for (let i = 0; i < 40 && target < 0; i++) {
+        const t = nextRange(rng, w.terrain.length);
+        if (w.terrain[t] === Terrain.Citizen && w.owner[t] === 0) target = t;
+      }
+    }
+    if (a.targeting !== "none" && target < 0) continue;
+    out.push(
+      a.targeting === "none"
+        ? { t: IntentType.ABILITY, player: bot.playerId, ability: a.id }
+        : { t: IntentType.ABILITY, player: bot.playerId, ability: a.id, target },
+    );
+    return; // one cast per decision keeps cash for the economy
+  }
+}
+
+/**
+ * `b` (optional) lets the brain check the flock cap before buying commune
+ * stages; without it the bot upgrades whenever it can afford to.
+ */
+export function botTurn(sim: SimState, bot: BotState, rng: RngState, b?: Balance): Intent[] {
   const out: Intent[] = [];
   const p = sim.players.find((pl) => pl.id === bot.playerId);
   if (!p || !p.alive || !p.spawned) return out;
@@ -243,18 +288,7 @@ export function botTurn(sim: SimState, bot: BotState, rng: RngState): Intent[] {
   }
   sendMission(out, sim, bot, p, front, Stance.Spread);
 
-  // ---- stance discipline -------------------------------------------------
-  if (bot.tier === "drifter") {
-    // drifters drift: mostly spread, rare brief crusade
-    if (nextRange(rng, 12) === 0) {
-      out.push({
-        t: IntentType.SET_STANCE,
-        player: bot.playerId,
-        stance: nextRange(rng, 3) === 0 ? Stance.Crusade : Stance.Spread,
-      });
-    }
-    return out; // drifters never build, ally, or scheme
-  }
+  if (bot.tier === "drifter") return out; // drifters never build, ally, or scheme
 
   // ---- economy script (Sect + Church) ------------------------------------
   // Prosperity Gospel (§2C): the primary money→power loop is now buying flock.
@@ -262,12 +296,13 @@ export function botTurn(sim: SimState, bot: BotState, rng: RngState): Intent[] {
   // becomes cohort mass becomes territory becomes more tithe. Income archetypes
   // (Circle) fund this hardest, which is the whole point; the sim gates the
   // exact cost, so an unaffordable attempt is a harmless no-op.
-  if (usd(p) > 1500) {
-    out.push({ t: IntentType.BUY_RECRUITS, player: bot.playerId });
-  }
-  // secondary: pour truly spare cash into commune stages (raises the flock cap).
-  if (usd(p) > 25_000) {
+  // Commune first when the flock presses its cap; otherwise recruit. A Circle
+  // on the Ledger path stops spending and banks (its victory is the vault).
+  const banking = p.archetype === "circle" && p.soulsPermille >= 150;
+  if (p.usd >= compoundCost(p) && (!b || p.followers * 10 >= followerCap(p, b, sim) * 8)) {
     out.push({ t: IntentType.UPGRADE_COMMUNE, player: bot.playerId });
+  } else if (!banking && usd(p) > 1500) {
+    out.push({ t: IntentType.BUY_RECRUITS, player: bot.playerId });
   }
   // (v3 M3.3b: placeable buildings cut — bots grow via commune upgrades above)
   // land acquisition (§18 rev.): buy the next parcel before crowding bites
@@ -281,46 +316,48 @@ export function botTurn(sim: SimState, bot: BotState, rng: RngState): Intent[] {
   if (bot.tier === "sect") {
     // Sects play their gimmick naively: occasional signature, mild crusade.
     if (nextRange(rng, 30) === 0) out.push({ t: IntentType.SIGNATURE, player: bot.playerId });
-    if (nextRange(rng, 20) === 0) {
-      out.push({ t: IntentType.SET_STANCE, player: bot.playerId, stance: Stance.Spread });
-    }
+    if (nextRange(rng, 3) === 0) castKit(out, sim, bot, p, rng, origin, front);
     return out;
   }
 
   // ======================= Established Church behaviour tree ==============
-  // 1) discipline: SHELTER when Heat is high, CRUSADE when aggressive & healthy
+  // 1) discipline: when Heat runs high, cool off — a Tend mission at home
+  // banks Faith and stops fresh conversions (which is what raises Heat now).
   const heat = toInt(p.heat);
-  const faith = toInt(p.faith);
-  if (heat >= 70) {
-    out.push({ t: IntentType.SET_STANCE, player: bot.playerId, stance: Stance.Tend });
-  } else if (bot.aggression >= 2 && faith >= 40 && nextRange(rng, 3) !== 0) {
-    out.push({ t: IntentType.SET_STANCE, player: bot.playerId, stance: Stance.Crusade });
-  } else {
-    out.push({ t: IntentType.SET_STANCE, player: bot.playerId, stance: Stance.Spread });
-  }
+  if (heat >= 70 && nextRange(rng, 2) === 0) sendMission(out, sim, bot, p, origin, Stance.Tend);
 
-  // 2) doctrine: take the next node in the build order whenever a point exists
-  for (const node of CHURCH_DOCTRINE) {
+  // 2) doctrine: the cult's own build order (registry), then the generic one
+  for (const node of [...getArchetype(p.archetype).bot.doctrine, ...CHURCH_DOCTRINE]) {
     if (!p.doctrine.includes(node)) {
       out.push({ t: IntentType.DOCTRINE_PICK, player: bot.playerId, node });
       break;
     }
   }
 
-  // 3) grudges: recompute the strongest border rival and lean on THEIR border
-  const { rival, front: rivalFront } = borderRival(sim, bot.playerId);
+  // 3) grudges: an ASCENDING rival is everyone's problem — focus it and try to
+  // expose it; otherwise lean on the strongest border rival.
+  const ascending = sim.players.find((o) => o.id !== bot.playerId && o.alive && o.ascendPath !== "");
+  let { rival, front: rivalFront } = borderRival(sim, bot.playerId);
+  if (ascending) {
+    rival = ascending.id;
+    const t = sampleOwned(sim, rng, ascending.id, 60);
+    if (t >= 0) rivalFront = t;
+  }
   bot.grudge = rival;
-  if (rival !== 0 && bot.aggression >= 1 && rivalFront >= 0) {
+  const rivalP = sim.players.find((o) => o.id === rival);
+  if (rivalP && exposeBlocker(sim, p, rivalP) === "" && (ascending || rivalP.soulsPermille > p.soulsPermille + 100 || nextRange(rng, 6) === 0)) {
+    out.push({ t: IntentType.PUBLISH_SCANDAL, player: bot.playerId, target: rival });
+  }
+  if (rival !== 0 && (bot.aggression >= 1 || ascending) && rivalFront >= 0) {
     // aim a cohort straight at the rival's contested doors (not our own turf).
     // Crusade for the extra pressure — but only when Heat has headroom, since
     // Crusade heats us up and high Heat invites the CPA.
     const mode = bot.aggression >= 2 && heat < 55 ? Stance.Crusade : Stance.Spread;
     sendMission(out, sim, bot, p, rivalFront, mode);
-    // publish a scandal on the rival when feeling aggressive (sim gates on evidence)
-    if (bot.aggression >= 2 && nextRange(rng, 8) === 0) {
-      out.push({ t: IntentType.PUBLISH_SCANDAL, player: bot.playerId, target: rival });
-    }
   }
+
+  // 3b) the cult's kit — cast when affordable
+  if (nextRange(rng, 2) === 0) castKit(out, sim, bot, p, rng, origin, rivalFront >= 0 && nextRange(rng, 2) === 0 ? rivalFront : front);
 
   // 4) prophecy / signature: spend the dramatic button when it's likely ready
   if (nextRange(rng, 25) === 0) {

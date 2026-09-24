@@ -125,14 +125,15 @@ Exact numbers are tuned by the telemetry league (§9); the table is the starting
 7. **Coach nudges** (first 3 matches): idle cohort slot, affordable commune/recruit/power, rival ascending, "you can Expose X".
 8. **Cosmetic skins** — `SkinLoadout` (renderer-only) wiring the existing Ember/Frost recolors.
 
-## 10. Acceptance targets (telemetry league, 4 cults, 96², 12:00 timer)
+## 10. Stage gate & sanity checks
 
-| Metric | Baseline | Target |
+**The Stage 1 gate is the user's gameplay & strategy approval** — a review package (how-to-play walkthrough, HUD screenshots from a live match, narrated bot matches), not a metrics threshold.
+
+The telemetry league runs on the *current* mapgen, which Stage 2 replaces, so numbers are **sanity checks only**; fine win-rate tuning happens after Stage 2. All tuning lives in `balance.json` / `archetypes/kits.ts` so re-tuning is data-only. Win conditions are expressed as shares (souls, holy ground) and map classes so they survive new maps.
+
+| Sanity check (structural, map-independent) | Baseline | Want |
 |---|---|---|
-| Decisive (non-timer) finishes | 42% | ≥ 70% |
-| Median match length | 17 min (20-min cap) | 8–12 min |
-| 5:00 leader wins | 67% | ≤ 50% |
-| Each cult's win share | 3%–31% | 18%–32% |
-| $-powers cast / seat / match | 0 | ≥ 4 |
-| Leader reaches Heat 60 | 0% | ≥ 50% of matches |
-| Flips/10s after 10:00 | 6 | ≥ 12 |
+| $-powers ever cast | 0 | routinely |
+| Leader ever reaches Heat 60 | never | sometimes |
+| Exposes land | 0 | yes, mostly on leaders |
+| Matches end on an Ascension (not timer) | 42% | majority |

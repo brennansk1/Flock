@@ -48,7 +48,7 @@ export interface RawBalance {
     spread: { commit: number; mult: number };
     crusade: { commit: number; mult: number; heat_per_s: number; dissent_per_capture: number };
   };
-  heat: { decay: number; cpa_harass: number; cpa_siege: number };
+  heat: { decay: number; cpa_harass: number; cpa_siege: number; flip_heat?: number; crusade_flip_mult?: number };
   schism: { territory_share: number; avg_dissent: number; sustain_s: number; secede_share: number };
   scandal: { evidence_per_s: number; notify_at: number; dmg_heat_coef: number; dmg_min: number; dmg_max: number };
   /** Per-archetype tuning; any registered archetype missing here uses its definition defaults. */
@@ -56,7 +56,19 @@ export interface RawBalance {
   victory: {
     domination_pct: Record<"S" | "M" | "L", number>;
     economic_usd: Record<"S" | "M" | "L", number>;
-    doctrinal: { faith_hold_s: number; channel_s: number };
+    doctrinal?: { faith_hold_s: number; channel_s: number };
+    /** Ascension countdown every win path must survive (seconds). */
+    ascend_s?: number;
+    /** Revelation path: Faith floor while holding the Megachurch. */
+    revelation_faith?: number;
+    /** Default soul-share needed for the Domination path (percent). */
+    domination_default_pct?: number;
+    /** Tipping Point: the Domination bar slides from its start to this floor. */
+    tipping_start_s?: number;
+    tipping_end_s?: number;
+    tipping_floor_pct?: number;
+    /** Ledger targets by map class. */
+    ledger_usd?: { S: number; M: number; L: number };
   };
   charisma_items: number;
   /** Property purchase + crowding (§18 rev.) — optional for older files. */
@@ -146,9 +158,19 @@ export interface Balance {
     spread: { commit: Fixed; mult: Fixed };
     crusade: { commit: Fixed; mult: Fixed; heatPerS: Fixed; dissentPerCapture: Fixed };
   };
-  heat: { decay: Fixed; cpaHarass: Fixed; cpaSiege: Fixed };
+  heat: { decay: Fixed; cpaHarass: Fixed; cpaSiege: Fixed; flipHeat: Fixed; crusadeFlipMult: Fixed };
   archetypes: Record<ArchetypeId, ArchetypeCoeffs>;
   charismaItems: Fixed;
+  victory: {
+    ascendTicks: number;
+    revelationFaith: Fixed;
+    dominationPermille: number;
+    tippingStartTick: number;
+    tippingEndTick: number;
+    tippingFloorPermille: number;
+    /** Ledger targets by map class (S ≤ 64², M ≤ 112², L beyond). */
+    ledgerUsd: { S: Fixed; M: Fixed; L: Fixed };
+  };
   property: {
     parcelRadius: number;
     baseCost: Fixed;
@@ -239,9 +261,24 @@ export function loadBalance(raw: RawBalance): Balance {
       decay: fromFloat(raw.heat.decay),
       cpaHarass: fromFloat(raw.heat.cpa_harass),
       cpaSiege: fromFloat(raw.heat.cpa_siege),
+      flipHeat: fromFloat(raw.heat.flip_heat ?? 0.25),
+      crusadeFlipMult: fromFloat(raw.heat.crusade_flip_mult ?? 2),
     },
     archetypes,
     charismaItems: fromFloat(raw.charisma_items),
+    victory: {
+      ascendTicks: Math.round(((raw.victory.ascend_s ?? 45) * 1000) / raw.sim.tick_ms),
+      revelationFaith: fromFloat(raw.victory.revelation_faith ?? 90),
+      dominationPermille: (raw.victory.domination_default_pct ?? 65) * 10,
+      tippingStartTick: Math.round(((raw.victory.tipping_start_s ?? 480) * 1000) / raw.sim.tick_ms),
+      tippingEndTick: Math.round(((raw.victory.tipping_end_s ?? 720) * 1000) / raw.sim.tick_ms),
+      tippingFloorPermille: (raw.victory.tipping_floor_pct ?? 50) * 10,
+      ledgerUsd: {
+        S: fromFloat((raw.victory.ledger_usd ?? raw.victory.economic_usd).S),
+        M: fromFloat((raw.victory.ledger_usd ?? raw.victory.economic_usd).M),
+        L: fromFloat((raw.victory.ledger_usd ?? raw.victory.economic_usd).L),
+      },
+    },
     property: {
       parcelRadius: raw.property?.parcel_radius ?? 2,
       baseCost: fromFloat(raw.property?.base_cost ?? 8000),

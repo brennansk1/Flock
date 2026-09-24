@@ -25,6 +25,12 @@ The user has granted you **complete creative freedom and extensive refactoring/r
   * You may spawn a **maximum of 2 subagents concurrently**.
   * Enforce **strict domain separation** (zero file overlap) between active subagents to eliminate race conditions and merge conflicts.
   * Explicitly instruct subagents that they are **forbidden from spawning their own subagents** (strictly flat, single-tier delegation).
+* **Token Efficiency & Context Hygiene**:
+  * Recommend `/compact` or starting fresh between stage boundaries to reset context costs and shed deadweight tool/log outputs.
+  * Avoid noisy log dumps or full-file context flooding.
+* **Frontier Reasoning Workflow**:
+  * Employ deliberate "Plan $\to$ Self-Critique $\to$ Execute" reasoning before writing code.
+  * Pre-critique designs for determinism leaks, UI friction, snowballing, and DLC/skin extensibility.
 
 ---
 

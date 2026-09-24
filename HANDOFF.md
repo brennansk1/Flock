@@ -51,6 +51,22 @@ Flock is being built not as a raw tech demo, but as a **commercially viable, hig
   * Structure cult archetypes around a modular registry interface (`ArchetypeDefinition`: passives, signature rituals/abilities, doctrine affinity trees, and visual themes).
   * This ensures the codebase can easily scale post-launch by dropping in new cult archetypes (expansions, seasonal DLC, themed updates) with zero friction.
 
+### 2.5 Token Optimization & Context Hygiene Protocol
+Claude Code resends conversation history (including tool outputs and file reads) on every turn. To preserve the $250 credit pool and maintain peak reasoning:
+* **Context Compaction at Stage Boundaries**: At each milestone boundary, after verifying `npm test` and outputting the Milestone Checkpoint Card, recommend running `/compact` or starting fresh before the next stage. This sheds accumulated terminal outputs and file views, resetting context costs while preserving architectural continuity.
+* **Surgical Tool Outputs (No Noisy Log Dumps)**: Avoid piping huge raw logs or entire files into conversation. Use targeted commands and slice viewings.
+* **Subagent Context Shielding**: When deep exploratory auditing is needed across many files or benchmark runs, delegate to a worker subagent (max 2 concurrently) so the raw file reads stay isolated in the subagent's sandbox without bloating your main session context.
+
+### 2.6 Leveraging Frontier Reasoning: The "Plan -> Self-Critique -> Execute" Workflow
+Opus achieves its highest engineering output when applying deliberate reasoning before executing code:
+* **Pre-Implementation Self-Critique**: Before modifying code for major refactors (menus, economy, combat, or worldgen), spend deliberate thinking time critiquing your plan:
+  * *Does this introduce any hidden floating-point math or unseeded PRNG that breaks lockstep determinism?*
+  * *Is this UI/HUD change intuitive for a first-time player, or does it add unnecessary cognitive friction?*
+  * *Does this mechanic risk runaway snowballing or stalemate in late-game matches?*
+  * *Is this implementation extensible for future cosmetics or cult DLC?*
+* **Formal Structural Thinking**: Frame internal designs with structured XML tags (`<architecture_decision>`, `<tradeoffs_evaluated>`, `<risk_mitigation>`).
+* **Decisive Autonomous Execution**: Once your self-critique confirms the design is sound, make code changes boldly, run `npm test` to verify, and advance the stage.
+
 ---
 
 ## 3. Strategic Priority Hierarchy

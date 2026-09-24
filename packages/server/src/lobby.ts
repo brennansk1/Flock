@@ -18,6 +18,7 @@ import {
   tierFor,
   type RawBalance,
   type Rating,
+  type SkinLoadout,
 } from "@flock/sim";
 import { MatchWorker, type MatchEndInfo } from "./matchWorker.js";
 import type { Store, Account, MatchRecord, MatchParticipant } from "./store.js";
@@ -128,6 +129,8 @@ export interface JoinRequest {
   /** host a fresh private room (with optional config) */
   createPrivate?: boolean;
   config?: MatchConfig;
+  /** Owned, sanitised cosmetic loadout. */
+  skin?: SkinLoadout;
 }
 
 const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no 0/O/1/I/L
@@ -178,7 +181,7 @@ export class LobbyDirector {
     } else {
       match = this.findJoinable() ?? this.createMatch();
     }
-    match.addClient(ws, account.name, archetype, account.id);
+    match.addClient(ws, account.name, archetype, account.id, req.skin);
     if (match.isPrivate) {
       // hand the host/joiner the shareable code
       ws.send(JSON.stringify({ type: "room", code: match.roomCode }));

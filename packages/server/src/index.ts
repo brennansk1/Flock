@@ -16,7 +16,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
-import { hasArchetype, dailyChallenge, dayNumber, freeRotation, purchase, CATALOG, type RawBalance, type Wallet } from "@flock/sim";
+import { hasArchetype, sanitizeLoadout, dailyChallenge, dayNumber, freeRotation, purchase, CATALOG, type RawBalance, type Wallet } from "@flock/sim";
 import { LobbyDirector } from "./lobby.js";
 import { InMemoryStore, JsonFileStore, type Store, type Account } from "./store.js";
 import { AuthService } from "./auth.js";
@@ -220,7 +220,11 @@ async function main(): Promise<void> {
     if (q.get("disableCouriers") === "1") config.disableCouriers = true;
     if (q.get("disableCPA") === "1") config.disableCPA = true;
     if (q.get("disableSchisms") === "1") config.disableSchisms = true;
+    // Cosmetics: only skins this account owns ride along (render-only).
+    const owned = account.unlocks;
+    const skin = sanitizeLoadout({ livery: q.get("livery") }, (id) => owned.includes(id));
     lobby.join(ws, account, archetype, {
+      skin,
       ...(room !== null ? { room } : {}),
       createPrivate,
       ...(createPrivate ? { config } : {}),

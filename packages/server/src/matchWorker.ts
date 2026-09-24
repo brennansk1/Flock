@@ -49,6 +49,7 @@ import {
   type BotTier,
   type MatchRecap,
   archetypeIds,
+  type SkinLoadout,
 } from "@flock/sim";
 import type { ServerMsg, WirePlayer, MatchResult } from "./protocol.js";
 import { moderateChat } from "./moderation.js";
@@ -216,12 +217,12 @@ export class MatchWorker {
   }
 
   /** Attach a connecting client; assigns a player id and spawns them in. */
-  addClient(ws: WebSocket, name: string, archetype: WirePlayer["archetype"], accountId = ""): void {
+  addClient(ws: WebSocket, name: string, archetype: WirePlayer["archetype"], accountId = "", skin?: SkinLoadout): void {
     if (this.paused) {
       this.paused = false; // a second founder arrives: the town wakes up
       this.broadcast({ type: "paused", value: false });
     }
-    const playerId = this.addPlayer(name, archetype, false);
+    const playerId = this.addPlayer(name, archetype, false, skin);
     this.clients.set(playerId, { playerId, ws, accountId, windowStart: 0, windowCount: 0 });
     if (accountId) this.accountOf.set(playerId, accountId);
 
@@ -299,9 +300,15 @@ export class MatchWorker {
   }
 
   /** Shared join path: roster + sim player + SPAWN through the turn stream. */
-  private addPlayer(name: string, archetype: WirePlayer["archetype"], autoSpawn: boolean): number {
+  private addPlayer(name: string, archetype: WirePlayer["archetype"], autoSpawn: boolean, skin?: SkinLoadout): number {
     const playerId = this.nextPlayerId++;
-    this.roster.push({ id: playerId, name, archetype, ...(autoSpawn ? { bot: true } : {}) });
+    this.roster.push({
+      id: playerId,
+      name,
+      archetype,
+      ...(autoSpawn ? { bot: true } : {}),
+      ...(skin && skin.livery ? { skin } : {}),
+    });
     // Players enter the sim via the same door as everyone: an intent in the
     // turn stream. Late join == late spawn, deterministically.
     this.sim.players.push(newPlayer(playerId, archetype, this.balance));

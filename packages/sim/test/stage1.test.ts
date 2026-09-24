@@ -31,6 +31,9 @@ import {
   registerArchetype,
   getArchetype,
   archetypeIds,
+  renderTown,
+  hashState,
+  sanitizeLoadout,
   type RawBalance,
   type SimState,
   type Turn,
@@ -276,4 +279,20 @@ test("DLC: a registered expansion cult plays with zero engine changes", () => {
   step(s, turn(1, [{ t: IntentType.ABILITY, player: 1, ability: "seminar_blitz" }]), b2);
   assert.ok(p.followers <= followers + fromInt(5), "a cult can't cast another cult's power");
   assert.equal(p.cooldowns["seminar_blitz"], undefined);
+});
+
+test("skins are render-only: they change pixels, never the StateHash", () => {
+  const s = duel();
+  const h0 = hashState(s);
+  const plain = renderTown(s, { frameTick: 0 });
+  const ember = renderTown(s, { frameTick: 0, skins: { 1: { livery: "recolor_ember" } } });
+  assert.equal(hashState(s), h0, "rendering with skins never touches sim state");
+  let diff = 0;
+  for (let i = 0; i < plain.data.length; i++) if (plain.data[i] !== ember.data[i]) diff++;
+  assert.ok(diff > 0, "the livery recolours the player's ground");
+  const again = renderTown(s, { frameTick: 0 });
+  assert.deepEqual(again.data, plain.data, "no skin state leaks into the next frame");
+  assert.deepEqual(sanitizeLoadout({ livery: "recolor_frost" }), { livery: "recolor_frost" });
+  assert.deepEqual(sanitizeLoadout({ livery: "not_a_skin" }), {});
+  assert.deepEqual(sanitizeLoadout({ livery: "recolor_frost" }, () => false), {}, "unowned skins are dropped");
 });

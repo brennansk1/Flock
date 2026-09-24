@@ -17,6 +17,7 @@
  *    in the owner's color; landmarks get gold icons
  */
 
+import { getSkin, type SkinLoadout } from "./skins.js";
 import {
   NEUTRAL,
   Terrain,
@@ -613,6 +614,8 @@ export interface RenderOpts {
    * renders match; pass the live value when balance is hot-patched.
    */
   marchTicksPerTile?: number;
+  /** Per-player cosmetic loadouts (skins.ts) — presentation only, never simulated. */
+  skins?: Record<number, SkinLoadout>;
 }
 
 export interface RenderedFrame {
@@ -621,7 +624,30 @@ export interface RenderedFrame {
   height: number;
 }
 
+/** Loadouts for the frame being rendered (render-scoped; see renderTown). */
+let activeSkins: Record<number, SkinLoadout> | undefined;
+
+/** Seat colour, or the player's equipped livery. */
+function playerColor(id: number): string {
+  return getSkin(activeSkins?.[id]?.livery)?.color ?? colorForPlayer(id);
+}
+
+/** Livery accent override for glows / van trim, if the player wears one. */
+function skinAccent(id: number): RGB | undefined {
+  const sk = getSkin(activeSkins?.[id]?.livery);
+  return sk ? hexToRgb(sk.accent) : undefined;
+}
+
 export function renderTown(sim: SimState, opts: RenderOpts = {}): RenderedFrame {
+  activeSkins = opts.skins;
+  try {
+    return renderTownFrame(sim, opts);
+  } finally {
+    activeSkins = undefined;
+  }
+}
+
+function renderTownFrame(sim: SimState, opts: RenderOpts): RenderedFrame {
   const w = sim.world;
   const S = Math.max(1, Math.floor(opts.lod ?? 1)); // output px per logical px
   // viewport in tile coords (clamped to the map)
@@ -812,7 +838,7 @@ export function renderTown(sim: SimState, opts: RenderOpts = {}): RenderedFrame 
       // color mark bought land in the wilderness (§18 rev.)
       const propOwner = w.property[t]!;
       if (propOwner !== 0 && w.terrain[t] !== Terrain.Citizen && w.terrain[t] !== Terrain.Road) {
-        const stake = hexToRgb(colorForPlayer(propOwner));
+        const stake = hexToRgb(playerColor(propOwner));
         const x0p = tx * TILE_PX;
         const y0p = ty * TILE_PX;
         const edgeN = ty === 0 || w.property[t - w.width] !== propOwner;
@@ -908,7 +934,7 @@ export function renderTown(sim: SimState, opts: RenderOpts = {}): RenderedFrame 
         ? hexToRgb("#7a3535")
         : bd.buildTicksLeft > 0
           ? hexToRgb("#9a9a9a")
-          : hexToRgb(colorForPlayer(bd.player));
+          : hexToRgb(playerColor(bd.player));
     const ownerPl = sim.players.find((pl) => pl.id === bd.player);
     const rawArch = String(ownerPl?.archetype ?? "dawn");
     const archKey =
@@ -916,11 +942,11 @@ export function renderTown(sim: SimState, opts: RenderOpts = {}): RenderedFrame 
       rawArch.includes("radiant") ? "radiant" :
       rawArch.includes("circle") ? "circle" :
       "visitors";
-    const accentCol =
-      archKey === "dawn" ? hexToRgb("#ffaa00") :
+    const accentCol = skinAccent(bd.player) ??
+      (archKey === "dawn" ? hexToRgb("#ffaa00") :
       archKey === "radiant" ? hexToRgb("#38bdf8") :
       archKey === "circle" ? hexToRgb("#fbbf24") :
-      hexToRgb("#22d3ee");
+      hexToRgb("#22d3ee"));
 
     const iconKey = bd.type === "compound" ? `compound_${archKey}` : bd.type;
     const bitmap16 = CULT_ICONS_16[iconKey];
@@ -2146,7 +2172,7 @@ function drawTile(
           }
         }
         if (owner !== NEUTRAL) {
-          const cult = hexToRgb(colorForPlayer(owner));
+          const cult = hexToRgb(playerColor(owner));
           const mixed: RGB = [
             (c[0] + cult[0]) >> 1,
             (c[1] + cult[1]) >> 1,
@@ -4063,7 +4089,7 @@ function drawCompoundAssets(
   if (h % 4 >= claim.stage) return; // sparse at stage 1, common at stage 3
   const ax = x0 + 1 + (h % 5);
   const ay = y0 + 1 + ((h >> 6) % 5);
-  const cult = hexToRgb(colorForPlayer(claim.owner));
+  const cult = hexToRgb(playerColor(claim.owner));
   const gold = hexToRgb("#ffd700");
   const fireOrange = hexToRgb("#ff5500");
   const fireYellow = hexToRgb("#ffcc00");
@@ -5243,7 +5269,7 @@ function drawResidents(sim: SimState, tick: number, fog: Uint8Array | null, put:
       ? hexToRgb("#5a4a4a")
       : owner === NEUTRAL
         ? C.personNeutral
-        : hexToRgb(colorForPlayer(owner));
+        : hexToRgb(playerColor(owner));
     const hx = t % w.width;
     const hy = (t / w.width) | 0;
     const dots = Math.min(4, Math.ceil(pop / 3));
@@ -5499,7 +5525,7 @@ function drawCohorts(
   const w = sim.world;
   for (const p of sim.players) {
     if (!p.spawned || p.cohorts.length === 0) continue;
-    const color = hexToRgb(colorForPlayer(p.id));
+    const color = hexToRgb(playerColor(p.id));
     for (let ci = 0; ci < p.cohorts.length; ci++) {
       const c = p.cohorts[ci]!;
       if (fog && fog[c.target] !== 1) continue;
@@ -5721,7 +5747,7 @@ function drawTerritoryBorders(sim: SimState, tick: number, fog: Uint8Array | nul
     if (fog && fog[t] !== 1) continue;
     let col = colorOf.get(o);
     if (!col) {
-      col = shade(hexToRgb(colorForPlayer(o)), pulse);
+      col = shade(hexToRgb(playerColor(o)), pulse);
       colorOf.set(o, col);
     }
     const x = t % w.width;
@@ -5817,7 +5843,7 @@ function drawUnits(sim: SimState, viewer: number, fog: Uint8Array | null, put: P
     const pl = sim.players.find((p) => p.id === v.player);
     const arch: Archetype = (pl?.archetype as Archetype) ?? "dawn";
     const bmp = VAN_SPRITES[arch] ?? UNIT_SPRITES.van;
-    const col = VAN_COLORS[arch] ?? hexToRgb("#eef0ff");
+    const col = skinAccent(v.player) ?? VAN_COLORS[arch] ?? hexToRgb("#eef0ff");
     drawMover(v.path, v.idx, v.moveProgress, v.tile, bmp, col);
   }
   for (const py of sim.pylons) {

@@ -8,7 +8,7 @@
  * authority is the anti-cheat (§34).
  */
 
-import type { ArchetypeId, Intent, Turn, RawBalance, Snapshot } from "@flock/sim";
+import type { ArchetypeId, Intent, Turn, RawBalance, Snapshot, SkinLoadout } from "@flock/sim";
 
 export interface WirePlayer {
   id: number;
@@ -16,6 +16,8 @@ export interface WirePlayer {
   archetype: ArchetypeId;
   /** true for AI seats (bots + established churches) — humans never set it. */
   bot?: boolean;
+  /** Cosmetic loadout (render-only; never enters the sim or its hash). */
+  skin?: SkinLoadout;
 }
 
 /** Account summary handed to the client at connect (§22/§28 profile bits). */

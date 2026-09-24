@@ -16,6 +16,7 @@ Comprehensive engineering and design specifications live in **[`docs/`](./docs/)
 * **[Master Game Design](docs/GAME_DESIGN.md)**: Master design vision, 4 asymmetric cult archetypes, core gameplay loops, civic decrees, and Heat escalation.
 * **[SDD & Modernization Roadmap](docs/ROADMAP_SDD.md)**: Spec-Driven Development handbook, REASONS canvas, GOAP Bot AI, UI/UX overhaul, and commercial feature backlog.
 * **[Technical Debt Inventory](docs/TECHNICAL_DEBT.md)**: Monolithic complexity analysis, cognitive complexity hotspots, and Strangler Fig refactoring blueprints.
+* **[Master Asset Catalog](docs/ASSETS.md)**: 121 catalog assets across 9 categories, animation modes, frames, 1980s visual signatures, and variants.
 * **[Curated Visual Audit](docs/VISUAL_AUDIT.md)**: Curated benchmark gallery showcasing town archetypes, seasonal shifts, lighting passes, and micro-details.
 * **[Operations & Deployment](docs/DEPLOYMENT.md)**: Production hosting, Docker orchestration, and environment configuration.
 * **[Engineering Constitution](CLAUDE.md)**: Governing operational mandates for AI-assisted development.

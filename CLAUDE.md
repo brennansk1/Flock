@@ -93,6 +93,7 @@ You do not have intrinsic real-time awareness of dollar cost in the sandbox. The
 * **Procedural World Generation**: [`docs/WORLDGEN.md`](docs/WORLDGEN.md) (1980s town morphology, variants, animations, placement grammar)
 * **Master Game Design**: [`docs/GAME_DESIGN.md`](docs/GAME_DESIGN.md) (factions, combat, civics, anti-bounce design)
 * **SDD & Modernization Roadmap**: [`docs/ROADMAP_SDD.md`](docs/ROADMAP_SDD.md) (checkpoints, bulk sprite QA, feature backlog)
+* **Master Asset Catalog**: [`docs/ASSETS.md`](docs/ASSETS.md) (121 catalog assets, animation modes, frames, 1980s signatures, code links)
 * **Curated Visual Audit**: [`docs/VISUAL_AUDIT.md`](docs/VISUAL_AUDIT.md) (golden benchmark renders)
 
 ---

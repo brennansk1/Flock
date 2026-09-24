@@ -18,17 +18,19 @@ Your mission is to transition this brownfield codebase into a **commercially suc
 
 ## 2. Core Mandates & Creative Authority
 
-### 2.1 Total Creative Freedom & Redesign Legroom
-The user has granted you **complete creative freedom and extensive refactoring/redesign authority**:
+### 2.1 Total Creative Freedom & Autonomous Decision-Making Authority
+The user has granted you **complete creative freedom, extensive refactoring/redesign authority, and full decision-making responsibility**:
 * **Docs are a Launchpad, Not Rigid Rails**: Treat the existing planning documents in `docs/` as an informed baseline. You possess frontier reasoning capabilities across large codebases and are expected to exercise your own architectural judgment.
 * **Full Permission to Redesign Everything**: You have full license to redesign the **strategy menus, HUD layout, player input models, economic balance formulas, civics, combat systems, or underlying engine architecture** if you identify a more fun, elegant, or immersive solution. Do not feel bound by legacy UI components or current balance numbers.
+* **Make All Decisions Yourself (Do NOT Save Tasks or Choices for the User)**: You are the Game Director and Lead Architect. Make all technical, balance, architectural, and design decisions yourself. Do NOT ask the user to choose between options, do NOT present multiple-choice questionnaires, and do NOT leave design tasks pending for user decisions. Evaluate the tradeoffs, decide on the best approach, and implement it. The milestone checkpoint pauses are strictly for the user to monitor token/dollar spend and approve proceeding to the next stage, not to make micro-decisions on implementation details that you should decide.
 
-### 2.2 The Four Non-Negotiable Anchors
-Whatever you refactor or redesign, you must honor four foundational pillars:
-1. **The 1980s American Small-Town Aesthetic**: The game world must authentically evoke the nostalgic, slightly eerie charm of 1980s Americana (the *Stranger Things* / Hawkins, Indiana era, ~1983–1986).
-2. **Best Game Design Principles**: Deep strategic decision trees, asymmetric faction identities, anti-snowballing/anti-stalemate mechanics, transparent telegraphing, high replayability, and strong retention.
-3. **Token-Efficient Execution**: Programmatic bulk sprite authoring in code, Dual-Harness Visual QA (Studio Blank Slate vs. In-Situ Map Crops), and pausing at stage checkpoints.
-4. **100% Lockstep Determinism**: All simulation math must remain bit-identical across clients (zero floating-point divergence, zero unseeded PRNG, zero network desyncs). `npm test` must always pass cleanly.
+### 2.2 The Five Non-Negotiable Anchors
+Whatever you refactor or redesign, you must honor five foundational pillars:
+1. **RTS Gameplay on an Authentic 1980s Town Map with Multiple Map Archetypes**: The core game MUST remain a real-time strategy (RTS) game played on a living map of an American small town in that authentic 1980s aesthetic (*Stranger Things* / Hawkins, Indiana era, ~1983–1986). It must support **multiple maps** (diverse procedural town archetypes, varied regional geographies, topographies, and layouts—such as farming communities, lakeside towns, desert settlements, mountain valleys, and coastal fishing ports—all sharing that cohesive 1980s small-town visual language).
+2. **The 1980s American Small-Town Aesthetic**: The game world must authentically evoke the nostalgic, slightly eerie charm of 1980s Americana with recognizable architecture, an 80s vehicle fleet, authentic natural environments, rich variants, and dynamic micro-animations.
+3. **Best Game Design Principles**: Deep strategic decision trees, asymmetric faction identities, anti-snowballing/anti-stalemate mechanics, transparent telegraphing, high replayability, and strong retention.
+4. **Token-Efficient Execution**: Programmatic bulk sprite authoring in code, Dual-Harness Visual QA (Studio Blank Slate vs. In-Situ Map Crops), and pausing at stage checkpoints.
+5. **100% Lockstep Determinism**: All simulation math must remain bit-identical across clients (zero floating-point divergence, zero unseeded PRNG, zero network desyncs). `npm test` must always pass cleanly.
 
 ### 2.3 Subagent Concurrency & Delegation Guardrails
 When delegating tasks to subagents in Claude Code:
@@ -174,5 +176,5 @@ Refer to [`docs/ROADMAP_SDD.md`](./docs/ROADMAP_SDD.md) for full task breakdowns
 When starting your session:
 1. Run `npm test` to verify the baseline test suite (`135 / 135` tests passing + `75 / 75` world mapgen audit passing with 0 violations).
 2. Review [`docs/ROADMAP_SDD.md`](./docs/ROADMAP_SDD.md) §2 (Stage 1 Specification) and [`docs/GAME_DESIGN.md`](./docs/GAME_DESIGN.md).
-3. Present your **Stage 1 Strategic Design Proposal & Execution Plan** (detailing your envisioned strategy menu redesign, HUD architecture, gameplay adjustments, and planned code changes).
-4. Pause and await user confirmation to begin Stage 1 implementation.
+3. State your decided **Stage 1 Architectural & Gameplay Execution Plan** (outlining the exact decisions you have made as Game Director for the menu, HUD, and strategy overhaul—do NOT ask the user to pick between design options or save tasks for them).
+4. Pause, report repository health, and await the user's initial confirmation to begin execution.

@@ -1,10 +1,10 @@
 # FLOCK — Comprehensive Procedural World Generation Specification
 
-This document is the authoritative engineering and design specification for procedural world generation and environmental rendering in **FLOCK** (`@flock/sim/src/mapgen.ts`, `gridRoads.ts`, `townRender.ts`, `palette.ts`, and `assetCatalog.ts`).
+This document is the authoritative engineering and design specification for procedural world generation, 1980s environmental art, and town rendering in **FLOCK** (`@flock/sim/src/mapgen.ts`, `gridRoads.ts`, `townRender.ts`, `palette.ts`, and `assetCatalog.ts`).
 
 ---
 
-## 1. Core Principles & Mathematical Foundations
+## 1. Core Principles & 1980s Small-Town Theme
 
 ### 1.1 Strict Determinism & Lockstep Invariance
 FLOCK is a competitive multiplayer RTS running at 10 Hz lockstep across 4–100 players. World generation must be **bit-for-bit identical across all clients and servers**:
@@ -17,6 +17,13 @@ Rendering operates at a top-down pixel perspective with a fixed **8 pixels per t
 * **Single LOD Philosophy**: There are no zoom-dependent asset LODs. Zooming ($1\times$ to $4\times$) magnifies the procedural 8×8 pixel art.
 * **Readable Silhouettes**: Every building, vehicle, tree, and resident is identifiable at 8px by silhouette, shadow, and color palette.
 * **1px Panel Seams**: Adjacent modular building blocks use a 1-pixel shaded seam (`shade(c, 0.85)`) on shared boundaries. Storefront party-walls render 1px vertical division lines (`shade(wall, 0.5)`).
+
+### 1.3 The 1980s American Small-Town Aesthetic ("Stranger Things" Era)
+The environmental art and procedural morphology capture the nostalgic, slightly eerie charm of 1980s Americana (Hawkins, Indiana, ~1983–1986):
+* **Urban Center**: Neoclassical red-brick courthouse/town hall square with manicured lawns and flagpole, flanked by Main Street commercial storefronts with retro awnings and vintage neon signs.
+* **Residential Blocks**: Subdivisions of wood-clapboard and vinyl split-level/ranch houses with front porches, pitched roofs, driveways, garden sheds, chain-link fences, and above-ground pools.
+* **1980s High School**: Low-slung red-brick campus with horizontal ribbon windows, outdoor bleachers, running track, and yellow school bus lot.
+* **Working Countryside**: Sinusoidal meandering river with gravel bars and timber trestle bridges; rural farm belt with red gambrel barns, grain elevators, and tractor paths; coastal ocean shores with rolling surf.
 
 ---
 
@@ -67,10 +74,10 @@ flowchart TD
 ## 3. Biomes & Concentric Ecotones
 
 ### 3.1 Biomes
-* **Temperate (0)**: Green pastures, deciduous copses, loamy soil.
+* **Temperate (0)**: Rolling green pastures, scattered deciduous copses, loamy soil.
 * **Desert (1)**: Ochre sand, sandstone ridges, dry sagebrush, saguaro cactus stands, date palm oases.
 * **Forest (2)**: Deep damp loam floor (`#3a5928`), dense evergreen pines, fallen logs, mossy stone boulders.
-* **Autumn (3)**: Golden-rust soil floor (`#c9a054`), blazing red, orange, and golden canopies.
+* **Autumn (3)**: Golden-rust soil floor (`#c9a054`), blazing scarlet, burnt orange, and golden canopies.
 * **Ocean (4)**: Saltwater coastline, dunes, sand beach strip, sea docks, lighthouse promontory.
 
 ### 3.2 3-Ring Ecotone Transitions & Edge Bleed
@@ -108,26 +115,24 @@ Transitions between biomes grade across **3 concentric rings** using determinist
 
 ---
 
-## 6. Keystone Civic Landmarks & Multi-Tile Parcels
+## 6. Recognizable 1980s Civic Landmarks & Multi-Tile Parcels
 
 ### 6.1 Landmarks (`Landmark` Enum)
-* **Town Hall (3)**: Centered at Downtown core (`cx, cy`).
-* **Megachurch (2)**: Town edge (`cx + r - 2, cy + 3`), citizen lot. Primary Revelation objective.
-* **Fairground (4)**: Opposite town edge (`cx - r + 2, cy - 3`), citizen lot.
-* **Radio Tower (1)**: Countryside ($15\% W, 15\% H$), dirt access lane.
-* **Water Tower (5)**: Countryside ($85\% W, 85\% H$), dirt access lane.
+* **Town Hall (3)**: Centered at Downtown core (`cx, cy`). Brick courthouse with stone steps, bell cupola, and municipal flagpole.
+* **Megachurch (2)**: Town edge (`cx + r - 2, cy + 3`). Stepped stone facade, stained-glass arch window, and cross belfry. Primary Revelation objective.
+* **County Fairground (4)**: Opposite town edge (`cx - r + 2, cy - 3`). Grandstands, exhibition rings, and festival pavilions.
+* **Radio Broadcast Tower (1)**: Elevated countryside hill ($15\% W, 15\% H$). Steel lattice transmission tower with flashing red aircraft warning beacon.
+* **Municipal Water Tower (5)**: Countryside ($85\% W, 85\% H$). Spherical steel tank on trestle legs with faded high-school graduation graffiti.
 
-### 6.2 Stamped Multi-Tile Parcels
-* **Supermarket**: $2\times 2$ grocery $+ 2\times 1$ parking lot (14 workers).
-* **High School**: $2\times 2$ building $+ 2\times 1$ parking $+ 2\times 2$ Ball Field (20 workers).
-* **Elementary School**: $2\times 2$ building $+ 2\times 1$ parking $+ 1\times 2$ Playground (16 workers).
-* **Church**: $2\times 2$ building $+ 1\times 2$ parking $+ 2\times 1$ Cemetery (8 workers) $+$ Parsonage.
-* **Fire Station**: $2\times 2$ building $+ 2\times 1$ vehicle apron (8 workers).
-* **Sheriff's Station**: $2\times 1$ station $+ 2\times 1$ cruiser parking (6 workers).
-* **Cinema**: $2\times 2$ theater $+ 2\times 1$ parking (10 workers).
-* **Factory & Warehouse**: $2\times 2$ footprint $+ 2\times 1$ truck yard (16 / 8 workers).
-* **Grain Elevator & Depot**: $2\times 1$ footprints placed on industrial rail siding.
-* **Library**: $1\times 1$ $+ 1\times 1$ parking (5 workers).
+### 6.2 Recognizable 1980s Multi-Tile Building Footprints
+* **1980s High School**: $2\times 2$ low red-brick building $+ 2\times 1$ bus parking $+ 2\times 2$ football field with bleachers (20 workers).
+* **Elementary School**: $2\times 2$ building $+ 2\times 1$ parking $+ 1\times 2$ playground with swings and jungle gym (16 workers).
+* **1980s Supermarket**: $2\times 2$ grocery store with sloped entrance awning $+ 2\times 1$ asphalt parking lot (14 workers).
+* **Town Police / Sheriff Station**: $2\times 1$ station with radio aerial $+ 2\times 1$ cruiser parking with bubble-light cars (6 workers).
+* **Classic Cinema / Arcade**: $2\times 2$ theater with illuminated night marquee $+ 2\times 1$ parking (10 workers).
+* **Drive-In Diner**: $1\times 1$ chrome/checkered diner $+ 2\times 1$ angled drive-in carports.
+* **Gas Station**: $1\times 1$ service shop $+ 2\times 1$ pump canopy island with boxy 1980s pump housings.
+* **Industrial Rail Depot & Elevator**: $2\times 1$ brick depot with timber platforms and $2\times 1$ concrete grain elevator silos on rail siding.
 
 ### 6.3 Physical Invariants
 * **Zoning Buffer**: Enforces minimum **6-tile buffer** between Industrial lots and sensitive institutions (Schools, Churches).
@@ -155,15 +160,25 @@ Transitions between biomes grade across **3 concentric rings** using determinist
 
 ---
 
-## 8. Environmental Rendering Engine (`townRender.ts`)
+## 8. Environmental Rendering & The 1980s Vehicle Fleet (`townRender.ts`)
 
-### 8.1 Seasonal Palettes
-* **Spring**: Vibrant green meadow (`#6da344`), cherry/peach blossoms (`#ffd0e8`), tilled brown soil with green sprouts (`#82cf3c`), clean sidewalks.
+### 8.1 The 1980s Vehicle Fleet
+Vehicles on highways, town streets, and parking lots render distinct 1980s profiles at 8px:
+* **Wood-Paneled Station Wagon**: Extended body with brown wood-grain trim (`#7a4a2a`) along the sides and roof luggage rack.
+* **Boxy Sedans**: Chevy Caprice / Ford LTD profile with square chrome grille and defined hood and trunk decks.
+* **Square-Body Pickups & Blazers**: High-clearance cab, open rear bed with optional tool chest, two-tone paint.
+* **Police Cruisers**: White doors, black chassis, and rooftop flashing bubble/gumball emergency beacon (`#ff3333` / `#3366ff`).
+* **Yellow School Bus**: 2-tile extended yellow body (`#f0b53e`) with dark window strip and black rub rails.
+* **Recruitment & Delivery Vans**: Boxy 1980s Dodge Ram Van / Chevy G20 with custom faction side graphics.
+* **BMX Bicycles**: Micro 2-pixel town kids riding along residential sidewalks.
+
+### 8.2 Seasonal Palettes
+* **Spring**: Vibrant green meadow (`#6da344`), flowering cherry/dogwood blossoms (`#ffd0e8`), tilled brown soil with green sprouts (`#82cf3c`), clean sidewalks.
 * **Summer**: Deep warm green meadow (`#829c5e`), dark tree canopies (`#2d5a27`), full crop rows, ripe fruit.
-* **Fall**: Golden rust meadow (`#a49e60`), scarlet/orange/gold canopies (`#b06f33`, `#c0a052`, `#96473a`), tan crop stubble (`#baa57c`), hay bales.
-* **Winter**: Pure white snow meadow (`#eef4f8` / `#ffffff`), snow-covered roofs, bare brown tree branches with snow caps (`#5c4c38`, `#ffffff`), frozen light-blue ice sheets (`#aed5e8`), snowmen in residential yards.
+* **Fall**: Golden rust meadow (`#a49e60`), scarlet/orange/gold maple canopies (`#b06f33`, `#c0a052`, `#96473a`), tan crop stubble (`#baa57c`), hay bales, fallen leaf clusters along curbs.
+* **Winter**: Pure white snow meadow (`#eef4f8` / `#ffffff`), snow-covered roofs with north-facing accumulation, bare brown tree branches with snow caps (`#5c4c38`, `#ffffff`), frozen light-blue ice sheets (`#aed5e8`), snowmen in residential yards.
 
-### 8.2 Diurnal Lighting Filters
+### 8.3 Diurnal Lighting Filters
 * **Day**: Unmodified RGB baseline.
 * **Dawn**: Amber warmth: $\text{RGB} = [\min(255, R \times 1.12 + 15),\, \min(255, G \times 0.95 + 8),\, \min(255, B \times 0.82)]$.
 * **Dusk**: Violet twilight: $\text{RGB} = [\min(255, R \times 1.05 + 10),\, \min(255, G \times 0.82 + 5),\, \min(255, B \times 1.12 + 10)]$.

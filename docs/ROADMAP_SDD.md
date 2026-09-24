@@ -1,155 +1,177 @@
-# FLOCK — Spec-Driven Development (SDD) & Claude Opus 5.5 Modernization Roadmap
+# FLOCK — Spec-Driven Development (SDD), 1980s Worldgen & Modernization Roadmap
 
-This document outlines the **Spec-Driven Development (SDD)** protocol, strategic token budget allocation for the **Claude Opus 5.5** sandbox sweep ($250 credit), and high-impact engineering roadmaps.
-
----
-
-## 1. Claude Opus 5.5 Execution Profile & Parameter Tuning
-
-Claude Opus 5.5 is Anthropic's frontier coding model (released September 2026). It excels at deep cross-file reasoning, refactoring complex monolithic modules, and maintaining architectural coherence without hallucinations.
-
-### 1.1 Model Technical Profile
-* **Context Window**: 1,000,000 tokens (1M).
-* **Max Output Generation**: 128,000 tokens (128k).
-* **Pricing**: $\$4.00$ / M input, $\$20.00$ / M output, $\$0.20$ / M prompt cache reads ($90\%$ savings).
-* **Always-On Adaptive Thinking**: Regulated via the `output_config.effort` parameter:
-  * `effort: "high"`: Core simulation refactoring, lockstep synchronization, fixed-point math, and Glicko-2 ratings.
-  * `effort: "medium"`: UI/UX layout, HUD components, audio synthesizers, and test suites.
-  * `effort: "low"`: Documentation updates, asset catalog additions, and config tuning.
-
-### 1.2 Prompt Tagging & Structure
-Opus 5.5 demonstrates peak performance when instructions, context, constraints, and tasks are wrapped in explicit semantic XML tags (`<system_spec>`, `<invariants>`, `<code_context>`, `<task>`).
+This document outlines the **Spec-Driven Development (SDD)** protocol, token-efficient bulk sprite design pipeline, 1980s American small-town aesthetic ("Stranger Things" era), and budget checkpoint controls for the **Claude Opus 5.5** sandbox modernization sweep ($250 credit).
 
 ---
 
-## 2. $250 Sandbox Credit Allocation Plan
+## 1. Autonomous Architectural Authority (No Rigid Rails)
 
-With $\$250$ in Claude Code credits, token consumption translates to approximately **12.5M output tokens** or **60M cached input tokens**. To prevent context rot and exhaustion, development is structured into 5 prioritized phases:
+Claude Opus 5.5 acts as the Lead Systems Architect.
+* **Full Design Latitude**: All roadmaps, backlogs, and architectural blueprints in `docs/` serve as high-quality initial baselines, **NOT rigid rails**.
+* **Reasoning Over Rules**: If your analysis reveals a cleaner architectural pattern, a more fun and balanced strategy mechanic, a superior procedural generation heuristic, or a more token-efficient refactoring path, **you have full permission to alter, re-order, replace, or rewrite these proposals**.
+* **Guiding North Star**: Maintain 100% lockstep determinism (`npm test`), eliminate player bounce, and craft an intensely atmospheric, commercially compelling strategy game.
+
+---
+
+## 2. Strategic Priority Hierarchy
 
 ```mermaid
-pie title $250 Budget Allocation
-    "Phase 1: Sim Core & Doctrine Stubs ($50)" : 50
-    "Phase 2: GOAP Bot AI Brains ($70)" : 70
-    "Phase 3: Commercial UI/UX & Radial Wheels ($60)" : 60
-    "Phase 4: Web Audio Synth & Ambient Loops ($30)" : 30
-    "Phase 5: Perceptual Visual CI & Regression ($40)" : 40
+graph TD
+    P1["Priority #1: Strategy, Core Gameplay & Marketability Overhaul"]
+    P2["Priority #2: 1980s American Small-Town Worldgen & Bulk Sprite Overhaul"]
+    P3["Priority #3: Commercial UI/UX, Audio Atmosphere & Perceptual CI"]
+
+    P1 -->|Compelling Gameplay Loop Established| P2
+    P2 -->|Atmospheric World Built| P3
 ```
 
-### Budget Breakdown
-| Phase | Focus Area | Token Budget | Primary Target Files | Key Deliverable |
-| :---: | :--- | :---: | :--- | :--- |
-| **1** | Sim Core & Stubs | $\$50$ (~2.5M out) | `doctrine.ts`, `conversion.ts`, `balance.json` | Implement missing BITE stubs (I1, I2, I4); tune doctrine costs & pacing. |
-| **2** | GOAP Bot AI | $\$70$ (~3.5M out) | `bots.ts`, `sim.ts`, `cohorts.ts` | Utility-based Goal-Oriented Action Planning for all 4 archetypes. |
-| **3** | UI/UX & Polish | $\$60$ (~3.0M out) | `hud.ts`, `wheel.ts`, `render.ts` | Town Hall Decree Wheel, Tile Inspector card, minimap POI alerts. |
-| **4** | Audio & Atmosphere | $\$30$ (~1.5M out) | `audio.ts` | Procedural ambient loops (wind, crickets), combat tension chords, bells. |
-| **5** | Visual CI & Regression | $\$40$ (~2.0M out) | `tools/visual_audit.mjs`, `townRender.ts` | Automated pixel diffing against curated golden images (`docs/assets/curated/`). |
+1. **Priority #1: Strategy, Core Gameplay & Marketability Overhaul**
+   - Deepen asymmetric faction mechanics (Dawn, Radiant, Circle, Visitors).
+   - Refine anti-bounce mechanisms (Heat escalation, Schisms, Apostate Scars, Comeback tools).
+   - Ensure the 100ms lockstep tick, presence cohorts, and victory conditions are tightly tuned and fiercely competitive.
+2. **Priority #2: 1980s American Small-Town Worldgen & Bulk Sprite Overhaul ("Stranger Things" Era)**
+   - Transform procedural town generation from basic geometric rectangles into an authentic, instantly recognizable 1980s Midwestern/American small town (the Hawkins, Indiana aesthetic, ~1983–1986).
+   - Bulk design recognizable buildings, 1980s vehicles, realistic waterways, and dynamic seasonal foliage using the Dual-QA pipeline.
+3. **Priority #3: Commercial UI/UX Polish, Web Audio Synth & CI Gates**
+   - Radial Civic Decree Wheel for Town Hall, Contextual Tile Inspector, dynamic synthesizer ambient loops, and automated image regression testing.
 
 ---
 
-## 3. The Spec-Driven Development (SDD) Protocol
+## 3. The 1980s American Small-Town Aesthetic ("Stranger Things" Era)
 
-To maximize reasoning efficiency and eliminate regression loops, every task must follow the **D3 Protocol (Discover $\rightarrow$ Define $\rightarrow$ Deliver)**:
+The environmental art and procedural morphology must capture the nostalgic, slightly eerie charm of 1980s Americana:
+
+### 3.1 Architectural Taxonomy & Urban Morphology
+* **Downtown Courthouse / Town Hall Square**:
+  - Neoclassical red-brick Town Hall with stone pediment, columned portico, bell cupola, and central municipal flagpole on manicured grass lawn.
+  - Attached Main Street commercial blocks with wood/fabric awnings, retro neon/plastic signage, overhanging cornice trims, and 1px vertical party-wall seams.
+* **1980s Commercial Strip**:
+  - Classic diner with chrome trims and neon roof lettering.
+  - Gas station with boxy rectangular pump islands, red/blue corporate striping, and corner service bays.
+  - Video arcade / movie theater with illuminated marquee.
+  - Radio station with red warning beacon atop a steel lattice transmitter tower.
+* **1980s High School Campus**:
+  - Low-slung 1970s/80s red-brick building with horizontal ribbon windows, exterior gymnasium annex, running track, football bleachers, and a dedicated yellow school bus parking apron.
+* **Residential Suburbs**:
+  - Wood-clapboard and vinyl-sided ranch houses and split-levels with front porches, pitched shingle roofs, detached garages, driveways with parked 1980s cars, backyard chain-link/picket fences, garden sheds, and circular above-ground pools.
+* **Industrial Rail Lobe & Outskirts**:
+  - Railroad depot with platform timbers, freight luggage carts, and brick quoin corners.
+  - Tall concrete grain elevator with cylindrical silos and bucket elevators.
+  - Corrugated steel lumber mill and gravel yard.
+  - Municipal water tower on steel trestle legs with faded high school graduation year graffiti.
+
+### 3.2 The 1980s Vehicle Fleet
+Replace generic vehicles with recognizable 1980s silhouettes rendered at 8px:
+* **Wood-Paneled Station Wagon** (Ford Country Squire style): Long body, rear overhang, brown wood-grain side paneling.
+* **Boxy Sedans** (Chevy Caprice / Ford LTD): Rectangular chrome grille, distinct trunk and hood notches, amber indicator lights.
+* **Square-Body Pickup / Chevy Blazer**: Elevated ground clearance, wide cab, optional two-tone paint.
+* **Police Cruiser**: White/black doors, rooftop bubble/gumball flashing emergency lights.
+* **Delivery & Recruitment Vans**: Boxy 1980s Dodge Ram Van / Chevy G20 with custom cult side stripes.
+* **Yellow School Bus**: Extended yellow body with black rub rails and flashing stop sign arm.
+* **BMX Bicycles**: Micro 2-pixel kids on bikes traversing residential sidewalks.
+
+### 3.3 Natural Hydrology & Seasonal Foliage
+* **Meandering River**: Sinusoidal curves with damp sand/gravel shoals, stone rapids, weeping willow fringes along banks, and timber/stone trestle railroad bridges.
+* **Coastal Ocean**: Foam-crested breakers, driftwood, sandy dunes with sea oats, coastal docks, and striped brick lighthouse.
+* **Rich Seasonal Foliage**:
+  - *Spring*: Vibrant emerald lawns, flowering pink dogwoods/magnolias, and tilled farmland with bright green sprouts.
+  - *Summer*: Deep lush green canopies with sharp cast shadows, full corn rows, and ripe wheat fields.
+  - *Fall*: Blazing scarlet, burnt orange, and golden maple canopies, fallen leaf clusters along curbs, and golden hay bales.
+  - *Winter*: Snow accumulation on north-facing roofs, bare branch silhouettes, frozen ice sheets, and snowbanks along plowed roads.
+
+---
+
+## 4. Token-Efficient Bulk Sprite Design & Dual-QA Pipeline
+
+Bulk designing 8px pixel art through an LLM can burn millions of tokens if done via trial-and-error text dumps. FLOCK uses a **programmatic generation + headless visual QA** pipeline:
 
 ```mermaid
-flowchart TD
-    D1["1. Discover (Audit Ground Truth in packages/)"] --> D2["2. Define (Author REASONS Canvas Spec)"]
-    D2 --> D3["3. Deliver (Strangler Fig Implementation)"]
-    D3 --> D4["4. Verify (npm test 100% Invariant Pass)"]
-    D4 --> D5["5. Commit (Semantic Git Snapshot)"]
+flowchart LR
+    Code["1. Author Sprite Matrix in townRender.ts"] --> Test["2. Invariant Check (Bounds, Colors, Seams)"]
+    Test --> Studio["3. Studio QA: Isolated Blank Background"]
+    Test --> Map["4. In-Situ QA: Real Procedural Map Crop"]
+    Studio --> VisualDiff["5. Headless Visual Audit (Zero LLM Token Loss)"]
+    Map --> VisualDiff
 ```
 
-### 3.1 The REASONS Canvas Template
-Before editing multi-file subsystems, author an implementation plan using the REASONS structure:
-
-| Dimension | Definition | Checklist |
-|---|---|---|
-| **R** — Requirements | User intent and gameplay acceptance criteria | What does success look like? What is explicitly out of scope? |
-| **E** — Entities | Data schemas, state flags, and typed arrays | Are types added to `types.ts`? Are arrays flat and garbage-free? |
-| **A** — Approach | Architectural pattern and blast radius | Using Strangler Fig facade? Adapter pattern? |
-| **S** — Structure | Exact files to modify, create, or delete | Are file diffs surgical (<300 lines)? |
-| **O** — Operations | State transitions, turn loops, and network packets | Is simulation logic executed inside the 100ms lockstep tick? |
-| **N** — Norms | Code style, determinism rules, positive constraints | Zero `Math.random()`, zero floating-point divergence, pure functions. |
-| **S** — Safeguards | Test suites, invariant assertions, rollback plan | Does `npm test` pass? Are replay state hashes invariant? |
-
----
-
-## 4. Prioritized Feature Backlogs
-
-### Track 1: Goal-Oriented Action Planning (GOAP) Bot AI ($70 Budget)
-* **Problem**: Current bots in `bots.ts` use simple random timers and heuristic checks.
-* **Target Architecture**:
-  * Utility AI evaluating action candidates every cadence cycle:
-    * *Front Expansion Utility*: evaluated against tile susceptibility $S$, distance, and defender strength.
-    * *Civic Capture Utility*: prioritizing Town Hall, High School, and Megachurch based on match timer.
-    * *Heat Management Utility*: switching to Tend stance when Heat approaches 60/85 to avoid CPA raids.
-    * *Doctrine Purchase Utility*: evaluating optimal B.I.T.E. progression per archetype.
-  * Unique Faction AI Personalities:
-    * **Dawn Bot**: High-aggression crusader; rushes Watchtowers and Holy Relic Processions; targets rival churches.
-    * **Circle Bot**: Hoards capital to execute hostile property purchases; secures Banks and Town Hall; plays for The Ledger.
-    * **Radiant Bot**: Maintains zero dissent with Juice Cleanses; captures Supermarkets for Organic Co-op; infiltrates high-pop suburbs.
-    * **Visitors Bot**: Deploys deep wilderness Saucer footholds; surrounds Downtown with Crop Circles; disrupts enemies with Radio Static.
-
-### Track 2: UI/UX Commercial Polish & Radial Decree Wheel ($60 Budget)
-* **Radial Civic Decree Wheel**: An intuitive circular SVG overlay appearing when clicking an owned Town Hall or civic POI, allowing one-click execution of the 7 municipal decrees.
-* **Contextual Tile Inspector**: Floating card displaying:
-  * Population, district affiliation, income, and susceptibility score $S$.
-  * Active attacker cohorts, conversion progress bar, and dissent status.
-  * Property ownership, building tier, and staffing ratio.
-* **Minimap POI & Alert Enhancements**:
-  * Real-time fog-of-war visualization.
-  * Flashing crimson alerts when enemy Recruitment Vans or Agents enter sovereign territory.
-  * Megachurch channel progress ring.
-
-### Track 3: B.I.T.E. Information Doctrine Implementation ($50 Budget)
-* **Problem**: In `doctrine.ts`, nodes `I1`, `I2`, and `I4` are unbuilt stubs.
-* **Implementation Plan**:
-  * **I1 (Broadcast Media)**: Radio Tower broadcasts increase neutral susceptibility by $+15\,S$ across the town.
-  * **I2 (Disinformation Campaign)**: Reduces evidence accumulation rate from rival Agents by $50\%$.
-  * **I4 (Total Narrative Control)**: When holding Town Hall, nullifies rival Propaganda Strikes and decreases civic decree costs by $25\%$.
-
-### Track 4: Procedural Audio Synthesizer Expansion ($30 Budget)
-* **Ambient Soundscape**: Subtle procedural wind noise modulated by season; night crickets and dawn birdsong generated via bandpass white noise.
-* **Dynamic Tension Chords**: Ascending procedural minor chord sequences when enemy cohorts cross into domestic territory.
-* **Civic Feedback**: Procedural church bells ringing when Faith is earned; train whistle echoes when Couriers arrive at the Depot.
+### 4.1 The Dual-QA Protocol
+1. **Studio View (Blank Studio Slate)**:
+   - Tool: `tools/spritesheet.mjs` or `tools/generate_catalog_inspection.mjs`.
+   - Renders each sprite asset centered on a dark studio slate (`#181512`) at high magnification ($6\times$ or $8\times$).
+   - Claude evaluates: Silhouette readability, color contrast, lighting direction, and 1px panel seam consistency.
+2. **In-Situ View (Procedural Map Context)**:
+   - Stamped onto real procedural town seeds (e.g. seeds 11, 42, 77) across the 4 seasons and 4 times of day.
+   - Claude evaluates: Road connection, sidewalk alignment, curb cuts, shadow integration with terrain, and ecotone tree density.
+3. **Headless Verification**:
+   - Automated scripts output high-res PNGs to `docs/assets/curated/` or `reports/`.
+   - Claude inspects visual artifacts using `view_file` on generated image files, keeping conversational tokens strictly focused on code edits.
 
 ---
 
-## 5. Claude Opus 5.5 Prompt Templates for Claude Code
+## 5. Cost Self-Awareness & Stage Checkpoint Protocol
 
-When launching Claude Code sessions in your sandbox, copy and paste these XML-structured prompts directly:
+Claude Opus 5.5 has no intrinsic real-time odometer for sandbox billing. To guarantee the **$250 credit pool** is spent deliberately across the entire roadmap, Claude must enforce **mandatory stage pause checkpoints**:
 
-### Prompt 1: Bot AI GOAP Upgrade
+### 5.1 $250 Budget Allocation Matrix
+| Stage | Milestone | Budget | Target Deliverable |
+| :---: | :--- | :---: | :--- |
+| **Stage 1** | Strategy & Balance Overhaul | $\$45$ | Doctrine stubs (I1, I2, I4), anti-bounce tuning, comeback abilities |
+| **Stage 2** | 1980s Town Morphology & Worldgen | $\$65$ | Downtown square, 1980s commercial strip, high school campus, shoaled rivers |
+| **Stage 3** | Bulk Sprite Overhaul & 80s Vehicle Fleet | $\$55$ | 80s cars, station wagons, vans, police cruisers, houses, trees via Dual-QA |
+| **Stage 4** | GOAP Bot AI with Faction Personalities | $\$50$ | Utility-based AI evaluating expansion, civics, heat, and faction themes |
+| **Stage 5** | Commercial UI/UX & Web Audio Polish | $\$35$ | Radial Decree Wheel, contextual inspector, procedural ambient soundscapes |
+
+### 5.2 Mandatory Stage Checkpoint Output
+At the conclusion of each stage, Claude **must stop calling tools** and present this card:
+
+```markdown
+============================================================
+--- MILESTONE CHECKPOINT [Stage N Complete] ---
+============================================================
+1. Milestone Accomplished: [Concise list of implemented features]
+2. Automated Invariant Gate: npm test passed (135/135 tests, 75/75 worlds, 0 violations)
+3. Visual Artifacts Generated: [Paths to studio spritesheet / map crops]
+4. Estimated Stage Token Spend: ~$XX (Remaining estimated credit: ~$YY)
+5. Proposed Next Stage: [Stage N+1 Title and core scope]
+------------------------------------------------------------
+> Awaiting user feedback. Please share your current Claude Code credit balance and reply 'PROCEED' or specify any plan adjustments.
+============================================================
+```
+
+---
+
+## 6. Ready-to-Paste Claude Code Prompt Templates
+
+### Prompt 1: Priority 1 Strategy & Game Balance Overhaul
 ```xml
-<task>Implement Utility / GOAP Action Planning for FLOCK Bot AI</task>
+<task>Execute Priority 1: Strategy, Core Gameplay & Marketability Overhaul</task>
 <system_spec>
-You are an expert game AI engineer modernizing the bot brains in @flock/sim/src/bots.ts.
-FLOCK is a 10 Hz deterministic lockstep multiplayer strategy game. All bot actions MUST strictly emit standard Intent objects. Bots have ZERO fog exemptions and ZERO stat cheats.
+You are Lead Systems Architect for FLOCK. You have full architectural autonomy to refine or rewrite mechanics.
+Review docs/GAME_DESIGN.md and packages/sim/src/.
 </system_spec>
 <requirements>
-1. Review docs/GAME_DESIGN.md and packages/sim/src/bots.ts.
-2. Refactor bot evaluation into a Utility AI evaluating candidate actions:
-   - Expand Front (Spread vs Crusade based on Heat)
-   - Capture Keystone Civic (targeting Sheriff, High School, Supermarket, Church, Town Hall)
-   - Manage Heat (switch to Tend if Heat >= 60 to prevent CPA pickets)
-   - Purchase Doctrines (evaluating B1-B4, T1-T4, E1-E4 based on archetype)
-   - Enact Civic Decrees when holding institutions
-3. Implement distinct tactical personalities for Dawn, Radiant, Circle, and Visitors.
-4. Verify with: npm test
+1. Implement the unbuilt B.I.T.E. Information doctrine nodes (I1, I2, I4) in doctrine.ts with impactful strategic effects.
+2. Refine anti-bounce and catch-up mechanics (Heat scaling, Schism thresholds, and Apostate Scars) to eliminate runaway snowballing and boring stalemates.
+3. Sharpen the asymmetric win conditions and faction identities (Dawn crusade pressure, Circle financial takeovers, Radiant retention defense, Visitors saucer drops).
+4. Run npm test to verify all 135 tests pass cleanly.
+5. Present the Stage 1 Checkpoint Card with token estimate and pause for user input.
 </requirements>
 ```
 
-### Prompt 2: Town Hall Civic Decree Radial Wheel
+### Prompt 2: Priority 2 1980s Small-Town Worldgen & Bulk Sprite Overhaul
 ```xml
-<task>Implement Radial Civic Decree Wheel in @flock/client</task>
+<task>Execute Priority 2: 1980s American Small-Town Worldgen & Bulk Sprite Overhaul</task>
 <system_spec>
-You are a senior UI/UX engineer building interactive client controls in packages/client/src/.
-The game uses a 1970s satirical cult aesthetic (Press Start 2P, VT323, Pixelify Sans, gold/crimson palettes).
+You are Lead Systems Architect and Art Director for FLOCK.
+Transform the procedural town into an authentic 1980s American small town (Hawkins, Indiana / Stranger Things aesthetic).
+Review docs/WORLDGEN.md, packages/sim/src/mapgen.ts, and packages/sim/src/townRender.ts.
 </system_spec>
 <requirements>
-1. Review docs/GAME_DESIGN.md §7 (the 7 municipal active decrees) and packages/client/src/wheel.ts.
-2. Implement a radial DecreeWheel component appearing when the player clicks an owned Town Hall or civic landmark.
-3. Display available decrees with cost in USD/Faith, cooldown sweep indicators, and tooltips.
-4. Discard clicks if the mouse dragged > 6px (respecting main.ts Manhattan deadzone calibration).
-5. Verify with: npm test
+1. Upgrade procedural urban morphology: Downtown courthouse square, Main St awnings/signage, 1980s red-brick high school with sports fields, wood-clapboard residential suburbs with porches and sheds, and industrial rail siding.
+2. Bulk design the 1980s vehicle fleet: wood-paneled station wagons, boxy sedans, Chevy Blazers, bubble-light police cruisers, school buses, and BMX bikes.
+3. Enhance hydrology and foliage: meandering river with sand/gravel shoals, coastal ocean surf, and rich 4-season foliage.
+4. Execute Dual-QA: generate studio spritesheet via tools/spritesheet.mjs and in-situ map crops via tools/generate_catalog_inspection.mjs.
+5. Run npm test to verify 100% invariants pass.
+6. Present the Stage 2 Checkpoint Card with token estimate and pause for user input.
 </requirements>
 ```

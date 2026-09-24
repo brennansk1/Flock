@@ -3,7 +3,7 @@ import { add, div, min, mul, fromInt, fromFloat, ONE } from "../fixed.js";
 import { Lot, NEUTRAL, Terrain, TileState, TileFlag } from "../types.js";
 import { computeCivicControl, controlsCivic } from "../civics.js";
 import { followerCap } from "../sim.js";
-import { usd, inBounds, pct, both } from "./common.js";
+import { fp, usd, inBounds, pct, both } from "./common.js";
 import type { ArchetypeDefinition } from "./types.js";
 import { CIRCLE_KIT, CULT_VICTORY } from "./kits.js";
 import { mapClass } from "../victory.js";
@@ -72,6 +72,9 @@ export const circle: ArchetypeDefinition = {
     },
   ],
   passives: {
+    // Franchise Fees: every believer tile pays rent — the Circle's money scales
+    // with its LAND, so the money cult always has money to spend.
+    territoryIncome: fp(0.06),
     // Downline: tiles flipped by ambient creep alone pay 2× tithe forever.
     onTileCaptured(s, _p, t, worked) {
       if (!worked) s.world.flags[t] = s.world.flags[t]! | TileFlag.Downline;
@@ -90,7 +93,7 @@ export const circle: ArchetypeDefinition = {
     achieved: (s, p, b) =>
       p.soulsPermille >= CULT_VICTORY.ledger.soulsPermille && p.usd >= b.victory.ledgerUsd[mapClass(s)],
   },
-  bot: { prefLots: [Lot.Bank, Lot.Office], doctrine: ["B1", "I1", "I2", "E3", "T1", "I3", "I4"] },
+  bot: { prefLots: [], doctrine: ["T1", "T2", "B1", "I1", "I2", "T3", "E3"] },
   theme: {
     name: "The Prosperity Circle",
     short: "M.L.M.",

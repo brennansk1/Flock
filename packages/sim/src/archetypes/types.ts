@@ -81,6 +81,8 @@ export interface ArchetypePassives {
   onTileLost?(s: SimState, b: Balance, loser: PlayerState, t: TileId, prevOwner: PlayerId): boolean;
   /** `p` just captured `t`; `worked` = a cohort worked it this tick (vs ambient creep). */
   onTileCaptured?(s: SimState, p: PlayerState, t: TileId, worked: boolean): void;
+  /** $/s paid per income-weighted believer tile (Downline tiles count double). */
+  territoryIncome?: Fixed;
   /** Courier cargo multiplier. */
   courierMult?(s: SimState, p: PlayerState): Fixed;
   /** Transforms the follower-loss percent a published scandal inflicts. */

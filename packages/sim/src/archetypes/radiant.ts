@@ -77,7 +77,7 @@ export const radiant: ArchetypeDefinition = {
       return (st.dissentSum.get(p.id) ?? 0) <= fromInt(CULT_VICTORY.wellness.maxAvgDissent) * tiles;
     },
   },
-  bot: { prefLots: [Lot.Supermarket, Lot.Church], doctrine: ["B3", "B2", "E3", "B1", "T1", "B4", "I1"] },
+  bot: { prefLots: [Lot.Supermarket, Lot.Church], doctrine: ["T1", "B3", "B2", "E3", "T2", "B1", "B4"] },
   theme: {
     name: "The Radiant Path",
     short: "WELLNESS",

@@ -842,6 +842,10 @@ function stepEconomy(s: SimState, b: Balance): void {
       dissentTax = sub(ONE, div(avgDissent, fromInt(200))); // 100 avg = half income
     }
     let tithePerSec = mul(mul(b.economy.tithePerFollower, p.followers), mul(incomeAvg, dissentTax));
+    // Archetype territory income (e.g. Circle Franchise Fees): $/s per
+    // income-weighted believer tile — money that scales with land, not flock.
+    const feeRate = getArchetype(p.archetype).passives.territoryIncome;
+    if (feeRate) tithePerSec = add(tithePerSec, mul(mul(incomeSum.get(p.id) ?? 0, feeRate), dissentTax));
     tithePerSec = mul(tithePerSec, archCoeffs(b, p.archetype).income);
     tithePerSec = mul(tithePerSec, titheMult(p)); // B1 Tithing Drill +10% (§10)
     // Economic anchor (§2A mechanics, B1.4.20): whoever holds the town's

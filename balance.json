@@ -5,7 +5,7 @@
     "hash_every_turns": 50
   },
   "economy": {
-    "tithe_per_follower": 0.04,
+    "tithe_per_follower": 0.12,
     "start_usd": 2000,
     "start_followers": 100,
     "follower_growth": 0.022,

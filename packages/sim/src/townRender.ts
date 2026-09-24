@@ -47,6 +47,8 @@ import { drawRock, screeAt } from "./render/rock.js";
 import { drawCourthouse, drawTrack, drawBallField } from "./render/civic.js";
 import { drawStorefront } from "./render/storefront.js";
 import { drawAmbientTraffic } from "./render/traffic.js";
+import { lotFrontage } from "./render/frontage.js";
+import { composeFacade } from "./render/compose.js";
 import { drawWater, pointBarAt, bleedWater } from "./render/water.js";
 import { drawHouse, drawBackyard, frontageOf, isHouseTile, curbCutAt, homeCarSpot } from "./render/houses.js";
 import { drawVehicle, householdVehicle, householdPaint, dirOf, type VehicleKind } from "./render/vehicles.js";
@@ -2276,25 +2278,40 @@ function drawParkingLot(
   }
 }
 
+/** Reusable facade canvas (presentation scratch — never sim state). */
+const FBUF: Array<RGB | null> = new Array(64 * 64).fill(null);
+
 function drawFacade(
   w: World,
   lot: number,
   ax: number,
   ay: number,
-  fw: number,
-  fh: number,
+  fw0: number,
+  fh0: number,
   clip: Put,
 ): void {
+  // ORIENTATION: the building is authored facing SOUTH on a canvas whose
+  // width runs along its street (L) and height into the lot (D), then
+  // composed onto the footprint for its real frontage (see composeFacade)
+  const facing = lotFrontage(w, ax, ay, fw0, fh0);
+  const o = facing < 0 ? 0 : facing;
+  const fw = o <= 1 ? fw0 : fh0;
+  const fh = o <= 1 ? fh0 : fw0;
   const W = fw * TILE_PX;
   const H = fh * TILE_PX;
   const AX = ax * TILE_PX;
   const AY = ay * TILE_PX;
   const seed = ay * w.width + ax;
+  for (let i = 0; i < W * H; i++) FBUF[i] = null;
   // local put in canvas coords; the outer ring stays ground (territory read)
   const p = (x: number, y: number, c: RGB): void => {
     if (x < 1 || y < 1 || x >= W - 1 || y >= H - 1) return;
-    clip(AX + x, AY + y, c);
+    FBUF[y * W + x] = c;
   };
+  /** first row of the front wall face (below the roof band) */
+  let faceTop = -1;
+  /** whole-plan flip (no roof/face split), e.g. the paved gas station */
+  let planFlip = false;
   const [body, roofC, accent] = LOT_STYLE[lot] ?? LOT_STYLE[Lot.Shop]!;
 
   // ---- shared scaffold ------------------------------------------------
@@ -2390,6 +2407,7 @@ function drawFacade(
       const parapet = RS.season === "winter" ? hexToRgb("#c2ccd4") : hexToRgb("#8c857c");
       const gymX = bx1 - Math.max(5, (wallW / 4) | 0);
       const wallTop = by1 - 2;
+      faceTop = wallTop;
       for (let y = by0; y < wallTop; y++) {
         for (let x = bx0; x <= bx1; x++) {
           const gym = x >= gymX;
@@ -2438,6 +2456,7 @@ function drawFacade(
       const brick = hexToRgb("#b8653f");
       const shingle = RS.season === "winter" ? hexToRgb("#e2e9ee") : hexToRgb("#6b6a5a");
       const wallTop = by1 - 1;
+      faceTop = wallTop;
       const rows = wallTop - by0;
       const midY = by0 + (rows >> 1);
       for (let y = by0; y < wallTop; y++) {
@@ -2542,6 +2561,7 @@ function drawFacade(
         p(tx0 + 1, by0 + 4, C.windowDark); // the bell
         // the nave: pitched roof band + white wall
         const nx0 = tx0 + tw;
+        faceTop = by0 + 6;
         roofBand(nx0, bx1, by0 + 3, 3, roofC);
         wallBox(nx0, by0 + 6, bx1, by1, white);
         // stained glass flanking the doors
@@ -2575,6 +2595,7 @@ function drawFacade(
       p(sx, by0 + 2, C.windowDark); // the bell
       // pitched roof over the nave
       const roofY = by0 + steepleH;
+      faceTop = roofY + 2;
       roofBand(bx0, bx1, roofY, 2, roofC);
       wallBox(bx0, roofY + 2, bx1, by1, white);
       // arched stained glass flanking the doors (only when the nave wall is
@@ -2618,6 +2639,7 @@ function drawFacade(
     }
 
     case Lot.GasStation: {
+      planFlip = true;
       apron("pave");
       // pavement under everything — the whole lot is an apron
       for (let y = 1; y < H - 1; y++) {
@@ -2781,6 +2803,7 @@ function drawFacade(
     case Lot.Office: {
       apron("pave");
       walk();
+      faceTop = by0 + 1;
       roofBand(bx0, bx1, by0, 1, roofC);
       wallBox(bx0, by0 + 1, bx1, by1, body);
       // the curtain-wall window grid
@@ -2801,6 +2824,7 @@ function drawFacade(
     }
 
     case Lot.Warehouse: {
+      faceTop = by0 + 3;
       apron("pave");
       // ribbed steel shed: long roof with vertical rib lines
       for (let y = by0; y < by0 + 3; y++) {
@@ -2840,6 +2864,8 @@ function drawFacade(
       break;
     }
   }
+  if (faceTop < 0) faceTop = Math.min(by1, by0 + 2);
+  composeFacade(FBUF, W, H, o, by0, faceTop, by1, bx0, bx1, body, planFlip, AX, AY, fw0 * TILE_PX, fh0 * TILE_PX, clip);
 }
 
 /**

@@ -13,6 +13,8 @@
 import { Terrain, type World } from "../types.js";
 import { hexToRgb, shade, type RGB } from "../palette.js";
 import { RS, C, TILE_PX, pixHash, isLitHour, type Put } from "./core.js";
+import { lotFrontage } from "./frontage.js";
+import { composeFacade } from "./compose.js";
 
 const hx = hexToRgb;
 
@@ -53,15 +55,20 @@ const SLATE = hx("#5b5f66");
 const COPPER = hx("#5f9a86");
 const COPPER_L = hx("#86bba6");
 
-export function drawCourthouse(w: World, ax: number, ay: number, fw: number, fh: number, clip: Put): void {
+const CBUF: Array<RGB | null> = new Array(32 * 32).fill(null);
+
+export function drawCourthouse(w: World, ax: number, ay: number, fw0: number, fh0: number, clip: Put): void {
+  // authored facing south on an (along-street × deep) canvas, then composed
+  // for the real frontage (highway first, per frontage.ts)
+  const facing = lotFrontage(w, ax, ay, fw0, fh0, -1, 4);
+  const o = facing < 0 ? 0 : facing;
+  const fw = o <= 1 ? fw0 : fh0, fh = o <= 1 ? fh0 : fw0;
   const W = fw * TILE_PX, H = fh * TILE_PX;
   const AX = ax * TILE_PX, AY = ay * TILE_PX;
-  const northFacing = streetSide(w, ax, ay, fw, fh) === 1;
-  // draw in a south-facing frame; a north-facing square flips the plan
-  // (the 3/4 wall face always shows on the screen-south side)
+  for (let i = 0; i < W * H; i++) CBUF[i] = null;
   const p = (x: number, y: number, c: RGB): void => {
     if (x < 0 || y < 0 || x >= W || y >= H) return;
-    clip(AX + x, AY + y, c);
+    CBUF[y * W + x] = c;
   };
   const rect = (x0: number, y0: number, x1: number, y1: number, c: RGB | ((x: number, y: number) => RGB)): void => {
     for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) p(x, y, typeof c === "function" ? c(x, y) : c);
@@ -144,7 +151,7 @@ export function drawCourthouse(w: World, ax: number, ay: number, fw: number, fh:
     p(tx, ty + 2, shade(leaf, 0.75));
   };
   if (tall) { tree(4, 20); tree(W - 6, 20); }
-  void northFacing;
+  composeFacade(CBUF, W, H, o, roofY0, wallY0, wallY1, bx0, bx1, BRICK, false, AX, AY, fw0 * TILE_PX, fh0 * TILE_PX, clip);
 }
 
 // ------------------------------------------------------------ Track

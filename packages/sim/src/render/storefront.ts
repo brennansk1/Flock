@@ -65,7 +65,7 @@ const isBuiltFront = (w: World, n: number): boolean =>
   n >= 0 && n < w.terrain.length && w.terrain[n] === Terrain.Citizen && (w.lot[n] !== 0 || w.pop[n]! >= 3);
 
 export function drawStorefront(w: World, t: number, x0: number, y0: number, put: Put, diner = false): void {
-  const fr = frontageOf(w, t);
+  const fr = frontageOf(w, t, false);
   const f = fr < 0 ? 0 : fr;
   const trade = diner ? DINER : TRADES[pixHash(t, 29, 503) % TRADES.length]!;
   const facade = diner ? hx("#d6d6dc") : FACADES[pixHash(t, 31, 503) % FACADES.length]!;
@@ -118,6 +118,22 @@ export function drawStorefront(w: World, t: number, x0: number, y0: number, put:
     const nd = southFacing ? 4 : 5;
     P(1, nd, trade.neon); P(6, nd, trade.neon);
     if (((RS.tick >> 4) + t) % 5 !== 0) P(3, nd, trade.neon); // one letter flickers
+  }
+  // N-facing: the camera sees the BACK wall — service door, AC unit, cans
+  if (f === 1) {
+    P(5, 0, hx("#9aa0a6")); // AC unit
+    P(1, 0, hx("#3a4a3a")); // trash cans
+    P(6, 0, hx("#6a6660")); // meters
+  }
+  // E/W-facing: the south face is a SIDE wall (end of the row only)
+  if (f >= 2) {
+    const southN = t + w.width;
+    if (!isBuiltFront(w, southN)) {
+      for (let d = 0; d <= 5; d++) {
+        const [sx] = toScreen(f, 0, d);
+        put(x0 + sx, y0 + 7, d % 3 === 1 ? C.windowDark : shade(facade, 0.9));
+      }
+    }
   }
   // barber pole by the door
   if (trade.name === "barber") { P(0, 6, hx("#c8342a")); }

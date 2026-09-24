@@ -20,20 +20,16 @@ import { Terrain, type World } from "../types.js";
 import { hexToRgb, shade, type RGB } from "../palette.js";
 import { RS, C, TILE_PX, pixHash, type Put } from "./core.js";
 import { drawVehicle, householdVehicle, householdPaint } from "./vehicles.js";
+import { lotFrontage } from "./frontage.js";
 
 const hx = hexToRgb;
 
 /** 0 = S, 1 = N, 2 = E, 3 = W; -1 = no street frontage. */
 export type Frontage = -1 | 0 | 1 | 2 | 3;
 
-export function frontageOf(w: World, t: number): Frontage {
-  const x = t % w.width, y = (t / w.width) | 0;
-  const road = (n: number): boolean => w.terrain[n] === Terrain.Road;
-  if (y < w.height - 1 && road(t + w.width)) return 0;
-  if (x < w.width - 1 && road(t + 1)) return 2;
-  if (x > 0 && road(t - 1)) return 3;
-  if (y > 0 && road(t - w.width)) return 1;
-  return -1;
+/** Street frontage of a 1-tile lot (priority rules in frontage.ts; houses hash ties). */
+export function frontageOf(w: World, t: number, house = true): Frontage {
+  return lotFrontage(w, t % w.width, (t / w.width) | 0, 1, 1, house ? t : -1);
 }
 
 /** Districts whose pop≥3 plain lots are single-family houses. */
@@ -312,20 +308,19 @@ export function drawHouse(
       if (dy < wallY) { put(x0 + sx0 + 1, y0 + dy, shade(siding, 0.95)); put(x0 + sx1 - 1, y0 + dy, shade(siding, 0.95)); }
     }
   }
-  // door + stoop + walk (front on screen for S; a side stoop otherwise)
+  // front porch deck on the frontage side (whatever the orientation)
+  const porch = hasFront && (style === "foursquare" || style === "cape");
+  if (porch) {
+    const p0 = style === "foursquare" ? 3 : 2;
+    for (let l = p0; l <= 7; l++) P(l, 6, l === p0 || l === 7 ? siding : C.plank);
+  }
+  // door + stoop: the front door shows on the wall face only for S; other
+  // frontages get a stoop on the street side of the massing
   if (f === 0 && doorSX >= 0) {
     put(x0 + doorSX, y0 + doorSY, C.door);
-    put(x0 + doorSX, y0 + doorSY + 1, hx("#b8b0a2")); // stoop
-    if (style === "foursquare" || style === "cape") {
-      // full-width front porch deck with two posts
-      const [a] = toScreen(f, hl0 + (style === "foursquare" ? 1 : 0), 6);
-      const [b] = toScreen(f, 7, 6);
-      for (let x = Math.min(a, b); x <= Math.max(a, b); x++) put(x0 + x, y0 + 6, x === Math.min(a, b) || x === Math.max(a, b) ? siding : C.plank);
-    }
-  } else if (hasFront) {
-    // stoop on the street side of the massing, centred
-    const [sx, sy] = toScreen(f, 4, 6);
-    put(x0 + sx, y0 + sy, hx("#b8b0a2"));
+    if (!porch) put(x0 + doorSX, y0 + doorSY + 1, hx("#b8b0a2"));
+  } else if (hasFront && !porch) {
+    P(4, 6, hx("#b8b0a2"));
   }
 
   // ---- chimney (+ winter smoke), TV aerial on most roofs

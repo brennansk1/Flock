@@ -71,6 +71,55 @@ flowchart TD
 
 ---
 
+## 2A. Town Plan v3 (Stage 2) — scale, zoning & placement grammar
+
+This section supersedes the conflicting parts of §2, §4 and §6. Code lives in `footprints.ts`, `townPlan.ts` and `mapgen.ts`.
+
+**Scale** (`footprints.ts`):
+- 1 tile ≈ 15 m (50 ft), one house lot. A block is 6 tiles road-to-road (5×5 buildable), about 300 ft.
+- Every lot type has a tile footprint (`FOOTPRINTS`, `footprintOf`), with an optional alternate size for tight blocks. Footprints rotate to face N/S streets.
+- Big facilities (stadium, grain elevator, farm parcels) are compressed to about 50%.
+
+**Zoning v3**, from the courthouse out, as a 1980s county-seat town sorts itself:
+
+| District | Where |
+|---|---|
+| Downtown | The blocks around the Courthouse Square (the Main St × county-route crossing), plus Main St a block or two either way |
+| Commercial | The highway strip toward the town entrances (supermarket, gas, motel, diner) |
+| Industrial | The highway end on the "works" side, plus every lot within 2 tiles of the railroad on that side (`zoneRailIndustry`) |
+| ResHigh | One ring of flats hugging downtown |
+| OldTown | The pre-war grid inside ~62% of the town radius |
+| Suburbs | The post-war ring; one lobe is the College (school) quarter |
+| Trailer | The far fringe on the works side or along the highway |
+
+**Placement grammar:**
+- **Courthouse Square** (`platCourthouseSquare`): the rectangular, street-ringed block nearest the crossing. A 3×3 courthouse (3×2 on shallow blocks) sits in lawn filling the block. The Town Hall landmark sits on the courthouse. The facing lots across the street are storefronts.
+- **Main Street** (`platMainStreet`): every open Downtown/Commercial lot facing the highway is a storefront, so the party-wall run is continuous. Open downtown block interiors are rear parking.
+- **High-school campus** (`placeHighSchoolCampus`): at the edge of town, touching town and taking at most half its site from fringe yards. The 3×2 school and 2×1 bus lot face the street, with the 6×4 stadium (field, track, bleachers) behind them. It stays at least 6 tiles from industry.
+- **Residential**: every street-facing lot in a residential district is a house facing its street; the renderer draws its driveway and curb cut. Every interior lot is a backyard. Desert towns leave about a third of the frontage vacant.
+- **Population**: capped at floor +12% (`capPopulation`), so every town type plays at one pace.
+
+**Town types differ in shape**, not only in dressing (`townForm`; a per-type rng salt means the same seed gives a different plan per type):
+
+| Type | Shape |
+|---|---|
+| farm | The classic county-seat grid, anchored on the square and the elevator siding |
+| mountain | A long, narrow valley town. `raiseRidges` walls it with Terrain.Rock ridges (forest skirt, then 10–18 tiles of rock, then timber high country). Roads, rail and water cut passes and gorges. |
+| desert | Wider blocks and sparse frontage; the town sits in the sand (only the core stays irrigated green); 2–4 Rock mesas |
+| lakeside | The lake (`placeTownLake`) is laid before any building, overlapping the town's long side; the highway crosses it as a causeway |
+| oceanside | The town is shifted inland and the surf runs 5 tiles past its sea-side edge: 2 tiles of sand, a plank boardwalk (Path on the Ocean biome), then Shore Drive |
+
+**Linters** (`tools/audit_mapgen.mjs → auditPlan`, 105 worlds across 64², 96² and 128²):
+- house street frontage;
+- residential frontage gaps ≤ 12% (desert ≤ 50%);
+- exactly one courthouse, holding Town Hall, on an unbroken lawn;
+- exactly one HS, with its stadium beside it;
+- footprint conformance;
+- nothing built on water or rock (weirs and piers exempt);
+- mountain maps ≥ 8% rock.
+
+`packages/sim/test/stage2.test.ts` proves that rock is never owned or claimed in a bot match, and that every town type is deterministic and distinct.
+
 ## 3. Biomes & Concentric Ecotones
 
 ### 3.1 Biomes

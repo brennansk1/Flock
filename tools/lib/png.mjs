@@ -22,6 +22,10 @@ function chunk(type, data) {
   return out;
 }
 export function writePNG(path, width, height, rgba) {
+  writeFileSync(path, encodePNG(width, height, rgba));
+}
+
+export function encodePNG(width, height, rgba) {
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(width, 0);
   ihdr.writeUInt32BE(height, 4);
@@ -38,7 +42,7 @@ export function writePNG(path, width, height, rgba) {
     chunk("IDAT", deflateSync(raw, { level: 9 })),
     chunk("IEND", Buffer.alloc(0)),
   ]);
-  writeFileSync(path, png);
+  return png;
 
 }
 

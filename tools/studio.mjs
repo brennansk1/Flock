@@ -60,6 +60,17 @@ const houses = (district, n = 6, seedX = 0) => (w) => {
     w.terrain[t] = Terrain.Citizen; w.district[t] = district; w.pop[t] = 4 + ((i + seedX) % 3);
   }
 };
+/** A whole 5×4 block with streets on all four sides: houses face every frontage, interiors are backyards. */
+const block = (district, biome) => (w) => {
+  const x0 = X0, y1 = ROAD_Y - 1, y0 = ROAD_Y - 4;
+  for (let y = y0 - 1; y <= ROAD_Y; y++) for (let x = x0 - 1; x <= x0 + 5; x++) {
+    const t = at(x, y);
+    if (y === y0 - 1 || y === ROAD_Y || x === x0 - 1 || x === x0 + 5) { w.terrain[t] = Terrain.Road; continue; }
+    w.terrain[t] = Terrain.Citizen; w.district[t] = district; if (biome !== undefined) w.biome[t] = biome;
+    const edge = y === y0 || y === y1 || x === x0 || x === x0 + 4;
+    w.pop[t] = edge ? 3 + ((x * 5 + y * 3) % 4) : (x + y) % 3;
+  }
+};
 const terrain = (tr, fw = 3, fh = 2) => (w) => {
   for (let dy = 0; dy < fh; dy++) for (let dx = 0; dx < fw; dx++) w.terrain[at(X0 + dx, ROAD_Y - fh + dy)] = tr;
 };
@@ -69,7 +80,7 @@ const S = (name, stage, fw = 1, fh = 1, biome, road) => ({ name, stage, fw, fh, 
 const D = Districts;
 const BATCHES = {
   "2_downtown_commercial": [
-    S("Courthouse 3x3", lot(Lot.Courthouse, 3, 3), 3, 3), S("TownHall landmark", landmark(Landmark.TownHall)),
+    S("Courthouse 3x3", lot(Lot.Courthouse, 3, 3), 3, 3), S("Courthouse 3x2", lot(Lot.Courthouse, 3, 2), 3, 2), S("TownHall landmark", landmark(Landmark.TownHall)),
     S("Shop", lot(Lot.Shop)), S("Shop row x4", lot(Lot.Shop, 4, 1), 4, 1), S("Diner", lot(Lot.Diner)), S("Bank", lot(Lot.Bank)),
     S("PostOffice", lot(Lot.PostOffice)), S("Office 2x1", lot(Lot.Office, 2, 1), 2, 1), S("Supermarket 2x2", lot(Lot.Supermarket, 2, 2), 2, 2),
     S("Cinema 2x2", lot(Lot.Cinema, 2, 2), 2, 2), S("GasStation 2x1", lot(Lot.GasStation, 2, 1, D.Commercial), 2, 1),
@@ -79,9 +90,11 @@ const BATCHES = {
   "3_residential_school": [
     S("Suburbs houses", houses(D.Suburbs), 6, 1), S("OldTown houses", houses(D.OldTown, 6, 1), 6, 1),
     S("ResHigh houses", houses(D.ResHigh, 6, 2), 6, 1), S("College houses", houses(D.College), 6, 1),
-    S("Trailer homes", houses(D.Trailer), 6, 1), S("Desert adobe", houses(D.Suburbs), 6, 1, Biome.Desert),
-    S("HighSchool 2x2", lot(Lot.HighSchool, 2, 2, D.College, 8), 2, 2), S("School 2x2", lot(Lot.School, 2, 2, D.Suburbs, 8), 2, 2),
-    S("BallField 2x2", lot(Lot.BallField, 2, 2, D.College), 2, 2), S("Track 4x3", lot(Lot.Track, 4, 3, D.College), 4, 3),
+    S("Trailer homes", houses(D.Trailer), 6, 1),
+    S("Suburb block (all frontages)", block(D.Suburbs), 5, 5), S("OldTown block", block(D.OldTown), 5, 5),
+    S("College block", block(D.College), 5, 5), S("Desert adobe block", block(D.Suburbs, Biome.Desert), 5, 5), S("Desert adobe", houses(D.Suburbs), 6, 1, Biome.Desert),
+    S("HighSchool 3x2", lot(Lot.HighSchool, 3, 2, D.College, 8), 3, 2), S("School 2x2", lot(Lot.School, 2, 2, D.Suburbs, 8), 2, 2),
+    S("BallField 2x2", lot(Lot.BallField, 2, 2, D.College), 2, 2), S("Track 6x4", lot(Lot.Track, 6, 4, D.College), 6, 4), S("Track 5x3", lot(Lot.Track, 5, 3, D.College), 5, 3),
     S("Playground", lot(Lot.Playground, 1, 1, D.Suburbs)), S("Park 2x2", lot(Lot.Park, 2, 2, D.Suburbs), 2, 2),
     S("Library", lot(Lot.Library, 1, 1, D.College)), S("Church 2x2", lot(Lot.Church, 2, 2, D.OldTown), 2, 2),
     S("Chapel", lot(Lot.Chapel, 1, 1, D.OldTown)), S("Cemetery 2x1", lot(Lot.Cemetery, 2, 1, D.OldTown), 2, 1),
@@ -100,7 +113,8 @@ const BATCHES = {
   ],
   "5_nature_hydro": [
     S("Woods 3x2", terrain(Terrain.Woods), 3, 2, undefined, false), S("Lake 3x2", terrain(Terrain.Lake), 3, 2, undefined, false),
-    S("Rock 3x2 (new)", terrain(Terrain.Rock), 3, 2, undefined, false), S("Dirt lane 3x1", terrain(Terrain.Dirt, 3, 1), 3, 1, undefined, false),
+    S("Rock 3x2", terrain(Terrain.Rock), 3, 2, undefined, false),
+    S("Rock ridge 7x5", terrain(Terrain.Rock, 7, 5), 7, 5, undefined, false), S("Rock mesa 7x5 (desert)", terrain(Terrain.Rock, 7, 5), 7, 5, Biome.Desert, false), S("Dirt lane 3x1", terrain(Terrain.Dirt, 3, 1), 3, 1, undefined, false),
     S("Path 3x1", terrain(Terrain.Path, 3, 1), 3, 1, undefined, false),
     S("Woods (forest biome)", terrain(Terrain.Woods), 3, 2, Biome.Forest, false), S("Woods (autumn)", terrain(Terrain.Woods), 3, 2, Biome.Autumn, false),
     S("Lake (desert)", terrain(Terrain.Lake), 3, 2, Biome.Desert, false), S("Lake (ocean biome)", terrain(Terrain.Lake), 3, 2, Biome.Ocean, false),

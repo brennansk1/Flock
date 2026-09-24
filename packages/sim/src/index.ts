@@ -40,6 +40,7 @@ export * from "./skins.js";
 export * from "./townLife.js";
 export * from "./assetCatalog.js";
 export * from "./footprints.js";
+export { drawVehicle, VEHICLE_KINDS, vehicleSize, CAR_PAINT, householdVehicle, type VehicleKind } from "./render/vehicles.js";
 
 // Must stay last: registers built-in cults once every engine module is live.
 import "./archetypes/builtin.js";

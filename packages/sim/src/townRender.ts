@@ -1856,6 +1856,13 @@ function drawTile(
             if ((px + py) % 2 === 0) c = C.bush;
           } else if ((fenceN && py === 0 && px % 4 < 3) || (fenceW && px === 0 && py % 4 < 3)) {
             c = C.fence;
+          } else {
+            // Sub-tile agricultural dirt paths (2px wide) connecting parcels and farmsteads
+            const isAgriPath = (tx % 6 === 0 && (px === 0 || px === 1)) || (ty % 6 === 0 && (py === 0 || py === 1));
+            if (isAgriPath) {
+              const darkDirt = currentSeason === "winter" ? hexToRgb("#5e5246") : hexToRgb("#483726");
+              c = (gx2 + gy) % 2 === 0 ? darkDirt : shade(darkDirt, 0.88);
+            }
           }
           put(x0 + px, y0 + py, c);
         }
@@ -3673,30 +3680,53 @@ export function drawLotBuilding(
       break;
     }
     case Lot.Depot: {
-      const brick = hexToRgb("#a25b42");
-      const brickDark = hexToRgb("#7d402b");
-      const wood = hexToRgb("#c5a059");
-      const bench = hexToRgb("#6b4c2b");
+      const brick = hexToRgb("#9e543b");
+      const brickDark = hexToRgb("#773824");
+      const wood = hexToRgb("#bfa168");
+      const woodDark = hexToRgb("#8c7143");
+      const bench = hexToRgb("#5e4125");
+      const trim = hexToRgb("#eae4d2");
       const windowC = C.windowDark;
-      // Brick walls
+      const lantern = hexToRgb("#ffdd66");
+
+      // Brick facade with corner quoin trim
       for (let py = 2; py <= 5; py++) {
         for (let px = 1; px <= 6; px++) {
-          put(x0 + px, y0 + py, px % 2 === 0 ? brick : brickDark);
+          const isQuoin = (px === 1 || px === 6) && py % 2 === 0;
+          put(x0 + px, y0 + py, isQuoin ? trim : (px % 2 === 0 ? brick : brickDark));
         }
       }
-      // Overhanging roof
+      // Overhanging hipped roof with eaves
       for (let px = 0; px < TILE_PX; px++) {
         put(x0 + px, y0 + 1, accent);
-        put(x0 + px, y0 + 2, shade(accent, 0.7));
+        put(x0 + px, y0 + 2, shade(accent, 0.72));
       }
+      // Gabled dormer / station clock in roof center
+      put(x0 + 3, y0, trim);
+      put(x0 + 4, y0, trim);
+      put(x0 + 3, y0 + 1, hexToRgb("#ffffff"));
+      put(x0 + 4, y0 + 1, hexToRgb("#1c1c1c")); // clock hands
+
+      // Windows with lintels and station lantern
       put(x0 + 2, y0 + 3, windowC);
       put(x0 + 5, y0 + 3, windowC);
+      put(x0 + 2, y0 + 2, trim); // lintel
+      put(x0 + 5, y0 + 2, trim);
       put(x0 + 3, y0 + 4, C.door);
-      // Wood platform
+      put(x0 + 4, y0 + 4, C.door);
+      put(x0 + 4, y0 + 3, lantern); // warm station lantern
+
+      // Weathered timber passenger platform
       for (let px = 0; px < TILE_PX; px++) {
-        put(x0 + px, y0 + 6, wood);
-        if (px % 3 === 0) put(x0 + px, y0 + 7, shade(wood, 0.8));
+        put(x0 + px, y0 + 6, px % 2 === 0 ? wood : woodDark);
+        put(x0 + px, y0 + 7, px % 3 === 0 ? shade(woodDark, 0.75) : woodDark);
       }
+      // Platform luggage cart & baggage crates on west side
+      put(x0 + 1, y0 + 5, hexToRgb("#684e2a")); // crate
+      put(x0 + 2, y0 + 5, hexToRgb("#8c6b3e")); // crate
+      put(x0 + 1, y0 + 6, hexToRgb("#222222")); // iron wheel
+
+      // Waiting bench on east side
       put(x0 + 5, y0 + 5, bench);
       put(x0 + 6, y0 + 5, bench);
       break;

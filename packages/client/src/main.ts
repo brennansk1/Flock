@@ -1,37 +1,24 @@
 /**
- * FLOCK client entry (§32). M0 ugly-but-honest UI (§39):
+ * FLOCK client entry (§32):
  *  - mirrors the authoritative sim via Turn broadcasts (net.ts)
  *  - paints the territory map every frame (render.ts)
- *  - click = open a 5×5 Front around the tile (§4.1)
- *  - keys 1/2/3 = Tend / Spread / CRUSADE (§5, hotkeys per §27)
- *  - top-left text HUD: followers, $, faith, heat, tiles
+ *  - LEFT = look/pan (and place armed powers / found); RIGHT = act — the
+ *    mission wheel on neutral/own ground, the scheme menu on a rival's
+ *  - the DOM HUD (hud.ts + hud/*) and the end-of-match splash (hud/endgame.ts)
  *
  * Server: `npm run dev:server`, then visit this app (`npm run dev:client`).
  * Querystring: ?name=Mae&archetype=radiant&server=ws://localhost:8787
  */
 
 import { Application, Graphics } from "pixi.js";
-import {
-  toFloat,
-  toInt,
-  IntentType,
-  Stance,
-  MatchStatus,
-  Terrain,
-  MAX_COHORTS,
-  renderRecapCard,
-  computeCivicControl,
-  CivicDecreeId,
-  Lot,
-  Landmark,
-  type Archetype,
-} from "@flock/sim";
-import { connect, type GameSession, type ClientIntent } from "./net.js";
+import { toFloat, IntentType, Terrain, MAX_COHORTS } from "@flock/sim";
+import { connect, type GameSession } from "./net.js";
 import { connectTutorial, startTutorial } from "./tutorial.js";
 import { MapRenderer } from "./render.js";
 import { Hud, targetName } from "./hud.js";
 import { MissionWheel } from "./wheel.js";
 import { showMenu } from "./menu.js";
+import { watchEndgame } from "./hud/endgame.js";
 import { applySettings } from "./settings.js";
 
 async function boot(): Promise<void> {
@@ -79,25 +66,36 @@ async function boot(): Promise<void> {
         "radial-gradient(ellipse at 50% 45%,transparent 40%,rgba(8,5,3,.6) 100%)";
       document.getElementById("app")!.appendChild(mapFx);
 
-      // The crisp DOM HUD (§27): believer share bar, top bar, rails, build
-      // palette, minimap, feed.
-      // The map is handed in as the camera so the minimap can jump + show the view.
-      const hud = new Hud(g, map);
-      wireInput(app, map, g, hud);
+      // The mission wheel (the SEND verb) — created first so the HUD's scheme
+      // menu can hand off to it ("Send a mission here…").
+      const wheel = new MissionWheel(document.body, (tile, permille, mode) => {
+        g.sendIntent({ t: IntentType.MISSION_SEND, tile, permille, mode });
+      });
+      const openWheel = (tile: number, clientX: number, clientY: number): void => {
+        const me = g.sim.players.find((pl) => pl.id === g.playerId);
+        const cohorts = me?.cohorts.length ?? 0;
+        const flock = me ? toFloat(me.followers) : 0;
+        let canSend = true;
+        let reason = "";
+        if (cohorts >= MAX_COHORTS) {
+          canSend = false;
+          reason = `All ${MAX_COHORTS} cohorts are out — recall one (⟲)`;
+        } else if (flock < 1) {
+          canSend = false;
+          reason = "No flock to send";
+        }
+        wheel.open({ tile, screenX: clientX, screenY: clientY, label: targetName(g.sim, tile), canSend, reason });
+      };
+
+      // The crisp DOM HUD (§27): soul share bar, top bar, rails, spend tray,
+      // victory race, threat lane, minimap, feed. The map is the camera.
+      const hud = new Hud(g, map, { openWheel, coach: !isTutorial });
+      wireInput(app, map, g, hud, wheel, openWheel);
       mountMatchControls(g);
 
-      // Center status prompt (founding / prophecy / CPA / elimination) —
-      // pixel-panel idiom per the design tokens. z-index sits ABOVE the
-      // tutorial card (28): the founding countdown was fully hidden behind
-      // it during the tutorial's Step 2 (playtest fix 2026-07-09).
-      const prompt = document.createElement("div");
-      prompt.style.cssText =
-        "position:absolute;top:152px;left:50%;transform:translateX(-50%);z-index:29;pointer-events:none;" +
-        "font-family:'Press Start 2P',monospace;font-size:10px;letter-spacing:1px;line-height:1.7;color:#f0b53e;" +
-        "text-align:center;max-width:70vw;background:#1a130b;border:3px solid #4a3a26;" +
-        "box-shadow:0 4px 0 #060403,inset 0 0 0 1px #6b563a;padding:11px 20px;display:none";
-      document.getElementById("app")!.appendChild(prompt);
-
+      // offline tutorial only: expose the session for the headless UI QA
+      // harness (Playwright screenshots). Never set for networked matches.
+      if (isTutorial) (window as unknown as { __flockQA?: unknown }).__flockQA = { g, map, hud };
       if (isTutorial) startTutorial(g); // guided offline first match
       else maybeShowFtue(); // first-session contextual coaching (§26)
 
@@ -109,7 +107,7 @@ async function boot(): Promise<void> {
 
       let lastBarTick = -1;
       let lastHudTick = -1;
-      let cardShown = false;
+      const endgame = watchEndgame(g);
       app.ticker.add(() => {
         map.showDissent = hud.showDissent;
         map.draw(g.sim);
@@ -119,20 +117,14 @@ async function boot(): Promise<void> {
         if (g.sim.tick !== lastHudTick) {
           lastHudTick = g.sim.tick;
           hud.update();
-          const msg = statusPrompt(g);
-          prompt.style.display = msg ? "block" : "none";
-          prompt.textContent = msg;
+          hud.setPrompt(statusPrompt(g));
         }
-        if (g.sim.tick - lastBarTick >= 5) {
+        if (g.sim.tick - lastBarTick >= 5 || g.sim.tick < lastBarTick) {
           lastBarTick = g.sim.tick;
           hud.renderShareBar();
         }
-        // Recap Card (§25.1): once the server's recap lands, show the shareable
-        // 1080×1350 card center-stage (same renderer the share-pipeline uses).
-        if (!cardShown && g.recap) {
-          cardShown = true;
-          showRecapCard(g);
-        }
+        // Victory / Defeat moment → recap card → play again (§9.5)
+        endgame();
       });
     },
     {
@@ -147,7 +139,8 @@ const LOAD_TIPS = [
   "tip ▸ the saucer parks wherever it likes. losing home is an inconvenience.",
   "tip ▸ spawn near College — you blitz, they churn. never CRUSADE with an open home.",
   "tip ▸ Old Town + the Glow is near-unflippable. win the games you don't fight.",
-  "tip ▸ keep Heat at zero and Scandal can't touch you.",
+  "tip ▸ keep Heat under 25 and nobody can Expose you.",
+  "tip ▸ a rival Ascending? Right-click their ground and EXPOSE — the clock resets.",
   "tip ▸ press ? in-match for the full controls sheet.",
 ];
 
@@ -201,123 +194,112 @@ function showLoading(message: string): { remove(): void; setError(m: string): vo
   };
 }
 
-/** Per-archetype D/F actives (left rail, §27). */
-const ACTIVE_D: Record<string, string> = {
-  dawn: "street_prophet",
-  radiant: "juice_cleanse",
-  circle: "seminar_blitz",
-  visitors: "crop_circle",
-};
-const ACTIVE_F: Record<string, string> = {
-  dawn: "stockpile_sermon",
-  radiant: "free_retreat_weekend",
-  circle: "hostile_acquisition",
-  visitors: "radio_static",
-};
-
-function wireInput(app: Application, map: MapRenderer, g: GameSession, hud: Hud): void {
+/**
+ * Input model (STAGE1_DESIGN §2, one consistent lesson):
+ *   LEFT  = look — select/inspect (hover chip), drag to pan; also places an
+ *           armed power and founds your commune during FOUNDING.
+ *   RIGHT = act — neutral or own ground opens the MISSION WHEEL (send);
+ *           a RIVAL's ground opens the SCHEME menu (expose / strike / mission).
+ *   Long-press (touch/pen) = right-click.
+ */
+function wireInput(app: Application, map: MapRenderer, g: GameSession, hud: Hud, wheel: MissionWheel, openWheel: (tile: number, x: number, y: number) => void): void {
   let hover = -1;
 
-  // MISSION WHEEL (§6): the SEND verb. Right-click a tile/key building → radial
-  // Spread/Tend/Crusade + %-of-flock slider → MISSION_SEND. Left-click stays
-  // reserved for founding SPAWN and armed HUD placements.
-  const wheel = new MissionWheel(document.body, (tile, permille, mode) => {
-    g.sendIntent({ t: IntentType.MISSION_SEND, tile, permille, mode });
-  });
-  const openWheel = (tile: number, clientX: number, clientY: number): void => {
-    const me = g.sim.players.find((pl) => pl.id === g.playerId);
-    const cohorts = me?.cohorts.length ?? 0;
-    const flock = me ? toFloat(me.followers) : 0;
-    let canSend = true;
-    let reason = "";
-    if (cohorts >= MAX_COHORTS) {
-      canSend = false;
-      reason = "All cohorts are out";
-    } else if (flock < 1) {
-      canSend = false;
-      reason = "No flock to send";
-    }
-    wheel.open({ tile, screenX: clientX, screenY: clientY, label: targetName(g.sim, tile), canSend, reason });
-  };
-  app.canvas.addEventListener("contextmenu", (ev) => {
-    ev.preventDefault();
+  const act = (tile: number, clientX: number, clientY: number): void => {
     const me = g.sim.players.find((pl) => pl.id === g.playerId);
     if (!me || !me.spawned) return; // still founding — left-click places your commune
-    const tile = map.tileAt(g.sim, ev.offsetX, ev.offsetY);
     if (tile < 0) {
       wheel.close();
+      hud.scheme.close();
       return;
     }
-    openWheel(tile, ev.clientX, ev.clientY);
+    hud.arm(null);
+    const owner = g.sim.world.owner[tile]!;
+    wheel.close();
+    if (owner !== 0 && owner !== g.playerId && g.sim.players.some((p) => p.id === owner && p.alive)) {
+      hud.scheme.open(tile, owner, clientX, clientY);
+    } else {
+      hud.scheme.close();
+      openWheel(tile, clientX, clientY);
+    }
+  };
+
+  app.canvas.addEventListener("contextmenu", (ev) => {
+    ev.preventDefault();
+    act(map.tileAt(g.sim, ev.offsetX, ev.offsetY), ev.clientX, ev.clientY);
   });
   // click-away dismiss (the wheel swallows pointerdowns landing on itself)
   window.addEventListener("pointerdown", (ev) => {
     if (wheel.isOpen && !(ev.target as HTMLElement).closest?.(".fk-wheel")) wheel.close();
   });
+
   // drag-pan + wheel-zoom (zoom drives level-of-detail in the renderer)
   let dragging = false;
   let dragMoved = false;
   let lastX = 0;
   let lastY = 0;
+  let pressTimer = 0;
+  let longPressed = false;
   app.canvas.addEventListener("wheel", (ev) => {
     ev.preventDefault();
     map.zoomAt(ev.offsetX, ev.offsetY, ev.deltaY);
   }, { passive: false });
   app.canvas.addEventListener("pointermove", (ev) => {
     hover = map.tileAt(g.sim, ev.offsetX, ev.offsetY);
-    hud.setHover(hover); // place-identity chip: street + household names
+    hud.setHover(hover);
     if (dragging) {
       const dx = ev.offsetX - lastX;
       const dy = ev.offsetY - lastY;
-      if (Math.abs(dx) + Math.abs(dy) > 6) dragMoved = true;
+      if (Math.abs(dx) + Math.abs(dy) > 6) {
+        dragMoved = true;
+        window.clearTimeout(pressTimer);
+      }
       map.pan(dx, dy);
       lastX = ev.offsetX;
       lastY = ev.offsetY;
     }
   });
-
   app.canvas.addEventListener("pointerdown", (ev) => {
-    if (ev.button !== 0) return; // only the LEFT button pans — right-click opens the wheel
+    if (ev.button !== 0) return; // only the LEFT button pans — right-click acts
     dragging = true;
     dragMoved = false;
+    longPressed = false;
     lastX = ev.offsetX;
     lastY = ev.offsetY;
+    if (ev.pointerType === "touch" || ev.pointerType === "pen") {
+      const { offsetX, offsetY, clientX, clientY } = ev;
+      window.clearTimeout(pressTimer);
+      pressTimer = window.setTimeout(() => {
+        if (dragMoved) return;
+        longPressed = true;
+        act(map.tileAt(g.sim, offsetX, offsetY), clientX, clientY);
+      }, 550);
+    }
   });
   window.addEventListener("pointerup", () => {
     dragging = false;
+    window.clearTimeout(pressTimer);
   });
 
-  // Click (without dragging): resolve an armed HUD action at the tile, else
-  // SPAWN during FOUNDING (§18), else MISSION_SEND (the default world verb).
+  // LEFT click (without dragging): resolve an armed placement, else SPAWN
+  // during FOUNDING, else just LOOK (the hover chip says what right-click does).
+  let lookPings = 0;
   app.canvas.addEventListener("click", (ev) => {
-    if (dragMoved) return; // it was a pan, not a click
+    if (dragMoved || longPressed) return;
     const center = map.tileAt(g.sim, ev.offsetX, ev.offsetY);
     if (center < 0) return;
     const w = g.sim.world;
-    const district = w.district[center]!;
     const meNow = g.sim.players.find((pl) => pl.id === g.playerId);
 
-    // armed placement from the HUD (build / strike / targeted ritual or ability)
     const placement = hud.ui.placement;
     if (placement) {
       hud.arm(null);
-      const owner = w.owner[center]!;
-      // pre-validate ground for build/land so a miss KEEPS the tool armed and
-      // says why, instead of silently eating the click (QA batch 1)
       const claimable =
         w.terrain[center] === Terrain.Grass ||
         w.terrain[center] === Terrain.Field ||
         w.terrain[center] === Terrain.Woods;
-      const myGround =
-        (owner === g.playerId && w.terrain[center] === Terrain.Citizen) ||
-        (w.property[center] === g.playerId && claimable);
       switch (placement.mode) {
         case "build":
-          if (!myGround && placement.building !== "compound") {
-            hud.arm(placement); // stay armed — let them try again
-            pingPrompt("Build on YOUR land — a converted tile or your staked parcel.");
-            return;
-          }
           g.sendIntent({ t: IntentType.BUILD, building: placement.building as never, tile: center });
           return;
         case "strike":
@@ -328,34 +310,11 @@ function wireInput(app: Application, map: MapRenderer, g: GameSession, hud: Hud)
           return;
         case "property":
           if (!claimable || w.property[center] !== 0) {
-            hud.arm(placement);
-            pingPrompt("Buy OPEN COUNTRY — unclaimed grass, field, or woods near your land.");
+            hud.arm(placement); // stay armed — let them try again
+            pingPrompt("Buy OPEN COUNTRY — unclaimed grass, field, or woods next to your land.");
             return;
           }
           g.sendIntent({ t: IntentType.BUY_PROPERTY, tile: center } as never);
-          return;
-        // ── SCHEME placements (§13/§15/§16): button armed, this click targets
-        case "agent":
-          if (district > 0)
-            g.sendIntent({ t: IntentType.AGENT_DISPATCH, district, mission: placement.mission });
-          else pingPrompt("Agents target a DISTRICT — click inside town.");
-          return;
-        case "scandal":
-          if (owner > 0 && owner !== g.playerId)
-            g.sendIntent({ t: IntentType.PUBLISH_SCANDAL, target: owner });
-          else pingPrompt("Click a rival cult's tile to publish a scandal.");
-          return;
-        case "van":
-          g.sendIntent(nearestVanIntent(g, center));
-          return;
-        case "close_front": {
-          const me = g.sim.players.find((pl) => pl.id === g.playerId);
-          if (me && me.cohorts.length > 0) g.sendIntent({ t: IntentType.MISSION_RECALL, slot: 0 });
-          else pingPrompt("You have no cohort deployed to recall.");
-          return;
-        }
-        case "cancel_build":
-          g.sendIntent({ t: IntentType.CANCEL_BUILD, tile: center });
           return;
       }
     }
@@ -364,129 +323,71 @@ function wireInput(app: Application, map: MapRenderer, g: GameSession, hud: Hud)
       g.sendIntent({ t: IntentType.SPAWN, tile: center });
       return;
     }
-    // After founding, a plain click opens the MISSION WHEEL at that spot — the
-    // core SEND verb, discoverable without knowing to right-click. (Right-click
-    // opens it too.) Pick Spread/Tend/Crusade + how much flock on the wheel.
-    if (!wheel.isOpen) openWheel(center, ev.clientX, ev.clientY);
+    // Left-click only looks. Teach the verb a few times, then stay quiet.
+    hud.setHover(-2);
+    hud.setHover(center);
+    if (lookPings < 3 && g.sim.foundingTicksLeft === 0) {
+      lookPings++;
+      const owner = w.owner[center]!;
+      pingPrompt(
+        owner !== 0 && owner !== g.playerId
+          ? "Left-click just looks — RIGHT-CLICK rival ground to Expose / Strike."
+          : "Left-click just looks — RIGHT-CLICK to send a mission here.",
+      );
+    }
   });
 
   // Typing in any input (the chat box) must never trigger game keybinds.
   const typing = (ev: KeyboardEvent): boolean =>
     ev.target instanceof HTMLInputElement || ev.target instanceof HTMLTextAreaElement;
 
-  // Escape dismisses the mission wheel first, else clears an armed placement.
   window.addEventListener("keydown", (ev) => {
     if (typing(ev)) return;
     if (ev.key === "Escape") {
       if (wheel.isOpen) wheel.close();
+      else if (hud.scheme.isOpen) hud.scheme.close();
       else hud.arm(null);
+      return;
     }
-    if (ev.key === "?" && !wheel.isOpen) hud.toggleHelp();
-  });
-
-  window.addEventListener("keydown", (ev) => {
-    if (typing(ev)) return;
     // While the wheel is open it owns the number keys (1/2/3 pick a mode) and
     // swallows the rest — it's modal over the map keybinds.
     if (wheel.isOpen) {
       wheel.pickByKey(ev.key);
       return;
     }
+    if (ev.key === "?") return hud.toggleHelp();
     const me = g.sim.players.find((pl) => pl.id === g.playerId);
-    if (!me) return;
-    const hoverDistrict = hover >= 0 ? g.sim.world.district[hover]! : 0;
-    const hoverOwner = hover >= 0 ? g.sim.world.owner[hover]! : 0;
-
-    switch (ev.key) {
-      // (v3: 1/2/3 pick the mode INSIDE the mission wheel — see the wheel-open
-      //  guard above. With the wheel closed there's no global stance to set.)
-      // Civic Decrees hotkeys (5, 6, 7, 8) (§Sprint 4 Task 4.2)
-      case "5": {
-        const ctrl = computeCivicControl(g.sim);
-        if (ctrl.get(Lot.Sheriff) === me.id) return g.sendIntent({ t: IntentType.CIVIC_DECREE, decree: CivicDecreeId.TownCurfew });
-        return;
-      }
-      case "6": {
-        const ctrl = computeCivicControl(g.sim);
-        if (ctrl.get(Lot.HighSchool) === me.id) return g.sendIntent({ t: IntentType.CIVIC_DECREE, decree: CivicDecreeId.PepRally });
-        if (ctrl.get(Lot.School) === me.id) return g.sendIntent({ t: IntentType.CIVIC_DECREE, decree: CivicDecreeId.ParentTeacherNight });
-        return;
-      }
-      case "7": {
-        const ctrl = computeCivicControl(g.sim);
-        if (ctrl.get(Lot.Supermarket) === me.id) return g.sendIntent({ t: IntentType.CIVIC_DECREE, decree: CivicDecreeId.FoodRationing });
-        if (ctrl.get(Lot.Church) === me.id) return g.sendIntent({ t: IntentType.CIVIC_DECREE, decree: CivicDecreeId.EvangelicalRevival });
-        return;
-      }
-      case "8": {
-        const ctrl = computeCivicControl(g.sim);
-        if (ctrl.get(Lot.Shop) === me.id) return g.sendIntent({ t: IntentType.CIVIC_DECREE, decree: CivicDecreeId.MunicipalInjunction });
-        if (ctrl.get(Lot.Office) === me.id) return g.sendIntent({ t: IntentType.CIVIC_DECREE, decree: CivicDecreeId.EmergencyJam });
-        return;
-      }
-      // archetype actives D/F + signature G (§27)
+    if (!me || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+    if (ev.key === "C") {
+      // shift+C: recall your oldest deployed cohort (bring the flock home)
+      const slot = me.cohorts.findIndex((c) => !c.recalling);
+      if (slot >= 0) g.sendIntent({ t: IntentType.MISSION_RECALL, slot });
+      return;
+    }
+    if (ev.key === "F8") {
+      if (confirm("Surrender this match?")) g.sendIntent({ t: IntentType.SURRENDER });
+      return;
+    }
+    const k = ev.key.toLowerCase();
+    if ("567890".includes(k) && k.length === 1) {
+      hud.fireDecreeKey(k);
+      return;
+    }
+    switch (k) {
       case "d":
-        return g.sendIntent({ t: IntentType.ABILITY, ability: ACTIVE_D[me.archetype]!, ...(hover >= 0 ? { target: hover } : {}) });
+        return hud.firePowerKey("D", hover);
       case "f":
-        return g.sendIntent({ t: IntentType.ABILITY, ability: ACTIVE_F[me.archetype]!, ...(hover >= 0 ? { target: hover } : {}) });
+        return hud.firePowerKey("F", hover);
       case "g":
-        if (me.archetype === "visitors" && hover >= 0)
-          return g.sendIntent({ t: IntentType.ABILITY, ability: "saucer_landing", target: hover });
-        return g.sendIntent({ t: IntentType.SIGNATURE });
-      // (v3: the old build palette b/t/c/y is gone — the commune is upgraded
-      // from the HUD, and watchtower/collection_plate/broadcast_tower were cut.)
-      case "h":
-        hud.toggleDissentOverlay();
-        return;
-      // Prosperity Gospel (§2C): run a recruitment drive — cash → flock
+        return hud.firePowerKey("G", hover);
+      case "b":
+        return hud.upgradeCommune();
+      case "n":
+        return hud.toggleLand();
       case "r":
         return g.sendIntent({ t: IntentType.BUY_RECRUITS });
-      // agents & PvP (§13/§15)
-      case "a":
-        if (hoverDistrict > 0)
-          g.sendIntent({ t: IntentType.AGENT_DISPATCH, district: hoverDistrict, mission: "deprogram" });
-        return;
-      case "x":
-        if (hoverDistrict > 0)
-          g.sendIntent({ t: IntentType.AGENT_DISPATCH, district: hoverDistrict, mission: "scandal" });
-        return;
-      case "p":
-        if (hoverOwner > 0 && hoverOwner !== g.playerId)
-          g.sendIntent({ t: IntentType.PUBLISH_SCANDAL, target: hoverOwner });
-        return;
-      case "k":
-        if (hover >= 0) g.sendIntent({ t: IntentType.STRIKE, strike: "pamphlet_bomb", target: hover });
-        return;
-      case "v":
-        // route your nearest van to the hovered tile; with no van yet, buy one
-        if (hover >= 0) g.sendIntent(nearestVanIntent(g, hover));
-        return;
-      case "V":
-        // shift+V: buy a NEW van at the hovered tile (capacity permitting)
-        if (hover >= 0) g.sendIntent({ t: IntentType.VAN_MOVE, van: -1, path: [hover] });
-        return;
-      case "C": {
-        // shift+C: recall your oldest deployed cohort (bring the flock home)
-        const me = g.sim.players.find((pl) => pl.id === g.playerId);
-        if (me && me.cohorts.length > 0) g.sendIntent({ t: IntentType.MISSION_RECALL, slot: 0 });
-        return;
-      }
-      case "z":
-        // cancel your under-construction building at the hovered tile (50% refund)
-        if (hover >= 0) g.sendIntent({ t: IntentType.CANCEL_BUILD, tile: hover });
-        return;
-      case "F8":
-        if (confirm("Surrender this match?")) g.sendIntent({ t: IntentType.SURRENDER });
-        return;
-      // diplomacy on hovered cult (§16)
-      case "o":
-        if (hoverOwner > 0 && hoverOwner !== g.playerId)
-          g.sendIntent({ t: IntentType.ALLY_PROPOSE, target: hoverOwner });
-        return;
-      case "i":
-        if (hoverOwner > 0 && hoverOwner !== g.playerId)
-          g.sendIntent({ t: IntentType.ALLY_ACCEPT, target: hoverOwner });
-        return;
+      case "h":
+        return hud.toggleDissentOverlay();
     }
   });
 }
@@ -514,32 +415,7 @@ function statusPrompt(g: GameSession): string {
   }
   if (g.paused) return "⏸ PAUSED — the town holds still";
   if (!me.alive) return "☠ ELIMINATED — spectating";
-  const prophecy = g.sim.prophecies[0];
-  if (prophecy) return `⏳ PROPHECY: ${nameOf(g, prophecy.player)} — ${(prophecy.ticksLeft / 10).toFixed(0)}s`;
-  if (toFloat(me.heat) >= 60) return "🚐 THE CONCERNED PARENTS ARE HERE";
   return "";
-}
-
-/**
-/** Route the player's nearest van to `tile`; buys one when they have none. */
-function nearestVanIntent(g: GameSession, tile: number): ClientIntent {
-  const mine = g.sim.vans.filter((vn) => vn.player === g.playerId);
-  if (mine.length === 0) return { t: IntentType.VAN_MOVE, van: -1, path: [tile] };
-  const W = g.sim.world.width;
-  const hx = tile % W;
-  const hy = (tile / W) | 0;
-  let best = mine[0]!;
-  let bestD = Infinity;
-  for (const vn of mine) {
-    const dx = (vn.tile % W) - hx;
-    const dy = ((vn.tile / W) | 0) - hy;
-    const d = dx * dx + dy * dy;
-    if (d < bestD) {
-      bestD = d;
-      best = vn;
-    }
-  }
-  return { t: IntentType.VAN_MOVE, van: best.id, path: [tile] };
 }
 
 /** Flash a transient guidance line for a mis-aimed armed action. */
@@ -646,72 +522,6 @@ function drawFoundingHints(
 }
 
 /**
- * Recap Card overlay (§25/§28): render the deterministic share card to a canvas
- * centered over the map, with download + requeue actions (the requeue button is
- * the largest element per §28).
- */
-function showRecapCard(g: GameSession): void {
-  if (!g.recap) return;
-  const names: Record<number, string> = {};
-  const archetypes: Record<number, Archetype> = {};
-  for (const p of g.players) {
-    names[p.id] = p.name;
-    archetypes[p.id] = p.archetype;
-  }
-  const frame = renderRecapCard(g.recap, names, archetypes);
-
-  const canvas = document.createElement("canvas");
-  canvas.width = frame.width;
-  canvas.height = frame.height;
-  const ctx = canvas.getContext("2d")!;
-  const img = ctx.createImageData(frame.width, frame.height);
-  img.data.set(frame.data);
-  ctx.putImageData(img, 0, 0);
-
-  const overlay = document.createElement("div");
-  overlay.style.cssText =
-    "position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;" +
-    "justify-content:center;gap:14px;background:rgba(10,8,6,0.88);z-index:50;" +
-    "font-family:Georgia,serif;color:#f0e6d0";
-  canvas.style.cssText =
-    "max-height:72vh;height:auto;image-rendering:pixelated;border:2px solid #6a5a40;box-shadow:0 8px 40px #000";
-  overlay.appendChild(canvas);
-
-  // XP / Relic ticker + provisional rating (§28) for the local player.
-  const mine = g.results?.find((r) => r.player === g.playerId);
-  if (mine) {
-    const ticker = document.createElement("div");
-    ticker.style.cssText = "font-size:16px;letter-spacing:1px;color:#e6be8a";
-    ticker.textContent =
-      `PLACED #${mine.placement}   +${mine.xp} XP   +${mine.relics} ◈ RELICS   ` +
-      `RATING ${mine.provisionalRating}`;
-    overlay.appendChild(ticker);
-  }
-
-  const row = document.createElement("div");
-  row.style.cssText = "display:flex;gap:14px;align-items:center";
-  const download = document.createElement("button");
-  download.textContent = "⬇ SAVE CARD";
-  download.style.cssText =
-    "padding:10px 22px;font-size:15px;background:#241c14;color:#f0e6d0;border:1px solid #6a5a40;border-radius:5px;cursor:pointer;font-family:Georgia,serif";
-  download.onclick = () => {
-    const a = document.createElement("a");
-    a.href = canvas.toDataURL("image/png");
-    a.download = "flock-recap.png";
-    a.click();
-  };
-  const requeue = document.createElement("button");
-  requeue.textContent = "REQUEUE";
-  requeue.style.cssText =
-    "padding:16px 56px;font-size:22px;background:#c89858;color:#1a1410;border:none;border-radius:6px;cursor:pointer;font-family:Georgia,serif;letter-spacing:4px";
-  requeue.onclick = () => location.reload();
-  row.appendChild(download);
-  row.appendChild(requeue);
-  overlay.appendChild(row);
-  document.getElementById("app")!.appendChild(overlay);
-}
-
-/**
  * FTUE contextual overlay (§26): a 4-step coachmark shown once, the first time
  * a player drops into a match. Advances on click; gated by localStorage so it
  * never nags a returning player.
@@ -723,10 +533,10 @@ function maybeShowFtue(): void {
     return;
   }
   const steps = [
-    "① Click a glowing spot on the map to found your commune.",
-    "② RIGHT-CLICK the town to send a mission — pick SPREAD, TEND or CRUSADE and how much of your flock to commit.",
-    "③ Low on flock? Press R for a Recruitment Drive — turn cash into new followers.",
-    "④ Convert the most of the town to win. Watch the share bar up top. Good luck, Shepherd.",
+    "① Click a glowing ring on open land to found your commune.",
+    `② RIGHT-CLICK the town to send a cohort — SPREAD, TEND or CRUSADE. Up to ${MAX_COHORTS} out at once.`,
+    "③ Spend cash on the bottom tray: COMMUNE (B) raises your flock cap, RECRUIT (R) buys followers.",
+    "④ Win the VICTORY RACE (right panel): meet any route, then survive a 45s Ascension. Right-click a rival to EXPOSE them.",
   ];
   let i = 0;
   const tip = document.createElement("div");
@@ -749,12 +559,6 @@ function maybeShowFtue(): void {
   };
   paint();
   document.getElementById("app")!.appendChild(tip);
-}
-
-function nameOf(g: GameSession, id: number): string {
-  const known = g.players.find((p) => p.id === id)?.name;
-  if (known) return known;
-  return id >= 900 ? `Splinter Sect #${id}` : `Cult #${id}`;
 }
 
 void boot();
@@ -782,6 +586,10 @@ function mountMatchControls(g: GameSession): void {
     if (confirm("Leave the match? (your cult keeps running without you until the timer ends)")) {
       location.search = "";
     }
+  };
+  const flag = mkBtn("⚑", "", "surrender the match [F8]");
+  flag.onclick = () => {
+    if (confirm("Surrender this match? Your cult stops fighting.")) g.sendIntent({ t: IntentType.SURRENDER });
   };
   // solo = exactly one HUMAN seat on the wire roster (bot seats are flagged)
   if (g.players.filter((p) => !p.bot).length === 1) {

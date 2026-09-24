@@ -1,40 +1,40 @@
 /**
- * In-match HUD (§27) — crisp DOM UI layered over the chunky PixiJS world (the
- * contrast is the look, §30). Everything here is feed/banner/ping, never a
- * modal (§29): the only modal in the game is the end-of-match Recap Card.
+ * In-match HUD (§27, STAGE1_DESIGN §9) — crisp DOM UI layered over the chunky
+ * PixiJS world. Everything here is feed/banner/ping, never a modal (§29).
  *
  * Visual language (Claude Design handoff, "Interface Testament v3.0"):
- * pixelated 1970s cult-revival — Press Start 2P / Pixelify Sans / VT323,
+ * pixelated cult-revival — Press Start 2P / Pixelify Sans / VT323,
  * harvest-gold chrome, 3px #4a3a26 pixel borders, hard 0 4px 0 #060403 drops,
  * square corners everywhere. The player's own archetype accent re-dresses
  * armed/selected states, the signature power and the doctrine badge.
  *
  * Layout (desktop; rails collapse via the ◄/► pixel toggles):
- *   share bar   believer share of the town, own cult first (top:0, 26px)
- *   top bar     FLOCK · TREASURY · FAITH · HEAT · MATCH · LEADER
- *   left rail   STANCE (1/2/3) · POWERS (D/F/G) · SCHEME
- *   bottom      BUILD tray (click → placement mode) · DOCTRINE (badge) · minimap
- *   right rail  CONGREGATIONS (ally/mark) · key buildings · DRAMA FEED · chat
+ *   share bar    soul share of the town, own cult first + TIPPING POINT marker
+ *   top bar      FLOCK · TREASURY · FAITH · HEAT · MATCH · LEADER (souls)
+ *   center col   ASCENSION strips · banner · status prompt · active buffs
+ *   left rail    MISSIONS n/3 · POWERS (from the archetype registry)
+ *   threat lane  incoming strikes, CPA, rival Ascensions, Exposes (click = jump)
+ *   bottom       coach nudge · COMMUNE [B] · LAND [N] · RECRUIT [R] · DOCTRINE · DISSENT [H] · minimap
+ *   right rail   VICTORY RACE · KEY BUILDINGS (+ decrees) · DRAMA FEED · chat
+ *
+ * Verbs: SEND = right-click town (mission wheel) · SPEND = the tray + powers ·
+ * SCHEME = right-click a rival's ground (hud/scheme.ts). Left-click inspects.
  *
  * The HUD reads the predicted sim each update() (≈10 Hz) and writes intents
- * through the session. Build/strike buttons arm a placement mode that main.ts's
- * map click consumes, so targeted actions share the world cursor.
+ * through the session. Targeted powers arm a placement that main.ts's map
+ * click consumes, so they share the world cursor.
  */
 
 import {
   toInt,
   toFloat,
-  fromInt,
-  mul,
-  Stance,
-  MatchStatus,
   Terrain,
-  TileState,
-  NEUTRAL,
   Lot,
   Landmark,
+  MAX_COHORTS,
+  COMMUNE_MAX_STAGE,
+  DOCTRINE_FAITH_COST,
   doctrinePointsAvailable,
-  loveBombCostMult,
   colorForPlayer,
   buildingCost,
   streetAt,
@@ -45,132 +45,60 @@ import {
   followerCap,
   computeCivicControl,
   computeMonopolies,
+  canExecuteCivicDecree,
+  ownsLandmark,
   CivicDecreeId,
   CIVIC_DECREES,
   computeSiegeState,
   CIVIC_LOTS,
   CIVIC_EFFECTS,
-  KIT,
+  EXPOSE,
   type SimState,
   type PlayerState,
-  type BuildingType,
   type SiegeBar,
 } from "@flock/sim";
 import type { GameSession, ClientIntent } from "./net.js";
 import { playFactionTheme, playCivicDecreeSfx, playMonopolyUnlockSfx } from "./audio.js";
+import { GLYPH, icon, esc, fmtMoney, fmtNum, fmtTime, archAccent, seatName, type Camera } from "./hud/common.js";
+import { RacePanel, AscensionStrip, computeRace, RACE_CSS } from "./hud/race.js";
+import { ThreatLane, THREAT_CSS } from "./hud/threats.js";
+import { PowersPanel, type PowerEntry } from "./hud/powers.js";
+import { SchemeMenu, SCHEME_CSS } from "./hud/scheme.js";
+import { Coach, COACH_CSS, coachEnabled } from "./hud/coach.js";
+import { END_CSS } from "./hud/endgame.js";
+
+export { GLYPH, type Camera };
 
 export type PlacementKind =
   | { mode: "build"; building: string; key: string }
   | { mode: "strike"; strike: string }
   | { mode: "ability"; ability: string }
-  | { mode: "property" }
-  // ── SCHEME actions (§13/§15/§16): every one is fully clickable, no hotkey
-  //    required. Each arms a target mode; main.ts's map-click resolves it.
-  | { mode: "agent"; mission: "deprogram" | "scandal" } // click a district
-  | { mode: "scandal" } //                                click an enemy cult
-  | { mode: "van" } //                                   click a tile
-  | { mode: "close_front" } //                           click near a front
-  | { mode: "cancel_build" }; //                         click your building
-
-/** The slice of the map camera the HUD needs (minimap jump + viewport rect). */
-export interface Camera {
-  centerOn(tile: number): void;
-  /** zoom in on a tile and flash a transient highlight ring on it */
-  flashTile(tile: number, nowMs: number): void;
-  getView(): { x: number; y: number; w: number; h: number };
-}
+  | { mode: "property" };
 
 /** Shared interaction state between the HUD and the map-click handler. */
 export interface UiState {
-  /** armed targeted action awaiting a map click, or null for default (front). */
+  /** armed targeted action awaiting a map click, or null for default. */
   placement: PlacementKind | null;
 }
 
-/**
- * Archetype power metadata. `cd` is the key the sim uses in `me.cooldowns`
- * (it can differ from the ability id — Retreat Weekend cools down as
- * "retreat"). `cost` is the live resource price the sim will charge, so the
- * rail can show cost + affordability exactly the way builds/rituals do.
- */
-interface PowerDef {
-  id: string;
-  label: string;
-  cd: string;
-  cost?: (me: PlayerState) => { usd?: number; faith?: number };
-  /** Signature lands passively with the kit (Radiant Labs / Circle Ledger). */
-  passive?: boolean;
-}
-
-const ACTIVE_D: Record<string, PowerDef> = {
-  dawn: { id: "street_prophet", label: "Street Prophet", cd: "street_prophet", cost: () => ({ usd: KIT.streetProphet.cost }) },
-  radiant: { id: "juice_cleanse", label: "Juice Cleanse", cd: "juice_cleanse", cost: () => ({ usd: KIT.juiceCleanse.cost }) },
-  circle: { id: "seminar_blitz", label: "Seminar Blitz", cd: "seminar_blitz", cost: () => ({ usd: KIT.seminarBlitz.cost }) },
-  visitors: { id: "crop_circle", label: "Crop Circle", cd: "crop_circle", cost: () => ({ usd: KIT.cropCircle.cost }) },
-};
-const ACTIVE_F: Record<string, PowerDef> = {
-  dawn: { id: "stockpile_sermon", label: "Stockpile Sermon", cd: "stockpile_sermon", cost: () => ({ faith: KIT.stockpileSermon.cost }) },
-  radiant: {
-    id: "free_retreat_weekend",
-    label: "Retreat Weekend",
-    cd: "retreat",
-    cost: (me) => ({ usd: toInt(mul(fromInt(KIT.retreat.cost), loveBombCostMult(me))) }),
-  },
-  circle: { id: "hostile_acquisition", label: "Hostile Takeover", cd: "hostile_acquisition", cost: () => ({ usd: KIT.hostileAcquisition.cost }) },
-  visitors: { id: "radio_static", label: "Radio Static", cd: "radio_static", cost: () => ({ faith: KIT.radioStatic.faithCost }) },
-};
-const SIGNATURE: Record<string, PowerDef> = {
-  dawn: { id: "prophecy", label: "Prophecy Countdown", cd: "" },
-  radiant: { id: "labs", label: "Mass Cleanse", cd: "", passive: true },
-  circle: { id: "ledger", label: "The Downline", cd: "", passive: true },
-  visitors: { id: "saucer_landing", label: "Saucer Landing", cd: "saucer_landing", cost: () => ({ usd: KIT.saucerLanding.cost }) },
-};
-
-// v3 (M3.3b): the commune is the ONLY buildable — the old placeable palette
-// (tower/plate/broadcast/lab) is cut; their roles fold into commune stages,
-// doctrine, and money ops.
-const BUILDS = [
-  { id: "compound", key: "B", label: "COMMUNE", ic: "house", desc: "Your HQ. Click to UPGRADE it a stage (1→5) — each stage raises your flock cap." },
+/** Mission-mode dress (wheel + missions list share it). */
+export const MODES = [
+  { id: "tend", label: "TEND", col: "#6f9b6a", ic: "candle" },
+  { id: "spread", label: "SPREAD", col: "#d8a83a", ic: "mega" },
+  { id: "crusade", label: "CRUSADE", col: "#cf4b2c", ic: "flame" },
 ] as const;
 
-
 /**
- * SCHEME actions — the PvP/ops verbs, each a clickable button. `arm` sets a
- * placement mode resolved by the next map click; `surrender` fires directly.
- * Hotkeys still work but are never required.
+ * Civic decree hotkeys — one digit per decree, shown on the held Key
+ * Buildings row next to the price. main.ts binds exactly these.
  */
-const SCHEME: {
-  label: string;
-  key: string;
-  ic: string;
-  title: string;
-  arm?: PlacementKind;
-  armKey?: string;
-  surrender?: boolean;
-}[] = [
-  { label: "PAMPHLET", key: "K", ic: "press", title: "Pamphlet Bomb — a propaganda strike that seeds dissent on a tile. Click, then click the target.", arm: { mode: "strike", strike: "pamphlet_bomb" }, armKey: "strike:pamphlet_bomb" },
-  { label: "EXPOSÉ", key: "K", ic: "antenna", title: "Prime-Time Exposé — wide propaganda strike. Click, then click the target.", arm: { mode: "strike", strike: "prime_time_expose" }, armKey: "strike:prime_time_expose" },
-  { label: "MANIFESTO", key: "K", ic: "scroll", title: "Manifesto Drop — the big one. Click, then click the target.", arm: { mode: "strike", strike: "manifesto_drop" }, armKey: "strike:manifesto_drop" },
-  { label: "DEPROGRAM", key: "A", ic: "eye", title: "Dispatch an Agent to deprogram a district (raid). Click, then click a district you're pressing.", arm: { mode: "agent", mission: "deprogram" }, armKey: "agent:deprogram" },
-  { label: "SNOOP", key: "X", ic: "eye", title: "Dispatch an Agent to gather scandal evidence in a district. Click, then click a district.", arm: { mode: "agent", mission: "scandal" }, armKey: "agent:scandal" },
-  { label: "EXPOSE", key: "P", ic: "flame", title: "Publish a Scandal against a rival cult. Click, then click one of their tiles.", arm: { mode: "scandal" }, armKey: "scandal" },
-  { label: "VAN", key: "V", ic: "van", title: "Route your nearest Recruitment Van to a tile (buys one if you have none). Click, then click a tile.", arm: { mode: "van" }, armKey: "van" },
-  { label: "CLOSE", key: "⇧C", ic: "flame", title: "Close your nearest front to stop the push. Click, then click near the front.", arm: { mode: "close_front" }, armKey: "close_front" },
-  { label: "CANCEL", key: "Z", ic: "press", title: "Cancel a building under construction for a 50% refund. Click, then click the building.", arm: { mode: "cancel_build" }, armKey: "cancel_build" },
-  { label: "SURRENDER", key: "F8", ic: "flame", title: "Surrender the match — your cult stops fighting.", surrender: true },
-];
-
-const STANCES = [
-  { id: Stance.Tend, key: "1", label: "TEND", col: "#6f9b6a", ic: "candle", hint: "defend + heal dissent" },
-  { id: Stance.Spread, key: "2", label: "SPREAD", col: "#d8a83a", ic: "mega", hint: "balanced growth" },
-  { id: Stance.Crusade, key: "3", label: "CRUSADE", col: "#cf4b2c", ic: "flame", hint: "max pressure, +Heat" },
-] as const;
-
-/** Archetype accents (design handoff §01): own cult re-dresses the HUD. */
-const ARCH_ACCENT: Record<string, { a: string; b: string }> = {
-  dawn: { a: "#df5a2b", b: "#f0b53e" },
-  radiant: { a: "#84a23c", b: "#c4dd72" },
-  circle: { a: "#e0a422", b: "#f3cf6a" },
-  visitors: { a: "#4fa3ad", b: "#8fd6dd" },
+export const DECREE_KEYS: Record<string, string> = {
+  [CivicDecreeId.TownCurfew]: "5",
+  [CivicDecreeId.PepRally]: "6",
+  [CivicDecreeId.ParentTeacherNight]: "7",
+  [CivicDecreeId.FoodRationing]: "8",
+  [CivicDecreeId.EvangelicalRevival]: "9",
+  [CivicDecreeId.MunicipalInjunction]: "0",
 };
 
 /** Drama-feed color keys (design FEED_COL). */
@@ -183,47 +111,8 @@ const FEED_COL: Record<string, string> = {
   dead: "#8a7550",
   strike: "#df5a2b",
   schism: "#7a3da8",
+  asc: "#f0b53e",
 };
-
-/** 8×8 pixel-art glyph bitmaps (design GLYPH). Exported so the mission wheel
- *  (§6) can render the exact same candle/mega/flame icons as the stance rail. */
-export const GLYPH: Record<string, readonly string[]> = {
-  people: ["01100110", "01100110", "00000000", "11111111", "11111111", "11111111", "10111101", "10111101"],
-  coin: ["00111100", "01100110", "11011011", "11011011", "11011011", "11011011", "01100110", "00111100"],
-  heart: ["01100110", "11111111", "11111111", "11111111", "01111110", "00111100", "00011000", "00000000"],
-  flame: ["00010000", "00011000", "00111100", "01111110", "01111110", "11111111", "11111111", "01111110"],
-  clock: ["00111100", "01000010", "10011001", "10011101", "10010001", "10000001", "01000010", "00111100"],
-  crown: ["10000001", "10100101", "10100101", "11111111", "11111111", "11111111", "00000000", "11111111"],
-  candle: ["00011000", "00011000", "00111100", "00011000", "00111100", "00111100", "00111100", "01111110"],
-  mega: ["00000011", "00001111", "00111111", "11111111", "11111111", "00111111", "00001111", "00000011"],
-  house: ["00011000", "00111100", "01111110", "11111111", "11011011", "11011011", "11000011", "11011011"],
-  tower: ["01111110", "01011010", "00111100", "00111100", "00111100", "00111100", "01111110", "01111110"],
-  plate: ["00011000", "00000000", "10000001", "11000011", "01111110", "00111100", "00000000", "00000000"],
-  antenna: ["00011000", "00011000", "10111010", "01111100", "00111000", "00111000", "00111000", "01111100"],
-  phone: ["11000011", "11000011", "01000010", "00111100", "00111100", "01000010", "11000011", "11000011"],
-  press: ["11111111", "10000001", "11111111", "00111100", "11111111", "11111111", "11111111", "11111111"],
-  van: ["00000000", "01111110", "11111111", "11111111", "11111111", "11111111", "01011010", "00100100"],
-  flask: ["00111100", "00100100", "00100100", "00100100", "01000010", "01011010", "11111111", "01111110"],
-  scroll: ["01111110", "11111111", "11011011", "11111111", "11011011", "11111111", "11111111", "01111110"],
-  bolt: ["00011100", "00111000", "01110000", "11111110", "00011111", "00001110", "00011100", "00110000"],
-  eye: ["00000000", "00111100", "01111110", "11011011", "11011011", "01111110", "00111100", "00000000"],
-  ufo: ["00011000", "00111100", "01111110", "11111111", "00111100", "01000010", "10000001", "00000000"],
-  leaf: ["00010000", "00110010", "01100110", "01001100", "11011000", "01110000", "00010000", "00010000"],
-  star: ["00010000", "00010000", "11111111", "00111100", "01111110", "01100110", "11000011", "00000000"],
-};
-
-/** Render an 8×8 GLYPH as a crisp inline SVG (design icon()). */
-function icon(name: string, color: string, px: number): string {
-  const rows = GLYPH[name] ?? [];
-  let cells = "";
-  for (let y = 0; y < rows.length; y++) {
-    const row = rows[y] ?? "";
-    for (let x = 0; x < row.length; x++) {
-      if (row.charAt(x) === "1") cells += `<rect x="${x}" y="${y}" width="1.05" height="1.05" fill="${color}"/>`;
-    }
-  }
-  return `<svg width="${px}" height="${px}" viewBox="0 0 8 8" xmlns="http://www.w3.org/2000/svg" shape-rendering="crispEdges" style="display:block;flex:none">${cells}</svg>`;
-}
 
 /** Human labels for the hover chip (place identity, §2). */
 const LOT_NAMES: Record<number, string> = {
@@ -296,23 +185,19 @@ export function targetName(sim: SimState, tile: number): string {
   return TERRAIN_NAMES[terrain] ?? "the edge of town";
 }
 
-/** Escape user-supplied text before it touches innerHTML (XSS guard). */
-function esc(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
-}
-
-function fmtMoney(n: number): string {
-  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
-  if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}k`;
-  return `$${n}`;
-}
-function fmtNum(n: number): string {
-  return n >= 10_000 ? `${(n / 1000).toFixed(1)}k` : `${n}`;
-}
-function fmtTime(ticks: number): string {
-  const s = Math.max(0, Math.floor(ticks / 10));
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
-}
+/** Key Buildings row labels. */
+const CIVIC_NAMES: Record<number, string> = {
+  [Lot.Sheriff]: "Police",
+  [Lot.School]: "Elementary",
+  [Lot.HighSchool]: "High School",
+  [Lot.Supermarket]: "Grocery",
+  [Lot.Church]: "Church",
+  [Lot.Bank]: "Bank",
+  [Lot.GrainElevator]: "Grain Elevator",
+  [Lot.Cannery]: "Cannery",
+  [Lot.Sawmill]: "Sawmill",
+  [Lot.Lighthouse]: "Lighthouse",
+};
 
 const HUD_CSS = `
 .fk-hud{position:absolute;inset:0;pointer-events:none;font-family:'Pixelify Sans',ui-monospace,monospace;color:#efe3c6;z-index:20;--fk-acc:#e0a422;--fk-acc2:#f3cf6a}
@@ -371,11 +256,6 @@ const HUD_CSS = `
 .fk-btn.cant{opacity:.4;filter:grayscale(.8)}
 .fk-btn.arm{background:var(--fk-acc);color:#19110a;box-shadow:inset 0 0 0 2px var(--fk-acc2),0 3px 0 #060403}
 .fk-btn.arm .ic,.fk-btn.arm .k,.fk-btn.arm .cost{color:#19110a}
-/* stances: colored icon, selected = colored bg + ink text */
-.fk-stance{font-size:13px;font-weight:600;letter-spacing:.5px;padding:8px 9px}
-.fk-stance .ic{color:var(--st-col)}
-.fk-stance.on{background:var(--st-col);color:#19110a;box-shadow:inset 0 0 0 2px var(--st-col),0 3px 0 #060403}
-.fk-stance.on .ic,.fk-stance.on .k{color:#19110a}
 /* active missions list (v3) */
 .fk-missions{display:flex;flex-direction:column;gap:4px}
 .fk-nomissions{font-family:'VT323',monospace;font-size:13px;color:#8a7550;line-height:1.15;padding:2px 1px}
@@ -393,13 +273,22 @@ const HUD_CSS = `
 .fk-sig:hover{box-shadow:inset 0 0 0 2px var(--fk-acc2),0 3px 0 #060403}
 .fk-sig .ic,.fk-sig .k,.fk-sig .cost{color:#19110a}
 /* ---- rails + collapse toggles ---- */
-.fk-rail{position:absolute;left:16px;top:50%;transform:translateY(-50%);display:flex;align-items:center;gap:6px;z-index:6}
-.fk-rail-stack{width:182px;display:flex;flex-direction:column;gap:11px;max-height:calc(100vh - 140px);overflow:auto}
+.fk-left{position:absolute;left:16px;top:92px;display:flex;flex-direction:column;gap:8px;z-index:6;pointer-events:none;max-height:calc(100vh - 190px)}
+.fk-rail{display:flex;align-items:flex-start;gap:6px}
+.fk-rail-stack{width:198px;display:flex;flex-direction:column;gap:11px;overflow:auto}
 .fk-collapse{width:20px;height:66px;display:flex;align-items:center;justify-content:center;font-family:'Press Start 2P',monospace;font-size:9px;color:#e0a422;background:#1a130b;border:3px solid #4a3a26;box-shadow:0 4px 0 #060403;padding:0;flex:none}
 .fk-collapse.h{width:66px;height:20px}
-.fk-right{position:absolute;right:16px;top:74px;display:flex;align-items:flex-start;gap:6px;z-index:6}
-.fk-right-stack{width:236px;display:flex;flex-direction:column;gap:11px;max-height:calc(100vh - 130px)}
-.fk-players{overflow:auto;max-height:230px}
+.fk-right{position:absolute;right:16px;top:88px;display:flex;align-items:flex-start;gap:6px;z-index:6}
+.fk-right-stack{width:236px;display:flex;flex-direction:column;gap:11px;max-height:calc(100vh - 110px)}
+.fk-hud ::-webkit-scrollbar{width:6px;height:6px}
+.fk-hud ::-webkit-scrollbar-thumb{background:#4a3a26}
+.fk-hud ::-webkit-scrollbar-track{background:#140e08}
+.fk-civics{overflow-x:hidden}
+.fk-civics{overflow:auto;max-height:212px}
+.fk-prow .dec{pointer-events:auto;cursor:pointer;display:flex;align-items:center;gap:4px;margin-left:auto;font-family:'VT323',monospace;font-size:14px;line-height:1;color:#19110a;background:var(--fk-acc);box-shadow:0 2px 0 #060403;padding:2px 5px;flex:none}
+.fk-prow .dec .k{font-family:'Press Start 2P',monospace;font-size:6px;background:#19110a;color:var(--fk-acc2);padding:2px 3px}
+.fk-prow .dec.off{background:#241c12;color:#8a7550;box-shadow:inset 0 0 0 1px #4a3a26}
+.fk-prow .dec:hover:not(.off){filter:brightness(1.12)}
 .fk-prow{display:flex;flex-wrap:wrap;align-items:center;gap:7px;font-size:12px;padding:4px 5px}
 .fk-prow.me{background:color-mix(in srgb,var(--fk-acc) 15%,transparent);box-shadow:inset 0 0 0 1px var(--fk-acc)}
 .fk-prow.dead{opacity:.45}
@@ -434,16 +323,6 @@ const HUD_CSS = `
 .fk-build.arm{background:var(--fk-acc);color:#19110a;box-shadow:inset 0 0 0 2px var(--fk-acc2),0 3px 0 #060403}
 .fk-build.arm .ic,.fk-build.arm .k,.fk-build.arm .cost{color:#19110a}
 .fk-build.cant{opacity:.4;filter:grayscale(.8)}
-.fk-scheme{display:grid;grid-template-columns:1fr 1fr;gap:4px}
-.fk-scm{display:flex;align-items:center;gap:5px;box-sizing:border-box;padding:5px 6px;text-align:left;color:#efe3c6;background:#241c12;box-shadow:inset 0 0 0 1px #36291a,0 3px 0 #060403;cursor:pointer;border:0}
-.fk-scm:hover{box-shadow:inset 0 0 0 1px #cf4b2c,0 3px 0 #060403}
-.fk-scm .ic{color:#df5a2b;flex:none}
-.fk-scm .lb{flex:1;font-family:'Pixelify Sans',ui-monospace,monospace;font-size:10px;font-weight:600;letter-spacing:.3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.fk-scm .k{font-family:'Press Start 2P',monospace;font-size:7px;color:#a08a64;background:#0e0a05;padding:2px 3px;box-shadow:inset 0 0 0 1px #4a3a26;flex:none}
-.fk-scm.arm{background:#cf4b2c;color:#fff3df;box-shadow:inset 0 0 0 2px #f0b53e,0 3px 0 #060403}
-.fk-scm.arm .ic,.fk-scm.arm .k{color:#fff3df}
-.fk-scm.wide{grid-column:span 2;justify-content:center}
-.fk-scm.wide .lb{flex:none}
 .fk-doc{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:12px 16px;color:#efe3c6;background:#241c12;box-shadow:inset 0 0 0 2px #4a3a26,0 4px 0 #060403}
 .fk-doc:hover{box-shadow:inset 0 0 0 2px #6b563a,0 4px 0 #060403}
 .fk-doc .ic{color:var(--fk-acc2)}
@@ -489,10 +368,20 @@ const HUD_CSS = `
 @media(max-width:680px){
   .fk-top{top:30px}
   .fk-civic-tray{top:80px}
-  .fk-rail{left:4px}
+  .fk-left{left:4px}
   .fk-right{right:4px}
   .fk-bottom{bottom:6px}
 }
+/* ---- center column: ascension · banner · prompt · buffs · tutorial ---- */
+.fk-center{position:absolute;top:104px;left:50%;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:6px;z-index:7;pointer-events:none;width:max-content;max-width:min(640px,56vw)}
+.fk-center .fk-civic-tray{position:static;transform:none}
+.fk-center .fk-banner{position:static;transform:none;animation:fkIn .3s ease-out;max-width:100%}
+.fk-prompt{font-family:'Press Start 2P',monospace;font-size:10px;letter-spacing:1px;line-height:1.7;color:#f0b53e;text-align:center;background:#1a130b;border:3px solid #4a3a26;box-shadow:0 4px 0 #060403,inset 0 0 0 1px #6b563a;padding:11px 20px}
+.fk-hoverchip .hint{font-family:'VT323',monospace;font-size:14px;color:#e0a422}
+.fk-grp h4 .cnt{float:right;color:#efe3c6;letter-spacing:0}
+.fk-grp h4 .cnt.full{color:#e0894a}
+.fk-mhint{font-family:'VT323',monospace;font-size:13px;color:#6b563a;margin-top:5px;line-height:1.1}
+@media(max-width:1100px){.fk-threats{width:150px}}
 `;
 
 /**
@@ -502,6 +391,7 @@ const HUD_CSS = `
  */
 interface ElCache {
   share: HTMLElement;
+  tip: HTMLElement;
   followers: HTMLElement;
   usd: HTMLElement;
   faith: HTMLElement;
@@ -510,16 +400,15 @@ interface ElCache {
   heat_sub: HTMLElement;
   timer: HTMLElement;
   leader: HTMLElement;
+  leader_sub: HTMLElement;
   missions: HTMLElement;
-  actD: HTMLElement;
-  actF: HTMLElement;
-  actG: HTMLElement;
+  missionsCnt: HTMLElement;
   builds: HTMLElement;
   doc: HTMLElement;
   docBadge: HTMLElement;
-  players: HTMLElement;
   feed: HTMLElement;
   civics: HTMLElement;
+  prompt: HTMLElement;
   [k: string]: HTMLElement;
 }
 
@@ -542,6 +431,7 @@ export class Hud {
     threats: new Set<string>(),
     decrees: new Set<number>(),
     monopolies: new Set<string>(),
+    asc: new Set<string>(),
   };
   private banner: { text: string; until: number } | null = null;
   showDissent = false;
@@ -551,10 +441,18 @@ export class Hud {
   private hoverChip!: HTMLDivElement;
   private hoverPlace!: HTMLElement;
   private hoverStreet!: HTMLElement;
+  private hoverHint!: HTMLElement;
   private lastHover = -2;
-  /** archetype whose accent vars are currently applied to the root. */
   private accentFor = "";
-  /** Global Enter → focus the chat box (unless already typing somewhere). */
+  private lastRaceTick = -99;
+  /** the center column (ascension strips, banner, prompt, buffs, tutorial) */
+  readonly center: HTMLDivElement;
+  private readonly race: RacePanel;
+  private readonly ascStrip: AscensionStrip;
+  private readonly threats: ThreatLane;
+  private readonly powers: PowersPanel;
+  readonly scheme: SchemeMenu;
+  private coach: Coach | null = null;
   private readonly focusChatKey = (ev: KeyboardEvent): void => {
     if (ev.key !== "Enter") return;
     if (ev.target instanceof HTMLInputElement || ev.target instanceof HTMLTextAreaElement) return;
@@ -565,11 +463,12 @@ export class Hud {
   constructor(
     private readonly g: GameSession,
     private readonly camera: Camera | null = null,
+    opts: { openWheel?: (tile: number, x: number, y: number) => void; coach?: boolean } = {},
   ) {
     if (!document.getElementById("fk-hud-css")) {
       const style = document.createElement("style");
       style.id = "fk-hud-css";
-      style.textContent = HUD_CSS;
+      style.textContent = HUD_CSS + RACE_CSS + THREAT_CSS + SCHEME_CSS + COACH_CSS + END_CSS;
       document.head.appendChild(style);
     }
     this.root = document.createElement("div");
@@ -578,10 +477,10 @@ export class Hud {
     this.mini.width = 118;
     this.mini.height = 75;
     this.miniCtx = this.mini.getContext("2d")!;
-    // click the minimap to jump the camera there (fast navigation on big maps)
     if (this.camera) {
       this.mini.style.cursor = "pointer";
       this.mini.style.pointerEvents = "auto";
+      this.mini.title = "Minimap — click to jump the camera";
       this.mini.onclick = (e) => {
         const r = this.mini.getBoundingClientRect();
         const tx = Math.floor(((e.clientX - r.left) / r.width) * g.sim.world.width);
@@ -589,6 +488,16 @@ export class Hud {
         this.camera!.centerOn(ty * g.sim.world.width + tx);
       };
     }
+    const send = (i: ClientIntent): void => this.send(i);
+    const pathName = (id: string): string => this.race.current?.pathNames.get(id) ?? id;
+    this.race = new RacePanel(g, camera, send);
+    this.ascStrip = new AscensionStrip(g, camera, send, pathName);
+    this.threats = new ThreatLane(g, camera, pathName);
+    this.powers = new PowersPanel((e) => this.firePower(e, -1));
+    this.scheme = new SchemeMenu(g, send, (t, x, y) => opts.openWheel?.(t, x, y));
+    this.center = document.createElement("div");
+    this.center.className = "fk-center";
+    if (opts.coach && coachEnabled()) this.coach = new Coach(g, this.powers);
     this.build();
     document.getElementById("app")!.appendChild(this.root);
   }
@@ -606,24 +515,50 @@ export class Hud {
     this.ui.placement = p;
   }
 
-  /** The data-scheme key for an armed placement, so the button can light up. */
-  private schemeKey(p: PlacementKind | null): string | null {
-    if (!p) return null;
-    switch (p.mode) {
-      case "strike": return `strike:${p.strike}`;
-      case "agent": return `agent:${p.mission}`;
-      case "scandal": return "scandal";
-      case "van": return "van";
-      case "close_front": return "close_front";
-      case "cancel_build": return "cancel_build";
-      default: return null;
-    }
+  /** Center status line (founding / paused / eliminated); "" hides it. */
+  setPrompt(msg: string): void {
+    if (this.el.prompt.textContent !== msg) this.el.prompt.textContent = msg;
+    this.el.prompt.style.display = msg ? "block" : "none";
+  }
+
+  /** Fire a power from the rail or its hotkey (hover tile targets hotkeys). */
+  firePower(e: PowerEntry, hover: number): void {
+    const a = PowersPanel.action(e, hover);
+    if (a.t === "send-signature") this.send({ t: "SIGNATURE" } as ClientIntent);
+    else if (a.t === "send-ability")
+      this.send({ t: "ABILITY", ability: a.ability, ...(a.target !== undefined ? { target: a.target } : {}) } as ClientIntent);
+    else if (this.ui.placement?.mode === "ability" && this.ui.placement.ability === a.ability) this.arm(null);
+    else this.arm({ mode: "ability", ability: a.ability });
+  }
+
+  /** D / F / G hotkeys. */
+  firePowerKey(key: "D" | "F" | "G", hover: number): void {
+    const e = this.powers.byKey(key);
+    if (e) this.firePower(e, hover);
+  }
+
+  /** Digit hotkeys → the decree bound to it (only if you hold the institution). */
+  fireDecreeKey(key: string): boolean {
+    const id = Object.keys(DECREE_KEYS).find((d) => DECREE_KEYS[d] === key);
+    if (!id) return false;
+    this.send({ t: "CIVIC_DECREE", decree: id as CivicDecreeId } as ClientIntent);
+    return true;
+  }
+
+  /** B — raise the commune a stage. */
+  upgradeCommune(): void {
+    this.send({ t: "UPGRADE_COMMUNE" } as ClientIntent);
+  }
+
+  /** N — arm/disarm Buy Land. */
+  toggleLand(): void {
+    if (this.ui.placement?.mode === "property") this.arm(null);
+    else this.arm({ mode: "property" });
   }
 
   /**
-   * Place-identity chip (§2 flavor): whose house, which street, what lot the
-   * cursor rests on. Names are static seed data (names.ts) — nothing here
-   * leaks live game state through the fog.
+   * Place-identity chip (§2 flavor) + what RIGHT-CLICK will do here — the one
+   * consistent lesson: left looks, right acts.
    */
   setHover(tile: number): void {
     if (tile === this.lastHover) return;
@@ -637,18 +572,14 @@ export class Hud {
     let place = "";
     const districtId = w.district[tile] ?? 0;
     const distName = ["Old Town", "Suburbs", "College", "Downtown", "Trailer"][districtId] ?? "Town";
-
+    const owner = w.owner[tile]!;
     if (w.landmark[tile] !== 0) {
       place = `${LANDMARK_NAMES[w.landmark[tile]!] ?? "a landmark"} · ${distName}`;
     } else if (terrain === Terrain.Citizen) {
       const lot = w.lot[tile]!;
       const pop = w.pop[tile]!;
-      const owner = w.owner[tile]!;
-      const ownerName = owner === 0 ? "Neutral" : (this.g.players.find((p) => p.id === owner)?.name ?? `Cult #${owner}`);
-      if (lot !== 0) {
-        const lotName = LOT_NAMES[lot] ?? "a lot";
-        place = `${lotName.toUpperCase()} · ${distName} (${ownerName})`;
-      }
+      const ownerName = owner === 0 ? "Neutral" : seatName(this.g.players, owner);
+      if (lot !== 0) place = `${(LOT_NAMES[lot] ?? "a lot").toUpperCase()} · ${distName} (${ownerName})`;
       else if (pop >= 3) place = `the ${householdName(tile)} place · ${pop} souls · ${distName}`;
       else if (pop >= 1) place = `${memberName(tile, 0)}'s garden · ${distName}`;
       else place = `an empty lot · ${distName}`;
@@ -656,28 +587,19 @@ export class Hud {
       place = TERRAIN_NAMES[terrain] ?? "";
     }
     const street = streetAt(w.streets, w.width, tile);
-    if (!place && !street) {
-      this.hoverChip.style.display = "none";
-      return;
-    }
     this.hoverPlace.textContent = place;
     this.hoverPlace.style.display = place ? "block" : "none";
     this.hoverStreet.textContent = street ?? "";
     this.hoverStreet.style.display = street ? "block" : "none";
-    this.hoverChip.style.display = "block";
-  }
-
-  /** Row button: [icon] label ·· (cost) [key chip]. */
-  private btn(label: string, key: string | null, onClick: () => void, opts: { ic?: string; cls?: string; cost?: boolean } = {}): HTMLButtonElement {
-    const b = document.createElement("button");
-    b.className = `fk-btn${opts.cls ? ` ${opts.cls}` : ""}`;
-    b.innerHTML =
-      `${opts.ic ? `<i class="ic">${icon(opts.ic, "currentColor", 17)}</i>` : ""}` +
-      `<span class="lb">${label}</span>` +
-      `${opts.cost ? `<span class="cost"></span>` : ""}` +
-      `${key ? `<span class="k">${key}</span>` : ""}`;
-    b.onclick = onClick;
-    return b;
+    const me = this.me();
+    let hint = "";
+    if (me?.spawned && this.g.sim.foundingTicksLeft === 0) {
+      if (owner !== 0 && owner !== this.g.playerId) hint = `▸ right-click: scheme vs ${seatName(this.g.players, owner)}`;
+      else hint = owner === this.g.playerId ? "▸ right-click: send a mission (Tend holds)" : "▸ right-click: send a mission";
+    }
+    this.hoverHint.textContent = hint;
+    this.hoverHint.style.display = hint ? "block" : "none";
+    this.hoverChip.style.display = place || street || hint ? "block" : "none";
   }
 
   private group(title: string): HTMLDivElement {
@@ -685,29 +607,6 @@ export class Hud {
     d.className = "fk-grp";
     d.innerHTML = `<h4>${title}</h4>`;
     return d;
-  }
-
-  /**
-   * A group whose header toggles its body — used to fold ADVANCED tools away
-   * so a first-timer isn't hit with a wall of buttons (§26 ease-of-play). The
-   * header shows a ▸/▾ caret and the body starts collapsed by default.
-   */
-  private foldGroup(title: string, sub: string): { group: HTMLDivElement; body: HTMLDivElement } {
-    const d = document.createElement("div");
-    d.className = "fk-grp fk-fold";
-    const h = document.createElement("h4");
-    h.className = "fk-foldh";
-    h.innerHTML = `<span class="cv">▸</span>${title} <span class="fk-foldsub">${sub}</span>`;
-    const body = document.createElement("div");
-    body.style.display = "none";
-    h.onclick = () => {
-      const open = body.style.display !== "none";
-      body.style.display = open ? "none" : "";
-      const cv = h.querySelector<HTMLElement>(".cv");
-      if (cv) cv.textContent = open ? "▸" : "▾";
-    };
-    d.append(h, body);
-    return { group: d, body };
   }
 
   /** ◄/► pixel collapse toggle wired to show/hide a rail stack. */
@@ -725,23 +624,28 @@ export class Hud {
   }
 
   private build(): void {
-    // ---- believer share bar (top:0) --------------------------------------
+    // ---- soul share bar (top:0) + Tipping Point marker --------------------
     const share = document.createElement("div");
     share.className = "fk-share";
     this.el.share = share;
     this.root.appendChild(share);
+    const tip = document.createElement("div");
+    tip.className = "fk-tip";
+    tip.innerHTML = `<span>TIPPING POINT</span>`;
+    tip.style.display = "none";
+    this.el.tip = tip;
+    this.root.appendChild(tip);
 
     // ---- top bar ---------------------------------------------------------
     const top = document.createElement("div");
     top.className = "fk-top";
-    // Plain-language tips so a first-timer learns the board by hovering (§26).
     const STAT_TIP: Record<string, string> = {
-      followers: "FLOCK — your followers. This is your strength AND your health: fronts spend them, and losing them all eliminates you.",
-      usd: "TREASURY — cash from tithes. Spend it on buildings, land, and vans.",
-      faith: "FAITH — your conviction (0–100, drifts to 50). Bank it with TEND missions, then spend it on DOCTRINE (the B.I.T.E. tree).",
-      heat: "HEAT — how much the town suspects you (0–100). Crusade and strikes raise it. Above 60 the Concerned Parents show up to harass you.",
-      timer: "MATCH — time left. When it hits zero the biggest cult wins.",
-      leader: "LEADER — the largest cult's share of the whole town. Convert 72% to win outright.",
+      followers: "FLOCK — your followers: strength AND health. Missions carry them into town; lose them all and you're out.",
+      usd: "TREASURY — tithe cash. Spend it on the COMMUNE, RECRUITMENT DRIVES, POWERS, DECREES and EXPOSES.",
+      faith: `FAITH (0–100) — bank it with TEND missions; each DOCTRINE pick costs ${DOCTRINE_FAITH_COST} Faith. Some powers spend it too.`,
+      heat: "HEAT — how loud you are. Every conversion raises it (Crusade doubly). At 25+ rivals can EXPOSE you · 60 the CPA pickets you · 85 deprogrammer raids.",
+      timer: "MATCH — time left. At zero the cult with the most souls wins.",
+      leader: "LEADER — the biggest cult's share of the town's SOULS. Reach the TIPPING POINT (marker on the top bar) to start a Domination Ascension.",
     };
     const stat = (id: string, label: string, ic: string, icColor: string, cls = ""): HTMLElement => {
       const s = document.createElement("div");
@@ -764,9 +668,17 @@ export class Hud {
     this.el.faith_sub!.textContent = "/100";
     this.root.appendChild(top);
 
-    // ---- sleek compact civic status tray (Task 2.5) ----------------------
+    // ---- center column ---------------------------------------------------
+    this.center.appendChild(this.ascStrip.el);
+    const bannerSlot = document.createElement("div");
+    this.el.bannerSlot = bannerSlot;
+    const prompt = document.createElement("div");
+    prompt.className = "fk-prompt";
+    prompt.style.display = "none";
+    this.el.prompt = prompt;
     const civicTray = document.createElement("div");
     civicTray.className = "fk-civic-tray";
+    civicTray.style.display = "none";
     const toggleBtn = document.createElement("button");
     toggleBtn.className = "fk-civic-toggle";
     toggleBtn.textContent = "▲";
@@ -780,78 +692,43 @@ export class Hud {
     civicTray.append(toggleBtn, badgeList);
     this.el.civicTray = civicTray;
     this.el.badgeList = badgeList;
-    this.root.appendChild(civicTray);
+    this.center.append(bannerSlot, prompt, civicTray);
+    this.root.appendChild(this.center);
 
-    // ---- left rail: stance / powers / scheme + collapse -------------------
+    // ---- left rail: missions + powers -------------------------------------
     const rail = document.createElement("div");
     rail.className = "fk-rail";
     const railStack = document.createElement("div");
     railStack.className = "fk-rail-stack";
-
-    // (v3: the global STANCE rail is gone — mode is chosen per-mission on the
-    //  right-click/left-click wheel. The MISSIONS panel takes its place.)
-    const missionsG = this.group("MISSIONS");
+    const missionsG = document.createElement("div");
+    missionsG.className = "fk-grp fk-missions-g";
+    missionsG.innerHTML = `<h4>Missions <span class="cnt">0/${MAX_COHORTS}</span></h4>`;
+    missionsG.title = `Up to ${MAX_COHORTS} cohorts can be out at once. Recall one (⟲ or Shift+C for the oldest) to free a slot — they walk home first.`;
+    this.el.missionsCnt = missionsG.querySelector(".cnt")!;
     const missionsList = document.createElement("div");
     missionsList.className = "fk-missions";
-    missionsList.innerHTML = `<div class="fk-nomissions">no missions out — click the town to send your flock</div>`;
     missionsG.appendChild(missionsList);
+    const mh = document.createElement("div");
+    mh.className = "fk-mhint";
+    mh.textContent = "right-click town: send · ⟲ / ⇧C: recall";
+    missionsG.appendChild(mh);
     this.el.missions = missionsList;
-
-    const actG = this.group("POWERS");
-    this.el.actD = this.btn("—", "D", () => this.fireActive("D"), { ic: "eye", cls: "fk-pow", cost: true });
-    this.el.actF = this.btn("—", "F", () => this.fireActive("F"), { ic: "flask", cls: "fk-pow", cost: true });
-    this.el.actG = this.btn("—", "G", () => this.fireSignature(), { ic: "bolt", cls: "fk-sig", cost: true });
-    actG.append(this.el.actD, this.el.actF, this.el.actG);
-
-    // ---- SCHEME: every PvP/ops action as a clickable button (no hotkey
-    //      required). Targeted ones arm a placement mode; SURRENDER is direct.
-    //      Folded away by default — these are advanced tools a new player
-    //      doesn't need in their first minute (§26 ease-of-play).
-    const { group: schemeG, body: schemeBody } = this.foldGroup("SCHEME", "advanced");
-    const schemeGrid = document.createElement("div");
-    schemeGrid.className = "fk-scheme";
-    const schemeBtn = (
-      label: string,
-      key: string,
-      ic: string,
-      title: string,
-      onClick: () => void,
-      armKey?: string,
-    ): void => {
-      const b = document.createElement("button");
-      b.className = label === "SURRENDER" ? "fk-scm wide" : "fk-scm";
-      b.title = title;
-      b.innerHTML = `<i class="ic">${icon(ic, "currentColor", 15)}</i><span class="lb">${label}</span><span class="k">${key}</span>`;
-      b.onclick = onClick;
-      if (armKey) b.dataset.scheme = armKey;
-      schemeGrid.appendChild(b);
-    };
-    for (const sc of SCHEME) {
-      schemeBtn(sc.label, sc.key, sc.ic, sc.title, () => {
-        if (sc.arm) {
-          if (JSON.stringify(this.ui.placement) === JSON.stringify(sc.arm)) this.arm(null);
-          else this.arm(sc.arm as PlacementKind);
-        } else if (sc.surrender) {
-          if (confirm("Surrender this match? Your cult stops fighting.")) this.send({ t: "SURRENDER" } as never);
-        }
-      }, sc.armKey);
-    }
-    schemeBody.appendChild(schemeGrid);
-    this.el.scheme = schemeGrid;
-
-    railStack.append(missionsG, actG, schemeG);
+    railStack.append(missionsG, this.powers.el);
     rail.append(railStack, this.collapse(railStack, "◄", "►"));
-    this.root.appendChild(rail);
+    // ---- threat lane: stacked under the rail so neither ever moves the other's buttons
+    const left = document.createElement("div");
+    left.className = "fk-left";
+    left.append(rail, this.threats.el);
+    this.root.appendChild(left);
 
-    // ---- bottom tray: builds + doctrine + minimap (collapsible) ------------
+    // ---- bottom: coach nudge + tray (commune · land · recruit · doctrine · dissent · minimap)
     const bottom = document.createElement("div");
     bottom.className = "fk-bottom";
     const tray = document.createElement("div");
     tray.className = "fk-tray";
-
     const buildsWrap = document.createElement("div");
     buildsWrap.className = "fk-builds-wrap";
-    buildsWrap.innerHTML = `<div class="fk-builds-lbl">BUILD ▸ tap a tool, then a tile</div>`;
+    buildsWrap.innerHTML = `<div class="fk-builds-lbl">SPEND ▸ grow the cult</div>`;
     const builds = document.createElement("div");
     builds.className = "fk-builds";
     const buildBtn = (label: string, key: string, ic: string, title: string, onClick: () => void): HTMLButtonElement => {
@@ -862,55 +739,40 @@ export class Hud {
       b.onclick = onClick;
       return b;
     };
-    for (const bd of BUILDS) {
-      const b = buildBtn(bd.label, bd.key, bd.ic, `${bd.label} — ${bd.desc} (click, then click a tile to place)`, () =>
-        this.armBuild(bd.id, bd.key),
-      );
-      b.dataset.build = bd.id;
-      builds.appendChild(b);
-    }
-    // BUY LAND (§18 rev.): claim a parcel of open country to expand onto
+    const commune = buildBtn("COMMUNE", "B", "house", "", () => this.upgradeCommune());
+    commune.dataset.build = "compound";
     const land = buildBtn(
       "BUY LAND",
       "N",
       "leaf",
-      "Buy Land — claim a parcel of open country for your compound to grow into (click, then click open ground)",
-      () => {
-        if (this.ui.placement?.mode === "property") this.arm(null);
-        else this.arm({ mode: "property" });
-      },
+      "BUY LAND [N] — claim a parcel of open country beside your land for the commune to grow into (click, then click open ground). Crowded land stops flock growth.",
+      () => this.toggleLand(),
     );
     land.dataset.land = "1";
-    builds.appendChild(land);
-    // RECRUITMENT DRIVE (§2C, Prosperity Gospel): spend cash for flock. The
-    // income cults' engine — buy a batch (a ‰ of your current flock), then
-    // send it out on the wheel. Cost + gain shown live below.
     const drive = buildBtn(
       "RECRUIT",
       "R",
       "people",
-      "Recruitment Drive — spend cash to add flock (a batch scaled to your size). Money → members → missions. The Inner Circle's engine.",
-      () => this.send({ t: "BUY_RECRUITS" } as never),
+      "RECRUITMENT DRIVE [R] — spend cash to add flock (a batch scaled to your size, capped by your commune). Money → members → missions.",
+      () => this.send({ t: "BUY_RECRUITS" } as ClientIntent),
     );
     drive.dataset.recruit = "1";
-    builds.appendChild(drive);
+    builds.append(commune, land, drive);
     buildsWrap.appendChild(builds);
     this.el.builds = builds;
 
     const doc = document.createElement("button");
     doc.className = "fk-doc";
-    doc.title =
-      "DOCTRINE — spend milestone points (earned as your flock grows) on permanent upgrades. A glowing number means points are waiting. Picks are forever.";
-    doc.innerHTML = `<i class="ic">${icon("scroll", "currentColor", 22)}</i><span class="dl">DOCTRINE</span><span class="badge" id="docbadge" style="display:none">0</span>`;
-    doc.onclick = () => this.openDoctrine();
+    doc.title = `DOCTRINE — permanent B.I.T.E. upgrades. Each pick costs ${DOCTRINE_FAITH_COST} Faith (bank Faith with TEND missions). The badge = picks you can afford now. Picks are forever.`;
+    doc.innerHTML = `<i class="ic">${icon("scroll", "currentColor", 22)}</i><span class="dl">DOCTRINE</span><span class="badge" style="display:none">0</span>`;
+    doc.onclick = () => showDoctrinePanel(this.g);
     this.el.doc = doc;
-    this.el.docBadge = doc.querySelector("#docbadge")!;
+    this.el.docBadge = doc.querySelector(".badge")!;
 
     const dis = document.createElement("button");
     dis.className = "fk-doc";
     dis.id = "fk-dissent-overlay";
-    dis.title =
-      "DISSENT MAP — toggle a heat-map of unrest in your territory. Red = disgruntled tiles; too much dissent lets a chunk of your cult break away (a Schism). Cool it with the TEND stance or a Public Apology.";
+    dis.title = "DISSENT MAP [H] — heat-map of unrest on your ground. Too much and part of your cult splits away (a Schism). Cool it with TEND missions.";
     dis.innerHTML = `<i class="ic">${icon("eye", "currentColor", 22)}</i><span class="dl">DISSENT [H]</span>`;
     dis.onclick = () => this.toggleDissentOverlay();
     this.el.dissentOverlay = dis;
@@ -920,25 +782,19 @@ export class Hud {
     miniWrap.appendChild(this.mini);
 
     tray.append(buildsWrap, doc, dis, miniWrap);
+    if (this.coach) bottom.appendChild(this.coach.el);
     bottom.append(this.collapse(tray, "▼", "▲", true), tray);
     this.root.appendChild(bottom);
 
-    // ---- right rail: congregations + civics + drama feed + chat ------------
+    // ---- right rail: victory race + key buildings + drama feed + chat -------
     const right = document.createElement("div");
     right.className = "fk-right";
     const rightStack = document.createElement("div");
     rightStack.className = "fk-right-stack";
-    const players = document.createElement("div");
-    players.className = "fk-grp fk-players";
-    this.el.players = players;
     const feed = document.createElement("div");
     feed.className = "fk-grp fk-feed";
     feed.innerHTML = `<div class="fk-feed-h">● DRAMA FEED</div>`;
     this.el.feed = feed;
-
-    // chat input (§27/§30): Enter focuses (global listener), Enter sends,
-    // Esc cancels. Keystrokes never reach the game keybinds while typing —
-    // the input swallows propagation and main.ts ignores typing targets.
     const chatIn = document.createElement("input");
     chatIn.className = "fk-chatin";
     chatIn.maxLength = 200;
@@ -948,7 +804,7 @@ export class Hud {
       ev.stopPropagation();
       if (ev.key === "Enter") {
         const text = chatIn.value.trim();
-        if (text) this.g.sendChat(text); // server moderates + relays (§30)
+        if (text) this.g.sendChat(text);
         chatIn.value = "";
         chatIn.blur();
       } else if (ev.key === "Escape") {
@@ -958,20 +814,15 @@ export class Hud {
     };
     this.chatIn = chatIn;
     window.addEventListener("keydown", this.focusChatKey);
-
-    // CIVICS: the key buildings and who holds them (§13 rev.) — click one to
-    // jump the camera there and plan the takeover.
     const civicsBox = document.createElement("div");
-    civicsBox.className = "fk-grp";
+    civicsBox.className = "fk-grp fk-civics";
     civicsBox.innerHTML = `<h4>Key Buildings</h4>`;
     this.el.civics = civicsBox;
-
-    rightStack.append(players, civicsBox, feed, chatIn);
+    rightStack.append(this.race.el, civicsBox, feed, chatIn);
     right.append(this.collapse(rightStack, "►", "◄"), rightStack);
     this.root.appendChild(right);
 
-    // place-identity chip (bottom-left): what & where the cursor is over.
-    // textContent only — names come from the corpus but stay XSS-inert anyway.
+    // ---- place-identity chip (bottom-left) ---------------------------------
     const chip = document.createElement("div");
     chip.className = "fk-hoverchip";
     chip.style.display = "none";
@@ -979,87 +830,57 @@ export class Hud {
     pl.className = "pl";
     const st = document.createElement("div");
     st.className = "st";
-    chip.append(pl, st);
+    const hn = document.createElement("div");
+    hn.className = "hint";
+    chip.append(pl, st, hn);
     this.hoverPlace = pl;
     this.hoverStreet = st;
+    this.hoverHint = hn;
     this.hoverChip = chip;
     this.root.appendChild(chip);
 
-    // help square (top-right) → controls reference
+    // ---- help square (top-right) -------------------------------------------
     const help = document.createElement("button");
     help.className = "fk-helpbtn";
     help.textContent = "?";
-    help.title =
-      "Controls — right-click: send a mission · 1/2/3 stance · R recruitment drive · D/F powers · G signature · N buy land · H dissent map · Esc cancel (click for the full sheet)";
+    help.title = "How to play & controls [?]";
     help.onclick = () => this.toggleHelp();
     this.root.appendChild(help);
   }
 
-  /** Controls reference overlay (§28 discoverability), toggled by ? button/key. */
+  /** Controls reference overlay (§28), toggled by the ? button/key. */
   toggleHelp(): void {
     const existing = this.root.querySelector(".fk-help");
     if (existing) {
       existing.remove();
       return;
     }
+    const b = (t: string): string => `<b style="color:#e0a422">${t}</b>`;
+    const k = (t: string): string =>
+      `<span style="font-family:'Press Start 2P',monospace;font-size:8px;color:#a08a64;background:#0e0a05;padding:2px 4px;box-shadow:inset 0 0 0 1px #4a3a26">${t}</span>`;
     const panel = document.createElement("div");
     panel.className = "fk-help";
     panel.style.cssText =
       "position:absolute;inset:0;z-index:45;display:flex;align-items:center;justify-content:center;background:rgba(10,7,4,.82);pointer-events:auto";
-    panel.innerHTML = `<div style="background:#1a130b;border:3px solid #6b563a;box-shadow:0 8px 0 #060403,inset 0 0 0 2px #36291a;padding:22px 28px;max-width:540px;line-height:1.8;font-size:14px;color:#d8c8a6">
-      <div style="font-family:'Press Start 2P',monospace;font-size:13px;letter-spacing:1px;color:#efe3c6;margin-bottom:12px">HOW TO PLAY</div>
-      <b style="color:#e0a422">Goal</b> — convert the most of the town. Watch the bar up top; reach the win % to dominate.<br/>
-      <b style="color:#e0a422">Missions</b> — RIGHT-CLICK the town to open the wheel: pick Spread/Tend/Crusade and how much flock to send. Left-click a glowing spot to found. Drag to pan · wheel to zoom · minimap to jump.<br/>
-      <b style="color:#e0a422">Stance</b> — 1 Tend (defend) · 2 Spread (grow) · 3 Crusade (push hard, +Heat). Sets your home posture; each mission also picks its own mode.<br/>
-      <b style="color:#e0a422">Faith</b> — bank it with TEND missions, spend it on the DOCTRINE tree.<br/>
-      <b style="color:#e0a422">Powers</b> — D / F archetype actives · G signature (your big play).<br/>
-      <b style="color:#e0a422">Grow</b> — click COMMUNE to upgrade it (raises your flock cap) · press R for a Recruitment Drive (cash → flock) · N buys land · H toggles the dissent map. Greyed = can't afford.<br/>
-      <b style="color:#e0a422">Scheme</b> — click a SCHEME button then a target (or hotkeys: A raid · X snoop · P scandal · K strike · V van · O/I alliances). Esc cancels.<br/>
+    panel.innerHTML = `<div style="background:#1a130b;border:3px solid #6b563a;box-shadow:0 8px 0 #060403,inset 0 0 0 2px #36291a;padding:20px 26px;max-width:620px;max-height:86vh;overflow:auto;line-height:1.75;font-size:14px;color:#d8c8a6">
+      <div style="font-family:'Press Start 2P',monospace;font-size:13px;letter-spacing:1px;color:#efe3c6;margin-bottom:10px">HOW TO PLAY</div>
+      ${b("Win")} — meet ANY route in the VICTORY RACE (right panel): Domination (souls ≥ the Tipping Point), Revelation (Megachurch + Faith 90), or your cult's own route. That starts a public 45s ASCENSION — hold it to zero. Rivals break it by taking ground back or by EXPOSING you (resets the clock). At the bell, most souls wins.<br/>
+      ${b("Send")} — RIGHT-CLICK the town → mission wheel: SPREAD converts, CRUSADE burns (double Heat), TEND holds, heals and banks Faith. ${k("1")} ${k("2")} ${k("3")} pick inside the wheel. Max ${MAX_COHORTS} cohorts out; recall with ⟲ or ${k("⇧C")}.<br/>
+      ${b("Spend")} — ${k("B")} upgrade COMMUNE (flock cap) · ${k("R")} recruitment drive · ${k("N")} buy land · ${k("D")} ${k("F")} ${k("G")} cult powers · DOCTRINE (${DOCTRINE_FAITH_COST} Faith per pick) · decrees on held Key Buildings ${k("5")}–${k("0")}.<br/>
+      ${b("Scheme")} — RIGHT-CLICK a RIVAL's ground → EXPOSE (needs their Heat ≥ ${EXPOSE.minVictimHeat}) or STRIKE. Loud cults are exposable — including you.<br/>
+      ${b("Heat")} — every conversion raises it; bigger cults heat faster. 60 = CPA pickets, 85 = deprogrammer raids.<br/>
+      ${b("Look")} — left-click/drag pans · wheel zooms · minimap jumps · threat cards &amp; race rows jump the camera · ${k("H")} dissent map · ${k("Enter")} chat · ${k("F8")} surrender · ${k("Esc")} cancel.
       <div style="color:#8a7550;margin-top:10px;font-family:'VT323',monospace;font-size:16px">▸ click anywhere to close</div>
     </div>`;
     panel.onclick = () => panel.remove();
     this.root.appendChild(panel);
   }
 
-  private armBuild(building: string, key: string): void {
-    // v3: the COMMUNE isn't placed — it upgrades in place. Click = spend to
-    // raise a stage (no armed placement).
-    if (building === "compound") {
-      this.send({ t: "UPGRADE_COMMUNE" } as never);
-      return;
-    }
-    if (this.ui.placement?.mode === "build" && this.ui.placement.building === building) {
-      this.arm(null); // toggle off
-    } else {
-      this.arm({ mode: "build", building, key });
-    }
-  }
-
-  private fireActive(slot: "D" | "F"): void {
-    const me = this.me();
-    if (!me) return;
-    const a = (slot === "D" ? ACTIVE_D : ACTIVE_F)[me.archetype]!;
-    // targeted actives are placed via map click; others fire on self
-    const placed = ["street_prophet", "juice_cleanse", "crop_circle", "radio_static", "free_retreat_weekend", "seminar_blitz"];
-    if (placed.includes(a.id)) this.arm({ mode: "ability", ability: a.id });
-    else this.send({ t: "ABILITY", ability: a.id });
-  }
-
-  private fireSignature(): void {
-    const me = this.me();
-    if (me?.archetype === "visitors") this.arm({ mode: "ability", ability: "saucer_landing" });
-    else this.send({ t: "SIGNATURE" });
-  }
-
-  private openDoctrine(): void {
-    showDoctrinePanel(this.g);
-  }
-
   toggleDissentOverlay(): void {
     this.showDissent = !this.showDissent;
     const el = this.el.dissentOverlay;
     if (el) {
-      el.style.background = this.showDissent ? (ARCH_ACCENT[this.me()?.archetype ?? "dawn"]?.a ?? "#e0a422") : "";
+      el.style.background = this.showDissent ? archAccent(this.me()?.archetype ?? "").a : "";
       el.style.color = this.showDissent ? "#19110a" : "";
     }
   }
@@ -1073,21 +894,20 @@ export class Hud {
 
   /** Scan sim state for new dramatic events since last update (the kill-feed). */
   private collectDrama(s: SimState): void {
-    const name = (id: number): string => esc(this.g.players.find((p) => p.id === id)?.name ?? `Cult #${id}`);
-
-    const published = s.scandals.filter((x) => x.published).length;
-    if (published > this.seen.scandals) {
-      for (const sc of s.scandals.filter((x) => x.published).slice(this.seen.scandals)) {
-        this.pushFeed(`${name(sc.attacker)} EXPOSED ${name(sc.victim)}`, true, "scandal");
+    const name = (id: number): string => esc(seatName(this.g.players, id));
+    const sc = s.recap.scandals;
+    if (sc.length > this.seen.scandals) {
+      for (const x of sc.slice(this.seen.scandals)) {
+        this.pushFeed(`${name(x.attacker)} EXPOSED ${name(x.victim)}`, true, "scandal");
       }
-      this.seen.scandals = published;
+      this.seen.scandals = sc.length;
     }
     if (s.prophecies.length > this.seen.prophecies) {
       for (const pr of s.prophecies.slice(this.seen.prophecies)) {
         this.pushFeed(`${name(pr.player)} declared a PROPHECY`, true, "prophecy");
       }
-      this.seen.prophecies = s.prophecies.length;
     }
+    this.seen.prophecies = s.prophecies.length;
     const traitors = s.players.filter((p) => p.traitor).length;
     if (traitors > this.seen.betrayals) {
       for (const p of s.players.filter((x) => x.traitor).slice(this.seen.betrayals)) {
@@ -1098,101 +918,58 @@ export class Hud {
     if (s.alliances.length > this.seen.alliances) {
       const al = s.alliances[s.alliances.length - 1]!;
       this.pushFeed(`${name(al.a)} allied with ${name(al.b)}`, false, "ally");
-      this.seen.alliances = s.alliances.length;
     }
+    this.seen.alliances = s.alliances.length;
     for (const p of s.players) {
       if (p.spawned && !p.alive && !this.seen.dead.has(p.id)) {
         this.seen.dead.add(p.id);
         this.pushFeed(`${name(p.id)} was eliminated`, false, "dead");
       }
+      // Ascension starts are headline news
+      if (p.alive && p.ascendPath !== "") {
+        const k0 = `${p.id}:${p.ascendPath}`;
+        if (!this.seen.asc.has(k0)) {
+          this.seen.asc.add(k0);
+          const path = esc(this.race.current?.pathNames.get(p.ascendPath) ?? p.ascendPath);
+          this.pushFeed(p.id === this.g.playerId ? `YOU began ASCENDING — ${path}` : `${name(p.id)} is ASCENDING — ${path}!`, false, "asc");
+        }
+      } else {
+        for (const k of this.seen.asc) if (k.startsWith(`${p.id}:`)) this.seen.asc.delete(k);
+      }
     }
-
-    // §29 readability SLA: any aggression against ME pings within a tick.
+    // incoming propaganda strike (10s warning window, §8) — banner once
     const me = this.g.playerId;
-    const w = s.world;
-    // incoming propaganda strike (10s warning window, §8)
     for (const st of s.strikes) {
-      if (st.warningTicksLeft <= 0) continue;
-      const atMe = st.victim === me || (w.owner[st.target] === me && st.player !== me);
-      if (!atMe) continue;
-      const key = `strike:${st.player}:${st.type}:${st.target}`;
+      if (st.warningTicksLeft <= 0 || st.chargeTicksLeft > 0) continue;
+      if (!(st.victim === me || (s.world.owner[st.target] === me && st.player !== me))) continue;
+      const key = `strike:${st.id}`;
       if (this.seen.threats.has(key)) continue;
       this.seen.threats.add(key);
       const label = st.type === "pamphlet_bomb" ? "PAMPHLET BOMB" : st.type === "prime_time_expose" ? "PRIME-TIME EXPOSÉ" : "MANIFESTO DROP";
       this.pushFeed(`INCOMING ${label} from ${name(st.player)}!`, true, "strike");
     }
-    // scandal evidence reaching the 50% notify threshold on me (§15.2)
-    for (const sc of s.scandals) {
-      if (sc.victim !== me || !sc.notified || sc.published) continue;
-      const key = `scandal:${sc.attacker}`;
-      if (this.seen.threats.has(key)) continue;
-      this.seen.threats.add(key);
-      this.pushFeed(`${name(sc.attacker)} is digging up dirt on you…`, true, "scandal");
-    }
-    // deprogramming raids channeling on us (§13 tell)
-    const DISTRICT_NAMES: Record<number, string> = {
-      0: "Old Town",
-      1: "Suburbs",
-      2: "College Campus",
-      3: "Downtown",
-      4: "Trailer Park",
-    };
-    for (const a of s.agents) {
-      if (a.victim === me && a.phase === "channel") {
-        const key = `raid:${a.id}`;
-        if (!this.seen.threats.has(key)) {
-          this.seen.threats.add(key);
-          const nameStr = DISTRICT_NAMES[w.district[a.tile]!] ?? "Outskirts";
-          this.pushFeed(`Suspicious activity reported in ${nameStr}!`, true, "scandal");
-        }
-      }
-    }
-    // Economic win (Circle-only) telegraph once it passes 60% of target
-    const econTarget = 1_200_000;
-    for (const p of s.players) {
-      if (p.archetype === "circle" && p.alive) {
-        const val = toFloat(p.usd);
-        if (val >= 0.6 * econTarget) {
-          const key = `economic:${p.id}:${Math.floor(val / 100_000)}`;
-          if (!this.seen.threats.has(key)) {
-            this.seen.threats.add(key);
-            const pct = Math.floor((val / econTarget) * 100);
-            this.pushFeed(`${name(p.id)} Ledger progress: ${pct}% ($${Math.floor(val).toLocaleString()})! Stop them!`, true, "prophecy");
-          }
-        }
-      }
-    }
   }
 
   /**
-   * BELIEVER SHARE BAR (design §02): each cult's share of the town's souls —
-   * own cult first, then rivals descending, then the unconverted remainder.
-   * Called from main.ts at the same 5-tick cadence the old Pixi bar used.
+   * SOUL SHARE BAR (design §02): each cult's share of the town's souls (the
+   * same number every win rule reads), own cult first, then rivals, then the
+   * unconverted remainder. The dashed TIPPING POINT marker sits at the
+   * Domination threshold — your segment reaching it starts an Ascension.
    */
   renderShareBar(): void {
     const s = this.g.sim;
-    const w = s.world;
-    const popByOwner = new Map<number, number>();
-    for (let t = 0; t < w.owner.length; t++) {
-      const o = w.owner[t]!;
-      if (o === NEUTRAL || w.state[t] !== TileState.Believer) continue;
-      popByOwner.set(o, (popByOwner.get(o) ?? 0) + w.pop[t]!);
-    }
-    const total = Math.max(1, s.totalPop);
     const meId = this.g.playerId;
-    const nameOf = (id: number): string => this.g.players.find((p) => p.id === id)?.name ?? `Cult #${id}`;
     const segs: { color: string; pct: number; label: string; me: boolean }[] = [];
-    segs.push({ color: colorForPlayer(meId), pct: ((popByOwner.get(meId) ?? 0) / total) * 100, label: nameOf(meId), me: true });
-    const rivals = [...popByOwner.entries()].filter(([id]) => id !== meId).sort((a, z) => z[1] - a[1]);
-    for (const [id, pop] of rivals) {
-      segs.push({ color: colorForPlayer(id), pct: (pop / total) * 100, label: nameOf(id), me: false });
-    }
+    const me = s.players.find((p) => p.id === meId);
+    segs.push({ color: colorForPlayer(meId), pct: (me?.soulsPermille ?? 0) / 10, label: seatName(this.g.players, meId), me: true });
+    const rivals = s.players.filter((p) => p.id !== meId && p.soulsPermille > 0).sort((a, z) => z.soulsPermille - a.soulsPermille);
+    for (const p of rivals) segs.push({ color: colorForPlayer(p.id), pct: p.soulsPermille / 10, label: seatName(this.g.players, p.id), me: false });
     const restPct = Math.max(0, 100 - segs.reduce((t, sg) => t + sg.pct, 0));
     segs.push({ color: "#3a2e1c", pct: restPct, label: "unconverted", me: false });
     const html = segs
       .map(
         (sg) =>
-          `<div class="seg${sg.me ? " me" : ""}" style="width:${sg.pct.toFixed(3)}%;background:${sg.color}">${
+          `<div class="seg${sg.me ? " me" : ""}" style="width:${sg.pct.toFixed(2)}%;background:${sg.color}">${
             sg.pct >= 9 ? `<span class="snm">${esc(sg.label)}</span><span class="spc">${Math.round(sg.pct)}%</span>` : ""
           }</div>`,
       )
@@ -1201,6 +978,15 @@ export class Hud {
       this.el.share.innerHTML = html;
       this.el.share.dataset.h = html;
     }
+    const model = this.race.current;
+    if (model && model.threshold < 1000) {
+      const pct = model.threshold / 10;
+      this.el.tip.style.display = "block";
+      this.el.tip.style.left = `${pct.toFixed(2)}%`;
+      const lbl = `TIPPING POINT ${Math.round(pct)}%`;
+      const span = this.el.tip.firstElementChild as HTMLElement;
+      if (span.textContent !== lbl) span.textContent = lbl;
+    } else this.el.tip.style.display = "none";
   }
 
   update(): void {
@@ -1208,16 +994,14 @@ export class Hud {
     const me = this.me();
     if (!me) return;
 
-    // apply the cult's accent (armed/selected states, signature, badge)
     if (this.accentFor !== me.archetype) {
       this.accentFor = me.archetype;
-      const acc = ARCH_ACCENT[me.archetype] ?? ARCH_ACCENT["circle"]!;
+      const acc = archAccent(me.archetype);
       this.root.style.setProperty("--fk-acc", acc.a);
       this.root.style.setProperty("--fk-acc2", acc.b);
       playFactionTheme(me.archetype);
     }
 
-    // derive $/sec + follower trend at sim rate
     if (s.tick !== this.prev.tick) {
       const dt = (s.tick - this.prev.tick) / 10;
       if (dt > 0) {
@@ -1227,9 +1011,30 @@ export class Hud {
       this.prev = { followers: toInt(me.followers), usd: toInt(me.usd), tick: s.tick };
     }
 
+    // ---- Victory Race (2 Hz full pass) ------------------------------------
+    if (s.tick - this.lastRaceTick >= 5 || s.tick < this.lastRaceTick) {
+      this.lastRaceTick = s.tick;
+      const allies = new Set<number>();
+      for (const al of s.alliances) {
+        if (al.a === this.g.playerId) allies.add(al.b);
+        if (al.b === this.g.playerId) allies.add(al.a);
+      }
+      this.race.refresh(computeRace(this.g), allies);
+    } else this.race.tick();
+    this.ascStrip.tick();
+    this.threats.tick();
+
+    // ---- top bar ----------------------------------------------------------
     const fol = toInt(me.followers);
     const arrow = this.folTrend > 1 ? " ▲" : this.folTrend < -1 ? " ▼" : "";
-    this.el.followers.textContent = fmtNum(fol) + arrow;
+    let folTxt = fmtNum(fol) + arrow;
+    const stats = propertyStats(s, me.id);
+    const crowded = stats.tiles > 0 && stats.free < 3;
+    if (crowded) folTxt += " ⚠";
+    if (this.el.followers.textContent !== folTxt) this.el.followers.textContent = folTxt;
+    this.el.followers.title = crowded
+      ? "Crowded! Your land is full — BUY LAND [N] or your flock stops growing."
+      : `${fmtNum(fol)} of ${fmtNum(toInt(followerCap(me, this.g.balance, s)))} cap · ${stats.free} free parcel tiles`;
     this.el.usd.textContent = fmtMoney(toInt(me.usd));
     this.el.usd.title = `${this.usdPerSec >= 0 ? "+" : ""}${fmtMoney(Math.round(this.usdPerSec))}/s`;
     this.el.faith.textContent = `${toFloat(me.faith).toFixed(0)}`;
@@ -1237,189 +1042,79 @@ export class Hud {
     this.el.heat.textContent = `${heat.toFixed(0)}`;
     const hot = heat >= 50;
     this.el.heat_box?.classList.toggle("hot", hot);
-    this.el.heat_sub.textContent = hot ? "◆" : "";
+    this.el.heat_sub.textContent = heat >= 25 ? "◆" : "";
+    this.el.heat_sub.title = heat >= 25 ? "exposable — rivals can EXPOSE you" : "";
     this.el.timer.textContent = s.timerTicks > 0 ? fmtTime(s.timerTicks - s.tick) : fmtTime(s.tick);
 
-    const leader = [...s.players].filter((p) => p.spawned).sort((a, b) => b.ownedTiles - a.ownedTiles)[0];
-    const leaderPct = leader && s.populated > 0 ? (leader.ownedTiles * 100) / s.populated : 0;
+    let leader: PlayerState | undefined;
+    for (const p of s.players) if (p.spawned && (!leader || p.soulsPermille > leader.soulsPermille)) leader = p;
+    const leaderPct = leader ? leader.soulsPermille / 10 : 0;
     this.el.leader.textContent = `${leaderPct.toFixed(0)}%`;
-    this.el.leader.title = leader ? `${this.g.players.find((p) => p.id === leader.id)?.name ?? "—"} leads` : "";
+    const tp = this.race.current?.threshold ?? 1000;
+    this.el.leader_sub.textContent = tp < 1000 ? `/${Math.round(tp / 10)}` : "";
+    this.el.leader.title = leader ? `${seatName(this.g.players, leader.id)} leads with ${leaderPct.toFixed(1)}% of souls` : "";
 
-    // active missions (v3): what your flock is doing right now
     this.renderMissions(s, me);
+    this.powers.update(me, s, this.ui.placement?.mode === "ability" ? this.ui.placement.ability : null);
 
-    // powers: labels, live costs, affordability greying, cooldown countdowns —
-    // the same treatment builds get (§27)
-    const usd = toInt(me.usd);
-    const faith = toFloat(me.faith);
-    const powers = [
-      { el: this.el.actD, def: ACTIVE_D[me.archetype]!, key: "D", role: "archetype power; some target a tile" },
-      { el: this.el.actF, def: ACTIVE_F[me.archetype]!, key: "F", role: "archetype power; some target a tile" },
-      { el: this.el.actG, def: SIGNATURE[me.archetype]!, key: "G", role: "your signature, the big play" },
-    ] as const;
-    for (const { el, def, key, role } of powers) {
-      el.querySelector<HTMLElement>(".lb")!.textContent = def.label;
-      const cd = def.cd ? (me.cooldowns[def.cd] ?? 0) : 0;
-      const c = def.cost?.(me);
-      const needUsd = c?.usd ?? 0;
-      const needFaith = c?.faith ?? 0;
-      let cant = cd <= 0 && ((needUsd > 0 && usd < needUsd) || (needFaith > 0 && faith < needFaith));
-      let costText = needUsd ? fmtMoney(needUsd) : needFaith ? `${needFaith}✛` : "";
-      let hint = needUsd ? ` (costs ${fmtMoney(needUsd)})` : needFaith ? ` (costs ${needFaith} Faith)` : "";
-      if (def.id === "prophecy") {
-        // Prophecy is gated by territory + once-per-match, not resources (§11.1)
-        const need = KIT.prophecy.minSoulsPermille;
-        cant = me.prophecyUsed || me.soulsPermille < need;
-        costText = me.prophecyUsed ? "used" : `${Math.floor(me.soulsPermille / 10)}/${need / 10}%`;
-        hint = ` — needs ${need / 10}% of the town's souls, once per match`;
-      } else if (def.passive) {
-        costText = "passive";
-        cant = false;
-        hint = " — lands passively with your kit";
-      }
-      el.classList.toggle("cd", cd > 0);
-      el.classList.toggle("cant", cant);
-      const costEl = el.querySelector<HTMLElement>(".cost");
-      if (costEl) costEl.textContent = cd > 0 ? `${Math.ceil(cd / 10)}s` : costText;
-      el.title = `${def.label} (${key}) — ${role}${hint}`;
-    }
-
-    // build palette: live cost, affordability greying, armed highlight
-    // (civic control passed so a held sawmill shows its discounted price)
+    // ---- SPEND tray: live prices, affordability, armed highlight -----------
+    const usdF = me.usd;
     const civicsNow = computeCivicControl(s);
-    this.el.builds.querySelectorAll<HTMLElement>("[data-build]").forEach((b) => {
-      const type = b.dataset.build as BuildingType;
-      const cost = toInt(buildingCost(s, me.id, type, civicsNow, this.g.balance));
-      const armed = this.ui.placement?.mode === "build" && this.ui.placement.building === type;
-      b.classList.toggle("arm", armed);
-      b.classList.toggle("cant", usd < cost && !armed);
-      const costEl = b.querySelector<HTMLElement>(".cost");
-      if (costEl) costEl.textContent = fmtMoney(cost);
-    });
-
-    // SCHEME buttons: light up whichever action is armed
-    if (this.el.scheme) {
-      const armedKey = this.schemeKey(this.ui.placement);
-      this.el.scheme.querySelectorAll<HTMLElement>("[data-scheme]").forEach((b) => {
-        b.classList.toggle("arm", b.dataset.scheme === armedKey);
-      });
-    }
-
-    // BUY LAND: live escalating price + affordability
     {
-      const landBtn = this.el.builds.querySelector<HTMLElement>("[data-land]");
-      if (landBtn) {
-        const cost = toInt(propertyCost(me, this.g.balance));
-        const armed = this.ui.placement?.mode === "property";
-        landBtn.classList.toggle("arm", armed);
-        landBtn.classList.toggle("cant", usd < cost && !armed);
-        const costEl = landBtn.querySelector<HTMLElement>(".cost");
-        if (costEl) costEl.textContent = fmtMoney(cost);
-      }
+      const b = this.el.builds.querySelector<HTMLElement>("[data-build]")!;
+      const maxed = me.compounds >= COMMUNE_MAX_STAGE;
+      const cost = buildingCost(s, me.id, "compound", civicsNow, this.g.balance);
+      b.classList.toggle("cant", maxed || usdF < cost);
+      const txt = maxed ? "MAX" : fmtMoney(toInt(cost));
+      const costEl = b.querySelector<HTMLElement>(".cost")!;
+      if (costEl.textContent !== txt) costEl.textContent = txt;
+      b.title = maxed
+        ? `COMMUNE — stage ${me.compounds}/${COMMUNE_MAX_STAGE} (maxed).`
+        : `COMMUNE [B] — stage ${me.compounds}/${COMMUNE_MAX_STAGE}. Upgrade for ${fmtMoney(toInt(cost))} to raise your flock cap (now ${fmtNum(toInt(followerCap(me, this.g.balance, s)))}).`;
     }
-
-    // RECRUIT DRIVE: live batch size + escalating price + affordability
     {
-      const btn = this.el.builds.querySelector<HTMLElement>("[data-recruit]");
-      if (btn) {
-        const econ = this.g.balance.economy;
-        // mirror the sim: the batch is a ‰ of flock, clamped to the room under
-        // the follower cap, and you're charged only for what actually lands.
-        const room = toInt(followerCap(me, this.g.balance, s)) - toInt(me.followers);
-        let gained = Math.floor((toInt(me.followers) * econ.recruitDrivePermille) / 1000);
-        if (gained > room) gained = Math.max(0, room);
-        const cost = gained * toInt(econ.recruitCostPer);
-        btn.classList.toggle("cant", gained <= 0 || usd < cost);
-        const costEl = btn.querySelector<HTMLElement>(".cost");
-        if (costEl) costEl.textContent = gained > 0 ? `+${gained} · ${fmtMoney(cost)}` : "—";
-      }
+      const landBtn = this.el.builds.querySelector<HTMLElement>("[data-land]")!;
+      const cost = propertyCost(me, this.g.balance);
+      const armed = this.ui.placement?.mode === "property";
+      landBtn.classList.toggle("arm", armed);
+      landBtn.classList.toggle("cant", usdF < cost && !armed);
+      landBtn.querySelector<HTMLElement>(".cost")!.textContent = fmtMoney(toInt(cost));
     }
-
-    // CROWDING (§18 rev.): flag the follower readout when land runs out
     {
-      const stats = propertyStats(s, me.id);
-      const crowded = stats.tiles > 0 && stats.free < 3;
-      if (crowded) {
-        this.el.followers.textContent += " ⚠";
-        this.el.followers.title = "Crowded! Your land is full — buy property (N) or your flock stops growing.";
-      } else {
-        this.el.followers.title = `${stats.free} free parcel tiles`;
-      }
+      const btn = this.el.builds.querySelector<HTMLElement>("[data-recruit]")!;
+      const econ = this.g.balance.economy;
+      const room = toInt(followerCap(me, this.g.balance, s)) - fol;
+      let gained = Math.floor((fol * econ.recruitDrivePermille) / 1000);
+      if (gained > room) gained = Math.max(0, room);
+      const cost = gained * toInt(econ.recruitCostPer);
+      btn.classList.toggle("cant", gained <= 0 || toInt(usdF) < cost);
+      btn.querySelector<HTMLElement>(".cost")!.textContent = gained > 0 ? `+${gained} ${fmtMoney(cost)}` : "cap";
     }
 
-    // CIVICS panel: who holds the key buildings (refresh ~1/s)
-    if (s.tick % 10 === 0) this.renderCivics(s);
+    if (s.tick % 10 === 0 || !this.el.civics.dataset.h) this.renderCivics(s, me);
 
-    // doctrine badge
     const pts = doctrinePointsAvailable(me);
-    (this.el.docBadge as HTMLElement).style.display = pts > 0 ? "flex" : "none";
+    this.el.docBadge.style.display = pts > 0 ? "flex" : "none";
     this.el.docBadge.textContent = `${pts}`;
 
-    this.renderPlayers(s);
     this.collectDrama(s);
     this.renderFeed(s);
     this.renderBanner(s);
     this.renderCivicTray(s, me);
     this.renderMinimap(s);
-  }
-
-  private renderPlayers(s: SimState): void {
-    const rows = [...s.players].filter((p) => p.spawned).sort((a, b) => b.ownedTiles - a.ownedTiles);
-    const allies = new Set<number>();
-    for (const al of s.alliances) {
-      if (al.a === this.g.playerId) allies.add(al.b);
-      if (al.b === this.g.playerId) allies.add(al.a);
-    }
-    const html =
-      `<h4>Congregations</h4>` +
-      rows
-        .map((p) => {
-          const nm = esc(this.g.players.find((q) => q.id === p.id)?.name ?? `Cult #${p.id}`);
-          const me = p.id === this.g.playerId;
-          const tags = `${p.traitor ? "🗡" : ""}${allies.has(p.id) ? "🤝" : ""}${!p.alive ? "☠" : ""}`;
-          const acts =
-            me || !p.alive
-              ? ""
-              : `<span class="act" data-ally="${p.id}" title="${allies.has(p.id) ? "break the alliance" : "propose an alliance"}">${allies.has(p.id) ? "✕" : "ally"}</span>`;
-          return `<div class="fk-prow${me ? " me" : ""}${!p.alive ? " dead" : ""}">
-          <span class="sw" style="background:${colorForPlayer(p.id)}"></span>
-          <span class="nm" title="${nm}">${nm}</span>
-          <span class="tg">${tags}</span>
-          <span class="tl" title="households held">${p.ownedTiles}</span>${acts}</div>`;
-        })
-        .join("");
-    if (this.el.players.dataset.h !== html) {
-      this.el.players.innerHTML = html;
-      this.el.players.dataset.h = html;
-      this.el.players.querySelectorAll<HTMLElement>("[data-ally]").forEach((a) => {
-        a.onclick = () => {
-          const target = Number(a.dataset.ally);
-          const allied = allies.has(target);
-          this.send({ t: allied ? "ALLY_BREAK" : "ALLY_PROPOSE", target } as ClientIntent);
-        };
-      });
-    }
+    if (this.coach && s.tick % 10 === 0) this.coach.update();
   }
 
   private renderFeed(s: SimState): void {
     const kq = (col: string): string => `<span class="kq" style="background:${col}"></span>`;
     const offers = s.allianceOffers
       .filter((o) => o.to === this.g.playerId)
-      .map((o) => {
-        const nm = esc(this.g.players.find((p) => p.id === o.from)?.name ?? `Cult #${o.from}`);
-        return `<div class="e">${kq(FEED_COL["ally"]!)}<span>✉ ${nm} offers alliance — <span class="act" data-accept="${o.from}">accept</span></span></div>`;
-      })
+      .map((o) => `<div class="e">${kq(FEED_COL["ally"]!)}<span>✉ ${esc(seatName(this.g.players, o.from))} offers alliance — <span class="act" data-accept="${o.from}">accept</span></span></div>`)
       .join("");
-    const lines = this.feed
-      .map((f) => `<div class="e">${kq(FEED_COL[f.tag] ?? "#a08a64")}<span>${f.text}</span></div>`)
-      .join("");
-    // chat (server-moderated) — hidden when muted via the .fk-mute-chat class
+    const lines = this.feed.map((f) => `<div class="e">${kq(FEED_COL[f.tag] ?? "#a08a64")}<span>${f.text}</span></div>`).join("");
     const chat = this.g.chat
       .slice(-8)
-      .map((c) => {
-        const nm = this.g.players.find((p) => p.id === c.from)?.name ?? `Cult #${c.from}`;
-        return `<div class="e fk-chat">${kq("#8a7550")}<span style="color:#a08a64">💬 ${esc(nm)}: ${esc(c.msg)}</span></div>`;
-      })
+      .map((c) => `<div class="e fk-chat">${kq("#8a7550")}<span style="color:#a08a64">💬 ${esc(seatName(this.g.players, c.from))}: ${esc(c.msg)}</span></div>`)
       .join("");
     const html = `<div class="fk-feed-h">● DRAMA FEED</div>${offers}${lines}${chat}`;
     if (this.el.feed.dataset.h !== html) {
@@ -1432,18 +1127,148 @@ export class Hud {
   }
 
   private renderBanner(s: SimState): void {
-    const existing = this.root.querySelector(".fk-banner");
+    const slot = this.el.bannerSlot!;
+    const existing = slot.firstElementChild;
     if (this.banner && s.tick < this.banner.until) {
-      if (!existing) {
+      if (!existing || (existing as HTMLElement).dataset.t !== this.banner.text) {
+        slot.innerHTML = "";
         const b = document.createElement("div");
         b.className = "fk-banner";
-        // feed text is pre-escaped (names run through esc()), safe for innerHTML
+        b.dataset.t = this.banner.text;
         b.innerHTML = `<span class="bx">‼</span><span>${this.banner.text}</span>`;
-        this.root.appendChild(b);
+        slot.appendChild(b);
       }
     } else if (existing) {
-      existing.remove();
+      slot.innerHTML = "";
       this.banner = null;
+    }
+  }
+
+  /** Active-missions panel: n/3 cohorts, what each is doing, recall. */
+  private renderMissions(s: SimState, me: PlayerState): void {
+    const cohorts = me.cohorts;
+    const cnt = `${cohorts.length}/${MAX_COHORTS}`;
+    if (this.el.missionsCnt.textContent !== cnt) this.el.missionsCnt.textContent = cnt;
+    this.el.missionsCnt.classList.toggle("full", cohorts.length >= MAX_COHORTS);
+    if (cohorts.length === 0) {
+      const empty = `<div class="fk-nomissions">no cohorts out — RIGHT-CLICK the town to send your flock</div>`;
+      if (this.el.missions.dataset.h !== empty) {
+        this.el.missions.innerHTML = empty;
+        this.el.missions.dataset.h = empty;
+      }
+      return;
+    }
+    let html = "";
+    cohorts.forEach((c, i) => {
+      const md = MODES.find((x) => x.id === c.mode) ?? MODES[1];
+      const where = targetName(s, c.target);
+      const mass = Math.max(0, Math.round(toFloat(c.mass)));
+      html += `<div class="fk-mrow${c.recalling ? " recalling" : ""}" data-tile="${c.target}" title="${md.label} · ${mass} flock ${c.recalling ? "walking home" : `working ${esc(where)}`} — click to look">
+        <i class="mic" style="color:${md.col}">${icon(md.ic, "currentColor", 12)}</i>
+        <span class="mnm">${esc(where)}</span><span class="mms">${mass}</span>
+        ${c.recalling ? "" : `<button class="mrecall" data-slot="${i}" title="Recall this cohort home (frees the slot when they arrive)">⟲</button>`}</div>`;
+    });
+    if (this.el.missions.dataset.h !== html) {
+      this.el.missions.innerHTML = html;
+      this.el.missions.dataset.h = html;
+      this.el.missions.querySelectorAll<HTMLElement>(".fk-mrow").forEach((row) => {
+        row.onclick = (e) => {
+          if ((e.target as HTMLElement).closest(".mrecall")) return;
+          const t = Number(row.dataset.tile);
+          if (t >= 0) this.camera?.flashTile(t, performance.now());
+        };
+      });
+      this.el.missions.querySelectorAll<HTMLElement>(".mrecall").forEach((btn) => {
+        btn.onclick = (e) => {
+          e.stopPropagation();
+          this.send({ t: "MISSION_RECALL", slot: Number(btn.dataset.slot) } as ClientIntent);
+        };
+      });
+    }
+  }
+
+  /**
+   * Key Buildings (§13 rev.): holder swatch + siege bar, click to jump; rows
+   * you HOLD grow a decree button with its hotkey and live price.
+   */
+  private renderCivics(s: SimState, me: PlayerState): void {
+    const w = s.world;
+    const control = computeCivicControl(s);
+    const siege = new Map<number, SiegeBar>(computeSiegeState(s).map((b: SiegeBar) => [b.lot, b]));
+    const present = new Set<number>();
+    for (let t = 0; t < w.lot.length; t++) if (w.lot[t] !== 0) present.add(w.lot[t]!);
+    const landmarks = new Set<number>();
+    for (let t = 0; t < w.landmark.length; t++) if (w.landmark[t] !== 0) landmarks.add(w.landmark[t]!);
+    const presentLots = CIVIC_LOTS.filter((lot) => present.has(lot));
+    const held = presentLots.filter((lot) => control.get(lot) === me.id).length;
+    const momentumPct = Math.round(held * toFloat(this.g.balance.civics.civicMomentumPer) * 100);
+    const momoColor = held > 0 ? "#9bbf6a" : "#8a7550";
+    const decreeFor = (lot: number, landmark: boolean): string => {
+      for (const d of Object.values(CIVIC_DECREES)) {
+        if (d.lot !== lot || d.isLandmark !== landmark) continue;
+        const can = canExecuteCivicDecree(s, me.id, d.id);
+        const cd = me.cooldowns[`decree_${d.id}`] ?? 0;
+        const price = [d.costUsd > 0 ? fmtMoney(d.costUsd) : "", d.costFaith > 0 ? `${d.costFaith}✛` : ""].filter(Boolean).join(" ") || "free";
+        const key = DECREE_KEYS[d.id];
+        const label = cd > 0 ? `${Math.ceil(cd / 10)}s` : price;
+        const why = can.ok ? "" : ` — ${can.reason ?? "unavailable"}`;
+        return `<button class="dec${can.ok ? "" : " off"}" data-decree="${d.id}" title="${esc(`${d.name}${key ? ` [${key}]` : ""} — ${d.description} · ${price}${why}`)}">${key ? `<span class="k">${key}</span>` : ""}${esc(label)}</button>`;
+      }
+      return "";
+    };
+    let html = `<h4>Key Buildings</h4>`;
+    html += `<div style="font-family:'VT323',monospace;font-size:14px;color:${momoColor};margin:-4px 0 7px;line-height:1.1">you hold ${held}/${presentLots.length} · <span style="color:#f3cf6a">+${momentumPct}%</span> conversion</div>`;
+    const row = (key: string, holder: number, nm: string, effect: string, bar: SiegeBar | undefined, dec: string): string => {
+      const mine = holder === me.id;
+      const holderName = holder === 0 ? "unclaimed" : esc(seatName(this.g.players, holder));
+      const sw = `<span class="sw" style="background:${holder === 0 ? "#4a3a26" : colorForPlayer(holder)}"></span>`;
+      const fill = bar?.leaderFill ?? 0;
+      const lc = bar && bar.leader !== 0 ? colorForPlayer(bar.leader) : "#4a3a26";
+      const siegeBar = bar
+        ? `<div class="siege${bar.contested ? " contested" : ""}"><div class="fill" style="width:${(fill * 100).toFixed(1)}%;background:${lc}"></div></div>`
+        : "";
+      return `<div class="fk-prow${mine ? " me" : ""}" data-civic="${key}" style="cursor:pointer;pointer-events:auto" title="${esc(effect)} — click to look">
+        ${sw}<span class="nm">${nm}</span>${mine && dec ? dec : `<span class="hold">${holderName}</span>`}${siegeBar}</div>`;
+    };
+    for (const lot of CIVIC_LOTS) {
+      if (!present.has(lot)) continue;
+      const holder = control.get(lot) ?? 0;
+      html += row(`l${lot}`, holder, CIVIC_NAMES[lot] ?? "?", CIVIC_EFFECTS[lot] ?? "", siege.get(lot), decreeFor(lot, false));
+    }
+    for (const [lm, nm] of [[Landmark.TownHall, "Town Hall"], [Landmark.RadioTower, "Radio Tower"]] as const) {
+      if (!landmarks.has(lm)) continue;
+      const holder = s.players.find((p) => ownsLandmark(s, p.id, lm))?.id ?? 0;
+      const dec = Object.values(CIVIC_DECREES).find((d) => d.isLandmark && d.lot === lm);
+      html += row(`m${lm}`, holder, nm, dec ? `Decree: ${dec.name} — ${dec.description}` : "", undefined, decreeFor(lm, true));
+    }
+    if (this.el.civics.dataset.h !== html) {
+      this.el.civics.innerHTML = html;
+      this.el.civics.dataset.h = html;
+      this.el.civics.querySelectorAll<HTMLElement>("[data-decree]").forEach((b) => {
+        b.onclick = (e) => {
+          e.stopPropagation();
+          this.send({ t: "CIVIC_DECREE", decree: b.dataset.decree as CivicDecreeId } as ClientIntent);
+        };
+      });
+      this.el.civics.querySelectorAll<HTMLElement>("[data-civic]").forEach((r) => {
+        r.onclick = () => {
+          const key = r.dataset.civic!;
+          const n = Number(key.slice(1));
+          const isLm = key.startsWith("m");
+          const arr = isLm ? w.landmark : w.lot;
+          const holderNow = isLm ? 0 : (computeCivicControl(this.g.sim).get(n) ?? 0);
+          let target = -1;
+          for (let t = 0; t < arr.length; t++) {
+            if (arr[t] !== n) continue;
+            if (target < 0) target = t;
+            if (holderNow !== 0 && w.owner[t] === holderNow) {
+              target = t;
+              break;
+            }
+          }
+          if (target >= 0) this.camera?.flashTile(target, performance.now());
+        };
+      });
     }
   }
 
@@ -1494,121 +1319,6 @@ export class Hud {
           (v.h / w.height) * H,
         );
       }
-    }
-  }
-
-  /** Active-missions panel (v3): what each deployed cohort is doing, with recall. */
-  private renderMissions(s: SimState, me: SimState["players"][number]): void {
-    const cohorts = me.cohorts;
-    if (cohorts.length === 0) {
-      const empty = `<div class="fk-nomissions">no missions out — click the town to send your flock</div>`;
-      if (this.el.missions.dataset.h !== empty) {
-        this.el.missions.innerHTML = empty;
-        this.el.missions.dataset.h = empty;
-      }
-      return;
-    }
-    const modeOf = (m: string): (typeof STANCES)[number] => STANCES.find((x) => x.id === m) ?? STANCES[1]!;
-    let html = "";
-    cohorts.forEach((c, i) => {
-      const md = modeOf(c.mode);
-      const where = targetName(s, c.target);
-      const mass = Math.max(0, Math.round(toFloat(c.mass)));
-      html += `<div class="fk-mrow${c.recalling ? " recalling" : ""}" data-tile="${c.target}" title="${md.label} · ${mass} flock ${c.recalling ? "returning home" : `working ${esc(where)}`}">
-        <i class="mic" style="color:${md.col}">${icon(md.ic, "currentColor", 12)}</i>
-        <span class="mnm">${esc(where)}</span><span class="mms">${mass}</span>
-        ${c.recalling ? "" : `<button class="mrecall" data-slot="${i}" title="Recall this cohort home">⟲</button>`}</div>`;
-    });
-    if (this.el.missions.dataset.h !== html) {
-      this.el.missions.innerHTML = html;
-      this.el.missions.dataset.h = html;
-      this.el.missions.querySelectorAll<HTMLElement>(".fk-mrow").forEach((row) => {
-        row.onclick = (e) => {
-          if ((e.target as HTMLElement).closest(".mrecall")) return;
-          const t = Number(row.dataset.tile);
-          if (t >= 0) this.camera?.flashTile(t, performance.now());
-        };
-      });
-      this.el.missions.querySelectorAll<HTMLElement>(".mrecall").forEach((btn) => {
-        btn.onclick = (e) => {
-          e.stopPropagation();
-          this.send({ t: "MISSION_RECALL", slot: Number(btn.dataset.slot) } as never);
-        };
-      });
-    }
-  }
-
-  /** Key-buildings panel (§13 rev.): holder swatch + effect, click to jump. */
-  private renderCivics(s: SimState): void {
-    const w = s.world;
-    const control = computeCivicControl(s);
-    const siege = new Map<number, SiegeBar>(computeSiegeState(s).map((b: SiegeBar) => [b.lot, b]));
-    const NAMES: Record<number, string> = {
-      [Lot.Sheriff]: "Police",
-      [Lot.School]: "Elementary",
-      [Lot.HighSchool]: "High School",
-      [Lot.Supermarket]: "Grocery",
-      [Lot.Church]: "Church",
-      [Lot.Bank]: "Bank",
-      [Lot.GrainElevator]: "Grain Elevator",
-      [Lot.Cannery]: "Cannery",
-      [Lot.Sawmill]: "Sawmill",
-      [Lot.Lighthouse]: "Lighthouse",
-    };
-    // §2A anchors only exist on their archetype's map — list what THIS town has
-    const present = new Set<number>();
-    for (let t = 0; t < w.lot.length; t++) if (w.lot[t] !== 0) present.add(w.lot[t]!);
-    // Civic Momentum summary (§13 rev.): how many of the town's institutions YOU
-    // hold, and the compounding conversion bonus it buys — the strategic stakes,
-    // legible at a glance.
-    const presentLots = CIVIC_LOTS.filter((lot) => present.has(lot));
-    const held = presentLots.filter((lot) => control.get(lot) === this.g.playerId).length;
-    const momentumPct = Math.round(held * toFloat(this.g.balance.civics.civicMomentumPer) * 100);
-    const momoColor = held > 0 ? "#9bbf6a" : "#8a7550";
-    let html = `<h4>Key Buildings</h4>`;
-    html += `<div style="font-family:'VT323',monospace;font-size:14px;color:${momoColor};margin:-4px 0 7px;line-height:1.1">you hold ${held}/${presentLots.length} · <span style="color:#f3cf6a">+${momentumPct}%</span> conversion</div>`;
-    for (const lot of CIVIC_LOTS) {
-      if (!present.has(lot)) continue;
-      const holder = control.get(lot) ?? 0;
-      const mine = holder === this.g.playerId;
-      const holderName =
-        holder === 0
-          ? ""
-          : esc(this.g.players.find((p) => p.id === holder)?.name ?? `Cult #${holder}`);
-      const sw =
-        holder === 0
-          ? `<span class="sw" style="background:#4a3a26"></span>`
-          : `<span class="sw" style="background:${colorForPlayer(holder)}"></span>`;
-      const bar = siege.get(lot);
-      const leaderFill = bar?.leaderFill ?? 0;
-      const leaderColor = bar && bar.leader !== 0 ? colorForPlayer(bar.leader) : "#4a3a26";
-      const contested = bar?.contested ?? false;
-      const siegeBar = `<div class="siege${contested ? " contested" : ""}" data-fill="${leaderFill.toFixed(3)}" data-contested="${contested}">
-        <div class="fill" style="width:${(leaderFill * 100).toFixed(1)}%;background:${leaderColor}"></div></div>`;
-      html += `<div class="fk-prow${mine ? " me" : ""}" data-civic="${lot}" style="cursor:pointer;pointer-events:auto" title="${esc(CIVIC_EFFECTS[lot] ?? "")}">
-        ${sw}<span class="nm">${NAMES[lot] ?? "?"}</span>
-        <span class="hold">${holder === 0 ? "unclaimed" : holderName}</span>${siegeBar}</div>`;
-    }
-    if (this.el.civics.dataset.h !== html) {
-      this.el.civics.innerHTML = html;
-      this.el.civics.dataset.h = html;
-      this.el.civics.querySelectorAll<HTMLElement>("[data-civic]").forEach((row) => {
-        row.onclick = () => {
-          const lot = Number(row.dataset.civic);
-          // jump to the controlling instance if held, else the first on the map
-          const holderNow = computeCivicControl(this.g.sim).get(lot) ?? 0;
-          let target = -1;
-          for (let t = 0; t < w.lot.length; t++) {
-            if (w.lot[t] !== lot) continue;
-            if (target < 0) target = t;
-            if (holderNow !== 0 && w.owner[t] === holderNow) {
-              target = t;
-              break;
-            }
-          }
-          if (target >= 0) this.camera?.flashTile(target, performance.now());
-        };
-      });
     }
   }
 
@@ -1774,9 +1484,8 @@ export class Hud {
 
     // Render badges
     let html = "";
-    if (buffs.length === 0) {
-      html = `<span style="font-size:8px;color:#6b563a;letter-spacing:0.5px;padding:0 4px">NO ACTIVE BUFFS</span>`;
-    } else {
+    this.el.civicTray!.style.display = buffs.length === 0 ? "none" : "flex";
+    {
       for (const b of buffs) {
         html += `<div class="fk-buff-badge" title="${esc(b.tooltip)}" style="--badge-col:${b.color};--badge-glow:${b.glow};--badge-border:${b.color}">
           <div class="fk-buff-pie" style="--pie-pct:${b.pct.toFixed(1)}%"><i class="ic">${icon(b.icon, "currentColor", 10)}</i></div>
@@ -1793,6 +1502,7 @@ export class Hud {
 
   destroy(): void {
     window.removeEventListener("keydown", this.focusChatKey);
+    this.scheme.close();
     this.root.remove();
   }
 }
@@ -1805,50 +1515,59 @@ const DOC_COLS: { br: string; title: string; accent: string; ic: string }[] = [
   { br: "E", title: "EMOTIONAL", accent: "#84a23c", ic: "heart" },
 ];
 
+/** Node copy — the real effects (doctrine.ts + STAGE1_DESIGN §8). */
+const DOC_NODES: Record<string, string[]> = {
+  B: ["Tithing Drill · +10% tithe", "Uniforms · +15% home defense", "Curfews · −40% self-dissent", "Total Devotion · −50% defense attrition"],
+  I: ["Rumor Mill · Expose −40%, works at Heat 15", "Counter-Narrative · Exposes vs you halved, no reset", "Strong Signal · strikes +30% radius, −20% cost", "Official Story · Heat decays 2× below 60"],
+  T: ["Better Pamphlets · +10% R₀", "Whisper Network · +60% ambient creep", "Forgiveness · lost-tile scars heal 2× faster", "Irresistible Word · ignore half of district defense"],
+  E: ["Welcome Basket · love-bomb powers −30%", "Family Now · raids vs you −50%", "Clean Image · −30% Heat gain", "Unshakeable · shrug off one mass apostasy"],
+};
+
 /**
  * Doctrine picker (§28): the 4-column BITE grid as a transient panel (not a
- * blocking modal — click-away closes it). Real numbers shown per node.
+ * blocking modal — click-away closes it). Shows price, tier locks and Faith.
  */
 function showDoctrinePanel(g: GameSession): void {
   document.querySelector(".fk-doc-panel")?.remove();
   const me = g.sim.players.find((p) => p.id === g.playerId);
   if (!me) return;
   const pts = doctrinePointsAvailable(me);
-  const NODES: Record<string, string[]> = {
-    B: ["Tithing Drill +10% tithe", "Uniforms +15% home def", "Curfew −dissent", "Total Discipline"],
-    I: ["Newsletter +Heat vis", "Wiretap intercept", "Strong Signal strikes", "Total Surveillance"],
-    T: ["Better Pamphlets +10% R₀", "Loaded Language", "Us vs Them", "Sacred Science"],
-    E: ["Welcome Basket −30%", "Love Bombing", "Shunning", "Unshakeable"],
-  };
+  const faith = Math.floor(toFloat(me.faith));
   const panel = document.createElement("div");
   panel.className = "fk-doc-panel";
   panel.style.cssText =
     "position:absolute;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;" +
     "background:rgba(10,7,4,.82);font-family:'Pixelify Sans',ui-monospace,monospace;color:#efe3c6";
   const grid = DOC_COLS.map((col) => {
-    const cells = (NODES[col.br] ?? [])
+    const inBranch = me.doctrine.filter((n) => n[0] === col.br).length;
+    const cells = (DOC_NODES[col.br] ?? [])
       .map((label, i) => {
         const node = `${col.br}${i + 1}`;
         const have = me.doctrine.includes(node);
+        const locked = (i === 2 && inBranch < 2) || (i === 3 && inBranch < 3);
+        const poor = faith < DOCTRINE_FAITH_COST;
         const style = have
           ? `background:${col.accent};color:#19110a;box-shadow:inset 0 0 0 2px ${col.accent},0 3px 0 #060403;cursor:default`
-          : `background:#241c12;color:#efe3c6;box-shadow:inset 0 0 0 1px #36291a,0 3px 0 #060403;cursor:pointer`;
+          : locked || poor
+            ? `background:#1a130b;color:#8a7550;box-shadow:inset 0 0 0 1px #36291a,0 3px 0 #060403;cursor:not-allowed`
+            : `background:#241c12;color:#efe3c6;box-shadow:inset 0 0 0 1px #36291a,0 3px 0 #060403;cursor:pointer`;
+        const tag = have ? "OWNED" : locked ? `🔒 ${i === 2 ? 2 : 3} in branch` : `${DOCTRINE_FAITH_COST}✛`;
         return `<button class="fk-doc-node" data-node="${node}"
           style="display:block;width:100%;margin:0 0 5px;padding:8px 9px;text-align:left;border:0;font-family:inherit;${style}">
-          <div style="font-weight:700;font-size:12px;letter-spacing:.5px">${node}</div>
-          <div style="font-size:11px;opacity:.82;margin-top:2px;line-height:1.2">${label}</div></button>`;
+          <div style="display:flex;justify-content:space-between;font-weight:700;font-size:12px;letter-spacing:.5px"><span>${node}</span><span style="font-family:'VT323',monospace;font-size:14px;font-weight:400">${tag}</span></div>
+          <div style="font-size:11px;opacity:.85;margin-top:2px;line-height:1.2">${label}</div></button>`;
       })
       .join("");
     return `<div style="width:196px">
       <div style="font-family:'Press Start 2P',monospace;font-size:8px;letter-spacing:1px;color:${col.accent};margin-bottom:8px;display:flex;align-items:center;gap:6px">${icon(col.ic, col.accent, 11)}${col.title}</div>
       ${cells}</div>`;
   }).join("");
-  panel.innerHTML = `<div style="background:#1a130b;border:3px solid #6b563a;box-shadow:0 8px 0 #060403,inset 0 0 0 2px #36291a;padding:22px">
+  panel.innerHTML = `<div style="background:#1a130b;border:3px solid #6b563a;box-shadow:0 8px 0 #060403,inset 0 0 0 2px #36291a;padding:22px;max-width:92vw;max-height:88vh;overflow:auto">
     <div style="display:flex;justify-content:space-between;align-items:center;gap:24px;margin-bottom:16px">
       <div style="font-family:'Press Start 2P',monospace;font-size:13px;letter-spacing:1px;color:#efe3c6">DOCTRINE ▸ B.I.T.E.</div>
-      <div style="font-family:'VT323',monospace;font-size:20px;color:#f0b53e">${pts} POINT${pts === 1 ? "" : "S"}</div>
+      <div style="font-family:'VT323',monospace;font-size:20px;color:#f0b53e">${faith} FAITH · ${DOCTRINE_FAITH_COST} per pick · ${pts} affordable</div>
     </div><div style="display:flex;gap:12px">${grid}</div>
-    <div style="text-align:center;margin-top:14px;font-size:12px;color:#8a7550">irreversible · real numbers · click outside to close · <b>shift-click an owned node to share it with your ally (§16 pact)</b></div></div>`;
+    <div style="text-align:center;margin-top:14px;font-size:12px;color:#8a7550">picks are forever · tier 3 needs 2 picks in its branch, tier 4 needs 3 · bank Faith with TEND missions · click outside to close<br/>shift-click an OWNED node to share it with your ally (pact)</div></div>`;
   panel.onclick = (e) => {
     if (e.target === panel) panel.remove();
   };
@@ -1857,18 +1576,15 @@ function showDoctrinePanel(g: GameSession): void {
       const node = b.dataset.node!;
       const meNow = g.sim.players.find((p) => p.id === g.playerId);
       if ((ev as MouseEvent).shiftKey) {
-        // Ecumenical Pact (§16): share an OWNED node with your ally
-        if (meNow?.doctrine.includes(node)) {
-          g.sendIntent({ t: "PACT_PICK", node } as ClientIntent);
-        }
+        if (meNow?.doctrine.includes(node)) g.sendIntent({ t: "PACT_PICK", node } as ClientIntent);
         return;
       }
-      if (meNow?.doctrine.includes(node)) return; // owned: pick is a no-op
+      if (meNow?.doctrine.includes(node)) return;
       g.sendIntent({ t: "DOCTRINE_PICK", node } as ClientIntent);
       setTimeout(() => {
         panel.remove();
-        showDoctrinePanel(g); // reopen to reflect the pick
-      }, 60);
+        showDoctrinePanel(g);
+      }, 120);
     };
   });
   document.getElementById("app")!.appendChild(panel);

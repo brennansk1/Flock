@@ -2,10 +2,11 @@
  * TUTORIAL (§26): a scripted, fully OFFLINE first match — the same for
  * everyone. No server, no matchmaking: the deterministic @flock/sim runs
  * locally on a fixed seed with one deliberately sleepy rival bot, while a
- * step engine walks the player through the core loop, gating each step on
- * REAL sim state (found → mission → stance → power → build → land → van →
- * tower → doctrine → convert). Doubles as a gameplay QA harness: every step
- * exercises a live system on a reproducible world.
+ * step engine walks the player through the Stage 1 loop, gating each step on
+ * REAL sim state (found → send → crusade → recall/3-cap → power → commune →
+ * victory race → expose → heat → decrees → tend/doctrine → win by Ascension).
+ * Doubles as a gameplay QA harness: every step exercises a live system on a
+ * reproducible world. Untimed, so it can't dead-end on the clock.
  */
 
 import {
@@ -14,7 +15,12 @@ import {
   generateWorld,
   step,
   fromInt,
+  toInt,
   Stance,
+  exposeCost,
+  getArchetype,
+  hasArchetype,
+  DOCTRINE_FAITH_COST,
   MatchStatus,
   type RawBalance,
   type Intent,
@@ -56,7 +62,10 @@ export function connectTutorial(
       { id: RIVAL_ID, archetype: "radiant" },
     ],
     foundingTicks: FOUNDING_TICKS,
-    dominationPermille: 720,
+    // A small practice town: the Tipping Point sits at 40% and there is no
+    // clock, so the tutorial always ends on a real Ascension (never a timeout).
+    dominationPermille: 400,
+    timerTicks: 0,
     // The tutorial is a CONTROLLED, DETERMINISTIC scenario: no couriers to
     // rob, no Concerned Parents raids, no random schisms — nothing that could
     // punish a learner or vary the outcome. Follow the steps and you win;
@@ -167,13 +176,15 @@ function nearestTo(cand: { t: number; d: number }[], to: number, width: number):
 
 interface TutStep {
   title: string;
-  body: string;
+  body: string | ((g: GameSession) => string);
   /** advance when this reads true (checked every 150ms); omit for a NEXT button */
   done?: (g: GameSession) => boolean;
   /** CSS selector to pulse while the step is active */
   glow?: string;
   /** one-shot setup when the step becomes active (grants, nudges) */
   enter?: (g: GameSession) => void;
+  /** runs every check while the step is active (keeps a scripted setup true) */
+  during?: (g: GameSession) => void;
   /** extra help shown automatically if the player is stuck ~40s */
   hint?: string;
 }
@@ -187,124 +198,133 @@ const faith = (g: GameSession, f: number): void => {
   if (p && p.faith < fromInt(f)) p.faith = fromInt(f);
 };
 const me = (g: GameSession) => g.sim.players.find((pl) => pl.id === 1);
+const rival = (g: GameSession) => g.sim.players.find((pl) => pl.id === RIVAL_ID);
+/** The player's primary registry power (the D slot). */
+const primaryPower = (g: GameSession) => {
+  const p = me(g);
+  return p && hasArchetype(p.archetype) ? getArchetype(p.archetype).abilities.find((a) => a.slot === "primary") : undefined;
+};
+const cultRoute = (g: GameSession): string => {
+  const p = me(g);
+  const v = p && hasArchetype(p.archetype) ? getArchetype(p.archetype).victory : undefined;
+  return v ? `<b>${v.name}</b> — ${v.blurb}` : "your cult's own route";
+};
 
 const STEPS: TutStep[] = [
   {
     title: "WELCOME TO MUNDANE FALLS",
-    body: "A quiet town of unconverted souls — and you, a cult leader with a folding table and a dream. Your goal: convert more of the town than the rival bot before time runs out. This is a private practice session: offline, unranked, the same for everyone. Click NEXT.",
+    body: "A quiet town of unconverted souls — and you, a cult leader with a folding table and a dream. You win by racing a rival to a VICTORY CONDITION and holding it through a public countdown. This practice town is offline, unranked and at your own pace. Click NEXT.",
   },
   {
-    title: "FOUND YOUR COMPOUND",
-    body: "Click one of the GLOWING RINGS on the open land near town. Your cult buys the parcel, the First Compound rises, and your congregation is bused in. Check the top bar once you're in: FLOCK size, TREASURY, FAITH, HEAT, and the share strip at the very top — grow your slice to win.",
-    hint: "The rings pulse on OPEN LAND just outside the streets — not inside town, not on water. You have ~24 seconds.",
+    title: "FOUND YOUR COMMUNE",
+    body: "LEFT-CLICK one of the GLOWING RINGS on the open land near town. Your cult buys the parcel, the commune rises, and your congregation is bused in.",
+    hint: "The rings pulse on OPEN LAND just outside the streets — not inside town, not on water.",
     done: (g) => !!me(g)?.spawned,
   },
   {
-    title: "YOUR HUD AT A GLANCE",
-    body: "The colored bar at the very top shows everyone's town share — grow your slice to win. Below it: FLOCK size, TREASURY ($), FAITH (✛), and HEAT (⚠). Keep Heat below 60 or the Concerned Parents Association will harass your compound. Click NEXT.",
+    title: "READ THE BOARD",
+    body: "Top edge: every cult's share of the town's SOULS — yours first. The dashed marker is the TIPPING POINT: push your slice past it to start winning. Below: FLOCK, TREASURY ($), FAITH, HEAT (how loud you are) and LEADER. Click NEXT.",
     glow: ".fk-top",
   },
   {
     title: "SEND A MISSION",
-    body: "Your flock converts by walking into town. Once the founding window closes, RIGHT-CLICK the MAP near the EDGE OF TOWN closest to your compound. A wheel opens — pick SPREAD ☘ (balanced), TEND ✚ (hold & heal), or CRUSADE ✦ (hard push), and drag the slider to set how much of your flock to commit. Your people march out and convert house by house.",
-    hint: "Right-click a town tile near your compound, then click a wheel arc (or press 1/2/3). The founding window must close first (watch the top-center message).",
+    body: "Your flock converts by walking into town. Once the founding window closes, RIGHT-CLICK the town near your commune. The wheel opens — pick SPREAD (convert) and drag the slider to choose how much flock to commit. Remember: LEFT-click only looks, RIGHT-click acts.",
+    hint: "Right-click a town tile near your commune, then click the SPREAD arc (or press 2 while the wheel is open). The founding window must close first.",
     done: (g) => g.sim.foundingTicksLeft === 0 && (me(g)?.cohorts.length ?? 0) > 0,
   },
   {
-    // v3: tempo is PER-MISSION (the wheel's three arcs) — there is no global
-    // stance rail any more. Playtest 2026-07-09 found the old copy softlocked
-    // here: it asked for keys that no longer send anything.
-    title: "SET YOUR TEMPO — CRUSADE",
-    body: "Every mission has a TEMPO. RIGHT-CLICK the map near your territory and pick CRUSADE ✦ from the wheel (or press 3 while it's open) — a Crusade sortie converts hard and fast, but runs HOT: watch the ⚠ Heat gauge (at 60 the town retaliates). Send one Crusade mission now.",
-    hint: "Right-click a town tile near your color to open the wheel, then click the ✦ CRUSADE arc (or press 3). Drag the slider if you want to commit more flock.",
+    title: "CRUSADE — FAST AND LOUD",
+    body: "Each mission picks its own mode. Right-click the town again and choose CRUSADE: it converts hard but doubles the HEAT you make. Watch the MISSIONS panel on the left — it counts your cohorts (n/3).",
+    glow: ".fk-missions-g",
+    hint: "Right-click near your color, then click the red CRUSADE arc (or press 3 in the wheel).",
     done: (g) => (me(g)?.cohorts ?? []).some((c) => c.mode === Stance.Crusade),
   },
   {
-    title: "UNLEASH YOUR POWER",
-    body: "Each archetype has a signature active power. Click the FIRST button in the CULT POWERS panel — it arms your power — THEN click a house in town to unleash it (Street Prophet, Juice Cleanse, Seminar Blitz, or Crop Circle land where you click). We've granted you the cash to try it.",
+    title: "THREE COHORTS, THEN RECALL",
+    body: "Only 3 cohorts can be out at once — a full MISSIONS panel means the wheel greys out. RECALL one with its ⟲ button (or Shift+C for the oldest): they walk home, then the slot frees up. Recall a cohort now.",
+    glow: ".fk-missions-g",
+    hint: "Click the small ⟲ at the right end of a row in the MISSIONS panel.",
+    done: (g) => (me(g)?.cohorts ?? []).some((c) => c.recalling),
+  },
+  {
+    title: "UNLEASH A POWER",
+    body: (g) =>
+      `Your POWERS come from your cult's kit. We've wired you the cash. Click <b>${primaryPower(g)?.name ?? "your first power"}</b> in the POWERS panel — it lights up — THEN left-click a house in town to fire it there. (Hotkeys D / F / G fire at the tile under your cursor.)`,
     glow: ".fk-pow",
-    enter: (g) => money(g, 60_000),
-    hint: "Two clicks: the D power button first (it lights up), then a town tile to fire it. If nothing happens, you clicked the button but not a target yet.",
-    done: (g) => {
+    enter: (g) => {
+      const a = primaryPower(g);
       const p = me(g);
-      if (!p) return false;
-      const cds = ["street_prophet", "juice_cleanse", "seminar_blitz", "crop_circle"];
-      return cds.some((c) => (p.cooldowns[c] ?? 0) > 0);
+      if (!a || !p) return;
+      const c = a.cost(p);
+      money(g, toInt(c.usd ?? 0) + 2000);
+      faith(g, toInt(c.faith ?? 0) + 10);
+    },
+    hint: "Two clicks: the power button first (it lights up), then a town tile.",
+    done: (g) => {
+      const a = primaryPower(g);
+      const p = me(g);
+      return !!a && !!p && (p.cooldowns[a.cooldownKey] ?? 0) > 0;
     },
   },
   {
-    title: "UPGRADE YOUR COMMUNE",
-    body: "$30,000 wired in. Your COMMUNE is your only building — and money makes it stronger. Click COMMUNE in the BUILD tray to raise it a stage (1→5); each stage lifts your FLOCK CAP so you can field more believers. Tithe income → bigger commune → bigger flock.",
-    hint: "Click the COMMUNE button in the build tray — it upgrades in place, no tile to click.",
+    title: "GROW THE COMMUNE",
+    body: "Money makes the cult bigger. In the SPEND tray, COMMUNE [B] raises your flock cap one stage (1→5); RECRUIT [R] turns cash into followers; BUY LAND [N] gives a crowded commune room. Upgrade the commune now.",
     glow: '[data-build="compound"]',
     enter: (g) => money(g, 30_000),
+    hint: "Click COMMUNE in the bottom tray (or press B) — it upgrades in place.",
     done: (g) => (me(g)?.compounds ?? 0) >= 2,
   },
   {
-    title: "BUY LAND",
-    body: "Compounds need room to grow. Click BUY LAND in the tray, then click ONE parcel of open country right beside your compound — you'll deed it and expand your reach.",
-    hint: "Aim for unclaimed GRASS or FIELD directly adjacent to your stakes — not town streets or water.",
-    glow: "[data-land]",
-    enter: (g) => money(g, 30_000),
-    done: (g) => (me(g)?.parcels ?? 0) >= 2,
+    title: "THE VICTORY RACE",
+    body: (g) =>
+      `The right panel is the scoreboard that matters. Every cult shows its closest route to victory: DOMINATION (souls past the Tipping Point — 40% in this town), REVELATION (hold the Megachurch with Faith 90), or its own route. Yours: ${cultRoute(g)}. Meet ANY route and a public 45-second ASCENSION starts — hold it to zero and you win. Click NEXT.`,
+    glow: ".fk-race",
   },
   {
-    title: "SEND THE VAN",
-    body: "Recruitment Vans roll through town and convert as they go. In the SCHEME panel, click VAN, then click any road tile in town. Longer routes convert more households — and attract more thieves.",
-    hint: "Click VAN in the SCHEME panel, then click any road tile inside town. The van is bought automatically.",
-    glow: '[data-scheme="van"]',
-    enter: (g) => money(g, 40_000),
-    done: (g) => g.sim.vans.some((v) => v.player === 1),
+    title: "EXPOSE A LOUD RIVAL",
+    body: "The Sleeper Cult has been running hot — look at its Heat. Any cult at HEAT 25+ can be EXPOSED: it bleeds flock, Faith and calm, and an Ascension restarts from 45s. Click the Sleeper Cult's row in the Victory Race to jump to it, then RIGHT-CLICK its ground and choose EXPOSE. (We've covered the fee.)",
+    glow: ".fk-rrow:not(.me)",
+    enter: (g) => {
+      const p = me(g);
+      if (p) money(g, toInt(exposeCost(p)) + 1000);
+    },
+    during: (g) => {
+      const r = rival(g);
+      if (r && r.heat < fromInt(45)) r.heat = fromInt(45);
+      const p = me(g);
+      if (p) p.cooldowns["expose"] = 0;
+    },
+    hint: "Right-click a tile in the rival's color (not neutral houses) — the SCHEME menu opens. EXPOSE is the first red item.",
+    done: (g) => (me(g)?.exposes ?? 0) >= 1,
   },
   {
-    title: "SCOUT THE RIVALS",
-    body: "The CONGREGATIONS panel (top-right) is the scoreboard: every cult, its color, and how many households it holds — sorted by who's winning. In a real match you'd click 'ally' on a row to propose a truce (and shift-click a doctrine node to share it). Watch the Sleeper Cult's count creep up — it's converting its corner right now. Click NEXT.",
-    glow: ".fk-players",
+    title: "THE HEAT GOES BOTH WAYS",
+    body: "Exposing someone added HEAT to you too — mud sticks. Every conversion heats you up, and bigger cults heat faster. At 25 you're exposable; at 60 the Concerned Parents picket you; at 85 they send a deprogrammer bus. Threats aimed at you appear as CARDS beside the left rail — click one to look. Click NEXT.",
+    glow: ".fk-heat",
   },
   {
-    title: "FIND THE LANDMARKS",
-    body: "The KEY BUILDINGS panel lists the town's civic anchors (Police, School, Grocery, Church…). Controlling one grants a bonus — and CLICKING A ROW zooms the map straight to that building and flashes it. Try clicking any Key Building now to jump to it, then click NEXT.",
-    glow: "[data-civic]",
+    title: "KEY BUILDINGS & DECREES",
+    body: "Convert the houses around the Police, schools, Grocery or Church and you control them: a passive bonus, plus a DECREE button (with its hotkey and price) appears on that row. Click any row to jump the camera there. Click NEXT.",
+    glow: ".fk-civics",
   },
   {
-    title: "THE DRAMA FEED",
-    body: "The blinking ● DRAMA FEED (bottom-right) narrates the match: conversions, betrayals, scandals, schisms, incoming strikes. It's how you notice a rival scheming against you — and it's what the shareable end-of-match recap is built from. Click NEXT.",
-    glow: ".fk-feed",
-  },
-  {
-    title: "ADVANCED SCHEMES",
-    body: "Folded on the left rail is SCHEME — your late-game toolkit: propaganda STRIKES, AGENT raids, publishing SCANDALS. Click the ▸ SCHEME header to peek inside, then click NEXT. Top-left you'll also find EXIT (leave anytime) and, in solo games, PAUSE.",
-    glow: ".fk-foldh",
-  },
-  {
-    title: "MANAGE DISSENT & HEAT",
-    body: "Pushing hard costs followers (ATTRITION) and builds DISSENT in captured districts — too much and a chunk of your cult SPLITS AWAY (a Schism). CRUSADE missions and strikes raise global HEAT; past 60, the Concerned Parents show up to picket you. (Both are switched off in this practice town.) The cure: send a TEND ✚ mission now — Tend cohorts hold ground, heal dissent, and bank Faith.",
-    hint: "Right-click one of YOUR OWN converted blocks and pick the ✚ TEND arc from the wheel (or press 1 while it's open).",
-    done: (g) => (me(g)?.cohorts ?? []).some((c) => c.mode === Stance.Tend),
-  },
-  {
-    title: "DISSENT OVERLAY",
-    body: "You can visualize per-district dissent directly on the map. Press H or click the DISSENT button in the bottom tray to toggle the red heatmap overlay. Try toggling it now to see where dissent is concentrated, then click NEXT.",
-    glow: "#fk-dissent-overlay",
-  },
-  {
-    title: "WRITE THE DOCTRINE",
-    body: "FAITH buys DOCTRINE. Tutorial gift: a full Faith bar. Open the DOCTRINE panel and choose any node — each spends Faith and permanently upgrades your cult. The four tracks (Behavior, Information, Thought, Emotion) shape your long-term strategy. Picks are forever. (In a real match you bank Faith by playing TEND missions.)",
+    title: "TEND & DOCTRINE",
+    body: `TEND missions hold ground, heal dissent and bank FAITH. Faith buys DOCTRINE — permanent upgrades, ${DOCTRINE_FAITH_COST} Faith per pick. Tutorial gift: a full bar. Open DOCTRINE in the bottom tray and pick any glowing node.`,
     glow: ".fk-doc",
-    hint: "Open the DOCTRINE panel on the left rail, then click any glowing node in the B.I.T.E. grid to buy it.",
     enter: (g) => faith(g, 90),
+    hint: "DOCTRINE is the scroll button in the bottom tray. Tier 1 and 2 nodes are open from the start.",
     done: (g) => (me(g)?.doctrine.length ?? 0) >= 1,
   },
   {
     title: "NOW WIN IT",
-    body: "Put it together and out-convert the Sleeper Cult: send missions where your territory meets town, RECALL a cohort when Heat climbs, and pick your mode — SPREAD to convert, CRUSADE to punch through, TEND to hold and bank Faith. Convert 30 households to seal your first victory.",
-    hint: "Send a fresh mission whenever a cohort finishes its block, right where your color meets neutral houses. Watch the LEADER % strip climb.",
-    enter: (g) => money(g, 40_000),
-    done: (g) => (me(g)?.ownedTiles ?? 0) >= 30,
+    body: "Put it together: keep 3 cohorts working where your color meets neutral houses, recall and resend as blocks fall, and spend your cash. Push your soul share past the TIPPING POINT (40% here) and hold it through the 45s Ascension. If the rival's slice starts ascending — Expose it.",
+    enter: (g) => money(g, 20_000),
+    hint: "Aim missions at the neutral houses touching your territory. Watch your share bar reach the dashed marker.",
+    done: (g) => g.sim.status === MatchStatus.Ended,
   },
   {
-    title: "🏆 VICTORY — YOU OUT-CONVERTED THE SLEEPER CULT",
-    body: "That's the whole loop: found → send missions → manage Heat & Dissent → tithe, expand, armor up → bank Faith and shape your Doctrine. To win a real match: DOMINATION — hold the biggest share of town when the clock runs out, or 72% to end it early. Out there the rivals fight back and nothing is disabled — but you're ready. Click FINISH to return to the menu.",
+    title: "THAT'S THE WHOLE LOOP",
+    body: "Send (right-click town) → Spend (tray, powers, decrees) → Scheme (right-click rivals). Win by meeting any route and surviving the Ascension; stop rivals by breaking their condition or exposing them. Real matches have 3–4 cults, the CPA and a 12-minute clock. Click FINISH.",
   },
 ];
 
@@ -314,11 +334,12 @@ export function startTutorial(g: GameSession): void {
   const style = document.createElement("style");
   style.textContent = `
 @keyframes fkTutPulse{0%,100%{box-shadow:0 0 0 2px #f0b53e,0 4px 0 #060403}50%{box-shadow:0 0 0 5px #f0b53e,0 4px 0 #060403}}
-.fk-tut-glow{animation:fkTutPulse 1.1s infinite;position:relative;z-index:9}
+.fk-tut-glow{animation:fkTutPulse 1.1s infinite;z-index:9}
 .fk-reduced-motion .fk-tut-glow{animation:none;box-shadow:0 0 0 4px #f0b53e,0 4px 0 #060403}
 #fk-tut{position:absolute;top:96px;left:50%;transform:translateX(-50%);z-index:28;width:470px;max-width:92vw;
   background:#1a130b;border:3px solid #f0b53e;box-shadow:0 6px 0 #060403,inset 0 0 0 2px #36291a;
   font-family:'Pixelify Sans',ui-monospace,monospace;color:#efe3c6}
+.fk-center #fk-tut{position:static;transform:none;pointer-events:auto}
 #fk-tut .hd{display:flex;justify-content:space-between;align-items:center;background:#f0b53e;color:#19110a;
   padding:7px 12px;font-family:'Press Start 2P',monospace;font-size:9px;letter-spacing:1px}
 #fk-tut .bd{padding:13px 15px;font-size:14px;line-height:1.45;color:#d8c8a6}
@@ -331,7 +352,9 @@ export function startTutorial(g: GameSession): void {
 
   const card = document.createElement("div");
   card.id = "fk-tut";
-  root.appendChild(card);
+  // live in the HUD's center column so ascension strips / prompts stack
+  // above it instead of overlapping
+  (document.querySelector(".fk-center") ?? root).appendChild(card);
 
   let idx = 0;
   let glowEl: Element | null = null;
@@ -351,7 +374,7 @@ export function startTutorial(g: GameSession): void {
     const gated = !!s.done;
     card.innerHTML = `
       <div class="hd"><span>TUTORIAL · STEP ${idx + 1}/${STEPS.length}</span><span>${gated ? "DO IT ▸" : ""}</span></div>
-      <div class="bd">${s.title ? `<div style="font-weight:700;font-size:16px;color:#efe3c6;margin-bottom:6px;letter-spacing:.8px">${s.title}</div>` : ""}${s.body}</div>
+      <div class="bd">${s.title ? `<div style="font-weight:700;font-size:16px;color:#efe3c6;margin-bottom:6px;letter-spacing:.8px">${s.title}</div>` : ""}${typeof s.body === "function" ? s.body(g) : s.body}</div>
       <div class="done" id="fk-tut-done">✓ nicely done</div>
       <div id="fk-tut-hint" style="display:none;padding:0 15px 12px;font-family:'VT323',monospace;font-size:17px;line-height:1.3;color:#e0a422"></div>
       <div class="ft">
@@ -397,6 +420,7 @@ export function startTutorial(g: GameSession): void {
   // auto-advance loop for gated steps: brief ✓ flash, then the next card
   const loop = window.setInterval(() => {
     const s = STEPS[idx];
+    s?.during?.(g);
     if (!s?.done || advanceTimer) return;
     // stuck? surface the step's hint after 40 seconds
     if (!hintShown && s.hint && Date.now() - stepStartedAt > 40_000) {

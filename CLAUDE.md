@@ -5,6 +5,19 @@ Your goal is to transition this working brownfield codebase into a commercial-gr
 
 ---
 
+## 0. Canonical Documentation Index
+
+Before modifying or proposing features, consult the consolidated specifications in `docs/`:
+* **Systems Architecture**: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) (monorepo layout, lockstep protocol, typed arrays, desync detection)
+* **Procedural World Generation**: [`docs/WORLDGEN.md`](docs/WORLDGEN.md) (10-stage pipeline, archetypes, seasons, lighting, invariant checks)
+* **Master Game Design**: [`docs/GAME_DESIGN.md`](docs/GAME_DESIGN.md) (vision, 4 factions, gameplay loops, civic decrees, Heat escalation)
+* **SDD & Modernization Roadmap**: [`docs/ROADMAP_SDD.md`](docs/ROADMAP_SDD.md) (REASONS canvas, GOAP Bot AI, UI/UX overhaul, audio, visual CI)
+* **Technical Debt Inventory**: [`docs/TECHNICAL_DEBT.md`](docs/TECHNICAL_DEBT.md) (monolith complexity analysis, Strangler Fig blueprints)
+* **Curated Visual Audit**: [`docs/VISUAL_AUDIT.md`](docs/VISUAL_AUDIT.md) (benchmark renders of archetypes, seasons, lighting, micro-details)
+* **Production Operations**: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) (Docker, WebSocket turn relay, environment variables)
+
+---
+
 ## 1. Package Architecture & Boundaries
 
 * `@flock/sim`: Core deterministic simulation engine.
@@ -32,31 +45,14 @@ npm test
 
 Follow the **Discover -> Define -> Deliver** cycle:
 1. **Explore**: Use subagents or targeted LSP queries (`definition`, `references`) to map code boundaries before editing. Do not flood context with raw terminal dumps.
-2. **Plan**: Formulate a concise markdown plan specifying modified files, data schemas, and edge cases.
+2. **Plan**: Formulate a concise markdown plan specifying modified files, data schemas, and edge cases using the REASONS canvas.
 3. **Refactor via Strangler Fig**: When tackling monolithic files (`townRender.ts`, `mapgen.ts`), wrap legacy code with adapter facades. Extract logic piece-by-piece rather than attempting monolithic rewrites.
 4. **Verify**: Run `npm test` and characterization tests.
 5. **Commit**: Provide structured, semantic commit messages.
 
 ---
 
-## 4. Technical Debt Inventory & High-Impact Opportunities
-
-### High-Priority Architectural Refactoring:
-* **Monolithic `townRender.ts` (~5.9k lines)**: Decompose into modular renderers:
-  * `SeasonalPalette.ts` (pure seasonal color transformations)
-  * `DistrictRenderer.ts` (building facades, modular panel seam logic)
-  * `LightingEngine.ts` (dawn/dusk/night color filtration and window bloom)
-* **Procedural `mapgen.ts`**: Separate organic cellular automata terrain from urban parcel zoning and road network generation.
-
-### Gameplay, Strategy & Funness Roadmap:
-* **Goal-Oriented Action Planning (GOAP) Bot AI**: Replace hardcoded heuristic state machines with utility-based planning for bot factions (Crusade, Infiltration, Economic Buyout, Civic Takeover).
-* **Civic Decrees & Random Crises**: Add town council elections, town hall decrees, police crackdowns, FBI investigations, and media exposés to deepen mid-to-late game tension.
-* **Audio & Atmosphere**: Expand procedural Web Audio synthesizer with ambient wind, train whistles, church bells, and dynamic faction combat themes.
-* **Automated Visual Regression Testing**: Add a headless CI script utilizing `pixelmatch` / SSIM against golden renders to catch rendering glitches automatically.
-
----
-
-## 5. Token Efficiency & Context Management
+## 4. Token Efficiency & Context Management
 
 * **Avoid Context Rot**: Keep main session context clean. Delegate noisy exploratory tasks to subagents.
 * **Positive Constraints**: Load configurations explicitly; write pure functions; adhere strictly to existing TypeScript type signatures.

@@ -1,80 +1,51 @@
 # FLOCK
 
-> Browser-first competitive territory strategy (.io) × asymmetric cult-builder.
+> Browser-first competitive territory strategy (.io) × asymmetric cult-builder.  
 > *OpenFront meets Cult of the Lamb — the first competitive multiplayer cult-builder.*
 
-See **[DESIGN.md](./DESIGN.md)** — the Master Design Document v2.0 "The Complete Testament" — for the full specification. Tuning lives in **[balance.json](./balance.json)**, the single source of tuning truth (hot-patchable, §A).
+Tuning lives in **[`balance.json`](./balance.json)**, the single source of tuning truth (hot-patchable).
 
-## Repository layout
+---
 
-TypeScript monorepo (npm workspaces), per the technical spec (§32):
+## Documentation Index
+
+Comprehensive engineering and design specifications live in **[`docs/`](./docs/)**:
+
+* **[Systems Architecture](docs/ARCHITECTURE.md)**: Monorepo layout, deterministic lockstep simulation protocol, typed arrays, and desync detection.
+* **[Procedural World Generation](docs/WORLDGEN.md)**: 10-stage procedural generation pipeline, town archetypes, seasonal systems, diurnal lighting, and invariant assertion suites.
+* **[Master Game Design](docs/GAME_DESIGN.md)**: Master design vision, 4 asymmetric cult archetypes, core gameplay loops, civic decrees, and Heat escalation.
+* **[SDD & Modernization Roadmap](docs/ROADMAP_SDD.md)**: Spec-Driven Development handbook, REASONS canvas, GOAP Bot AI, UI/UX overhaul, and commercial feature backlog.
+* **[Technical Debt Inventory](docs/TECHNICAL_DEBT.md)**: Monolithic complexity analysis, cognitive complexity hotspots, and Strangler Fig refactoring blueprints.
+* **[Curated Visual Audit](docs/VISUAL_AUDIT.md)**: Curated benchmark gallery showcasing town archetypes, seasonal shifts, lighting passes, and micro-details.
+* **[Operations & Deployment](docs/DEPLOYMENT.md)**: Production hosting, Docker orchestration, and environment configuration.
+* **[Engineering Constitution](CLAUDE.md)**: Governing operational mandates for AI-assisted development.
+
+---
+
+## Monorepo Layout
+
+FLOCK is organized as an npm workspace monorepo:
 
 | Package | Role |
 |---|---|
-| [`packages/sim`](./packages/sim) — `@flock/sim` | Deterministic simulation core. Fixed-point Q16.16, seeded xoshiro RNG, the Intent protocol, the lockstep StateHash, plus meta logic (Glicko-2 ranked, progression, bot brains, Recap Card). Runs **bit-identically** on client and server. |
-| [`packages/server`](./packages/server) — `@flock/server` | Node 22 match host: Lobby Director hosting many concurrent Match Workers, lockstep turn loop, persistence (`Store`), auth, moderation, `/health`, desync resync. |
-| [`packages/client`](./packages/client) — `@flock/client` | Vite + PixiJS web client: map renderer, client-side prediction, full HUD, loading/lobby screens. |
+| [`packages/sim`](./packages/sim) (`@flock/sim`) | Pure deterministic simulation core. Fixed-point Q16.16 arithmetic, seeded RNG, Intent protocol, StateHash calculation, bot brains, and procedural town renderer. Runs bit-identically on client and server. |
+| [`packages/server`](./packages/server) (`@flock/server`) | Authoritative Node.js 22 match host: WebSocket turn relay, lockstep coordinator, lobby director, account persistence, and Glicko-2 matchmaking. |
+| [`packages/client`](./packages/client) (`@flock/client`) | Vite + Canvas / PixiJS web client: procedural town rendering, client-side input prediction, Web Audio synthesizer, and reactive HUD. |
 
-## Getting started
+---
+
+## Quickstart
 
 ```bash
 npm install
-npm run build          # build all packages
-npm test               # determinism gate + sim + server services (§40)
+npm run build          # Build all workspaces
+npm test               # Run unit, integration, and 75-world mapgen audit
 FLOCK_SECRET=dev-secret-please-change npm run dev:server
-npm run dev:client     # http://localhost:5173
+npm run dev:client     # Access client at http://localhost:5173
 ```
 
-**Running it for real** — persistence, auth, Docker, scaling, ops, and the
-honest pre-launch checklist live in **[DEPLOY.md](./DEPLOY.md)**.
+---
 
-## The determinism contract
+## The Determinism Contract
 
-The whole game rides on one invariant (§32, §40): **same seed + same Intents ⇒ same StateHash**, on every machine and browser. The sim therefore contains **zero floats, zero `Date`, zero `Math.random`** in sim scope — all math is fixed-point and all randomness flows through the seeded RNG in the turn stream. `packages/sim/test/determinism.test.ts` is the gate that protects this; if it ever fails, lockstep is broken and every downstream system is unsafe.
-
-## Status — M0 complete, M1 gameplay + client + meta online
-
-Implemented, deterministic, and covered by tests:
-
-**Core (M0)**
-- **Sim core**: fixed-point Q16.16 (exact 53-bit range), seeded xoshiro RNG, full Intent protocol, StateHash, snapshot codec
-- **Conversion (§4)**: fronts, pressure/resistance, ambient creep, attrition, apostate scars, deterministic flips
-- **Economy (§3)**: logistic followers, per-tile tithe with district income + dissent tax, Faith drift, Heat
-- **Mapgen (§2)**: seeded districts, woods/lake/roads, susceptibility rolls, all 5 landmarks (§12) with passive effects
-- **Match flow (§18)**: domination / last-standing / timer-tiebreak / Revelation-economic victory, elimination (satellites count), RECAP freeze
-- **Lockstep netcode (§33)**: 100 ms Turns, hash checks, snapshot join/resync, rate limits — zero desyncs verified over live WebSockets with bots
-
-**Gameplay (M1)**
-- **Buildings (§6)**: the full table — Compounds, Plates, Watchtowers (fort_mult 5 + agent vision), Broadcast Towers, Hotlines (75% intercept), Print Shops, Garages, Supplement Labs
-- **Units (§7)**: Tithe Couriers (robbable plate routes), Recruitment Vans (mobile pressure, courier robbery, agent screening), invisible Agents
-- **The PvP trio (§13/§15)**: Deprogramming raids, Scandal evidence → 50% notify → Publish, Court Defection
-- **Strikes (§8)**: Pamphlet Bomb, Prime-Time Exposé, Manifesto Drop — charge, 10s warning, hotline intercepts
-- **Diplomacy (§16)**: alliances, JUDAS betrayal with permanent grudges, SCHISM risk gauge → sim-spawned Splinter Sects
-- **Doctrine (§10)**: all 16 BITE nodes, milestone points, tier gating, every effect plumbed
-- **All four archetype kits (§11)**: Final Dawn (Prophecy Countdown), Radiant Path (Glow/Cleanse/Retreat/Labs), Prosperity Circle (Downline/Blitz/Acquisition/Ledger), Visitors' Fellowship (Crop Circle/Static/Saucer satellites)
-- **The CPA (§17)**: picket lines at Heat 60, Deprogrammer Bus at 85, Town Hall immunity below 75
-- **Bots (§21)**: all three tiers — Drifter backfill, Sect utility-AI, and **Established Church** majors (behaviour tree: stance discipline, doctrine build order, border-rival grudges, scandal publishing; difficulty knob = cadence/aggression, never stat cheats), all via the Intent API in one unit-tested `bots.ts`
-
-**Client & meta (M1 close-out)**
-- **Full in-match HUD (§27)**: crisp DOM UI over the chunky world — top bar (followers + trend arrow, treasury + $/sec, faith, pulsing Heat gauge, timer, leader %), left rail (stances · rituals · archetype powers · signature with cooldowns), build palette with click-to-place targeting, doctrine picker (BITE grid, point badge), live minimap, player list (ally/break), and a drama kill-feed with freeze-frame banners (§25.3)
-- **Loading & connection screens (§28)**: animated connect screen, error/disconnect surfacing with RETRY, lobby with name/archetype/host selection for multiplayer
-- **Client-side prediction + reconciliation (§33)**: a confirmed sim (hashed authority) + a predicted sim rebuilt each Turn with the local player's in-flight intents — instant feedback, rollback-free self-heal within one turn. Renders the confirmed state directly with zero copies when nothing is in flight; HUD/minimap/feed updates are throttled to sim rate
-- **Fog of war (§14)**: owned + radius, unit vision, allied vision; spectators see all
-- **FOUNDING spawn-pick UI (§18/§26)**: pulsing rings on recommended high-susceptibility spawns; click to found
-- **Recap Card (§25.1)**: deterministic 1080×1350 share card (built-in pixel font, archetype sigils, headline grammar, stat block, standings), shown center-stage at END with SAVE/REQUEUE; `tools/recapcard.mjs` renders a PNG headless
-- **Ranked (§20)**: Glicko-2 (rating/RD/volatility, FFA pairwise decomposition, tier ladder, seasonal soft reset)
-- **Progression (§22)**: XP/level curve, Relic earn band, level-5 ranked unlock — wired into a post-match `results` ticker
-
-Try it: `npm run dev:server` (env: `BOTS=6 CHURCHES=2 WORLD=96`), then `npm run dev:client` and open two tabs. In-match keys: 1/2/3 stances · QWER rituals · D/F archetype actives · G signature · B/T/C/Y/U/H build · A raid · X snoop · P publish · K strike · V van · O/I diplomacy.
-
-**Hosted service (production layer)**
-- **Lobby Director (§32)**: many concurrent matches, capacity-based routing, graceful shutdown, `/health` + a CORS REST API (`/leaderboard`, `/profile`, `/replay`, `/daily`, `/catalog`, `/congregations`, `/me`, `/purchase`)
-- **Persistence (§34)**: `Store` interface + in-memory and durable JSON adapters — accounts, ratings, progression, match history, replays, congregations; results persisted at match-end (real Glicko-2 FFA + XP/Relics) with Prophet-tier recompute
-- **Auth (§26)**: instant guests, stateless HMAC sessions, pluggable OAuth providers with guest→linked upgrade
-- **Meta loop**: **Daily Prophecy** (§23), **earn/spend economy** (§22/§36 — relics never sold for money, free archetype rotation), **Congregations** (§24 — clans + weekly best-10 ladder)
-- **Trust & safety (§30)**: leetspeak-aware name/chat moderation; **input hardening** (length-capped array intents) + per-socket rate limit; XSS-escaped UI
-- **Netcode resilience (§33)**: desync → snapshot **resync** flow, session resume
-- **Client meta (§28)**: lobby menu, leaderboard/store/congregations/profile screens, settings & accessibility (reduced-motion / mute / colorblind), FTUE coachmark (§26)
-- **Ops/deploy**: structured logs + metrics, Docker images + compose, balance **bot-league** and load/desync **soak** harnesses (verified: 10 clients / 1400 intents / 0 desyncs)
-
-Remaining work is **external infra/content, not game logic** — provisioning a real datastore/OAuth/TLS, cross-browser determinism CI, telemetry dashboards, a maintained moderation blocklist + human review, legal/compliance, the audio + sprite-art production passes (§30/§31), and the Steam wrap (§35). The full checklist and how each seam plugs in is in **[DEPLOY.md](./DEPLOY.md)**.
+The entire game relies on one invariant: **same seed + same Intents $\Rightarrow$ same StateHash** across all machines and browsers. The simulation contains zero floats, zero `Date`, and zero `Math.random()` in sim scope. All random events flow through the seeded `RngState`. `test/snapshot.test.ts` and `test/mapgen.test.ts` enforce this gate continuously.

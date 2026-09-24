@@ -11,6 +11,7 @@ Tuning lives in **[`balance.json`](./balance.json)**, the single source of tunin
 
 Comprehensive engineering and design specifications live in **[`docs/`](./docs/)**:
 
+* **[Brownfield AI Handoff](HANDOFF.md)**: Master briefing document, creative freedom mandate, stage milestones, and onboarding protocol for Claude Opus 5.5.
 * **[Systems Architecture](docs/ARCHITECTURE.md)**: Monorepo layout, deterministic lockstep simulation protocol, typed arrays, and desync detection.
 * **[Procedural World Generation](docs/WORLDGEN.md)**: 10-stage procedural generation pipeline, town archetypes, seasonal systems, diurnal lighting, and invariant assertion suites.
 * **[Master Game Design](docs/GAME_DESIGN.md)**: Master design vision, 4 asymmetric cult archetypes, core gameplay loops, civic decrees, and Heat escalation.

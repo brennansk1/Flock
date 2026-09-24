@@ -89,6 +89,7 @@ You do not have intrinsic real-time awareness of dollar cost in the sandbox. The
 
 ## 5. Canonical Documentation Index
 
+* **Brownfield AI Handoff**: [`HANDOFF.md`](HANDOFF.md) (Master briefing, creative freedom mandate, 5-stage plan, onboarding protocol)
 * **Systems Architecture**: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) (100ms lockstep, dual-sim prediction, Glicko-2, developer tools)
 * **Procedural World Generation**: [`docs/WORLDGEN.md`](docs/WORLDGEN.md) (1980s town morphology, variants, animations, placement grammar)
 * **Master Game Design**: [`docs/GAME_DESIGN.md`](docs/GAME_DESIGN.md) (factions, combat, civics, anti-bounce design)

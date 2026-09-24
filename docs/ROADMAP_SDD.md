@@ -85,30 +85,70 @@ Replace generic vehicles with recognizable 1980s silhouettes rendered at 8px:
 
 ---
 
-## 4. Token-Efficient Bulk Sprite Design & Dual-QA Pipeline
+## 4. Token-Efficient Bulk Sprite Design & Dual-QA Strategy
 
-Bulk designing 8px pixel art through an LLM can burn millions of tokens if done via trial-and-error text dumps. FLOCK uses a **programmatic generation + headless visual QA** pipeline:
+Designing dozens of 8px pixel art sprites through an LLM can burn through an entire token budget if done via trial-and-error conversational dumps or blind coding. FLOCK implements a **declarative generation + headless dual-QA pipeline**:
 
 ```mermaid
-flowchart LR
-    Code["1. Author Sprite Matrix in townRender.ts"] --> Test["2. Invariant Check (Bounds, Colors, Seams)"]
-    Test --> Studio["3. Studio QA: Isolated Blank Background"]
-    Test --> Map["4. In-Situ QA: Real Procedural Map Crop"]
-    Studio --> VisualDiff["5. Headless Visual Audit (Zero LLM Token Loss)"]
-    Map --> VisualDiff
+flowchart TD
+    A["1. Define Declarative Sprite Matrices (townRender.ts)"] --> B["2. Fast-Fail Invariant Linting (npm test)"]
+    B --> C1["3a. Studio Harness: Isolated Dark Slate (tools/spritesheet.mjs)"]
+    B --> C2["3b. In-Situ Harness: Procedural Map Crops (tools/qa_screenshots.mjs)"]
+    C1 --> D["4. Visual Verification (Claude inspects via image view)"]
+    C2 --> D
+    D --> E["5. Commit Batch & Advance Stage"]
 ```
 
-### 4.1 The Dual-QA Protocol
-1. **Studio View (Blank Studio Slate)**:
-   - Tool: `tools/spritesheet.mjs` or `tools/generate_catalog_inspection.mjs`.
-   - Renders each sprite asset centered on a dark studio slate (`#181512`) at high magnification ($6\times$ or $8\times$).
-   - Claude evaluates: Silhouette readability, color contrast, lighting direction, and 1px panel seam consistency.
-2. **In-Situ View (Procedural Map Context)**:
-   - Stamped onto real procedural town seeds (e.g. seeds 11, 42, 77) across the 4 seasons and 4 times of day.
-   - Claude evaluates: Road connection, sidewalk alignment, curb cuts, shadow integration with terrain, and ecotone tree density.
-3. **Headless Verification**:
-   - Automated scripts output high-res PNGs to `docs/assets/curated/` or `reports/`.
-   - Claude inspects visual artifacts using `view_file` on generated image files, keeping conversational tokens strictly focused on code edits.
+### 4.1 Declarative Sprite Authoring (No Conversational Coordinate Spam)
+* **The Failure Mode**: Asking an LLM to "draw a sprite" by printing hundreds of coordinates or ASCII character dumps into conversational context wastes tens of thousands of tokens and causes severe context rot.
+* **The Solution**: Sprites are authored directly in code (`townRender.ts` and `palette.ts`) using **declarative compact character matrices** and procedural primitives:
+  ```ts
+  // Compact, token-efficient, and easily modifiable:
+  const STATION_WAGON_80S = {
+    w: 8, h: 4,
+    palette: { '.': 0, 'c': C.carBody, 'w': C.woodTrim, 'g': C.glass, 'k': C.tire, 't': C.taillight, 'h': C.headlight },
+    rows: [
+      ".cccc...",
+      "cgggggh.",
+      "cwwwwk..",
+      "tk.k....",
+    ]
+  };
+  ```
+  This requires $<30$ lines of code per vehicle or building family, reuses palette constants, and is completely deterministic.
+
+### 4.2 The Dual-Harness Visual QA Protocol
+1. **Harness A: Studio View (Blank Studio Slate Isolation)**:
+   - Tool: `node tools/spritesheet.mjs` or `node tools/generate_catalog_inspection.mjs`.
+   - Stamped on an isolated neutral dark slate (`#181512`) at $8\times$ zoom with 1px grid guides.
+   - **What to Verify**:
+     - *Silhouette Readability*: Can you immediately identify a wood-paneled station wagon vs. a Chevy Blazer vs. a boxy Caprice sedan at 8px?
+     - *Color Contrast & Palettes*: Does the chrome bumper pop? Is the wood-grain trim distinct from the metal body?
+     - *1px Panel Seams*: Do modular wall blocks and roof tiles render clean division seams without blurring into mush?
+2. **Harness B: In-Situ View (Real Procedural Map Context)**:
+   - Tool: `node tools/generate_curated_suite.mjs` (rendering seeds 11, 42, 77 across the 4 seasons and times of day).
+   - Crops 5 high-resolution focal areas:
+     1. *Downtown Courthouse Square & Main Street* (storefront awnings, curb cuts, sidewalks).
+     2. *1980s High School Campus* (yellow bus parking, football bleachers, ribbon windows).
+     3. *Suburban Cul-de-Sacs* (front porches, driveways, garden sheds, chain-link fences).
+     4. *Industrial Rail Siding* (grain elevator silos, freight depot platform timbers).
+     5. *Natural Waterways & Woods* (river gravel shoals, willow fringes, timber trestle bridges).
+   - **What to Verify**: Buildings sit naturally on road frontage, parking lot curb cuts align with street lanes, and seasonal foliage blends seamlessly into surrounding terrain.
+
+### 4.3 Fast-Fail Automated Linting
+Before rendering PNGs, `npm test` enforces physical invariants:
+* All palette colors are valid RGB integers in `palette.ts`.
+* All sprite dimensions are within expected tile footprints ($8\times 8$, $16\times 8$, $16\times 16$, etc.).
+* Zero non-exempt buildings on water; 6-tile industrial buffer respected.
+* This catches boundary and typing errors instantly in $<2$ seconds without burning image generation or viewing tokens.
+
+### 4.4 The 5 Logical Asset Batches
+To maintain laser focus and controlled token pacing, asset creation is executed in 5 discrete batches:
+* **Batch 1: The 1980s Vehicle Fleet** (Wood-paneled station wagons, boxy sedans, Blazers, bubble-light police cruisers, Dodge Ram vans, yellow school buses, BMX bikes).
+* **Batch 2: Downtown & Main Street Commercial** (Courthouse Town Hall, fabric-awning storefronts, chrome diners, boxy gas stations, neon cinema/arcade).
+* **Batch 3: Residential Suburbs & School Campus** (Clapboard ranch/split-level houses, red-brick high school with ribbon windows and bleachers, elementary playground).
+* **Batch 4: Industrial Rail Lobe & Working Countryside** (Concrete grain elevator, timber depot station, saw mill, water tower with graffiti, red gambrel barns, tractor dirt tracks).
+* **Batch 5: Natural Hydrology & Seasonal Foliage** (Meandering river sandbars, timber trestle bridges, ocean surf breakers, 4-season tree canopies with fallen leaves and snow accumulation).
 
 ---
 

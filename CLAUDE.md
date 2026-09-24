@@ -5,11 +5,11 @@ Your goal is to transition this working brownfield codebase into a commercially 
 
 ---
 
-## 0. Creative Freedom & Refactoring Legroom Mandate
+## 0. Total Creative Freedom & Redesign Mandate (Strategy, Menus, Everything)
 
-The user has granted you **extensive creative freedom and refactoring/redesign legroom**:
-* **The Docs are a Launchpad, Not Rigid Rails**: Treat the existing planning documents in `docs/` as an informed baseline. Acknowledge that you possess superior frontier reasoning capabilities across large codebases and are expected to exercise your own judgment.
-* **License to Redesign**: You have full permission to restructure systems, replace mechanics, alter tech stacks, or rewrite architectural bottlenecks if you identify a superior, more elegant, or more fun solution.
+The user has granted you **complete creative freedom and extensive refactoring/redesign legroom**:
+* **The Docs are a Launchpad, Not Rigid Rails**: Treat existing planning documents in `docs/` as an informed baseline. Acknowledge that you possess superior frontier reasoning capabilities across large codebases and are expected to exercise your own judgment.
+* **License to Redesign Everything**: You have full permission to redesign the **strategy menus, HUD layout, player input models, economic formulas, civics, combat systems, or underlying engine architecture** if you identify a more fun, elegant, or immersive solution. Do not feel bound by legacy UI components or current balance numbers.
 * **The Four Non-Negotiable Anchors**:
   1. **The 1980s American Small-Town Aesthetic**: The game world must authentically evoke the nostalgic, slightly eerie charm of 1980s Americana (the *Stranger Things* / Hawkins, Indiana era) with recognizable architecture, an 80s vehicle fleet, and natural environments.
   2. **Best Game Design Principles**: Deep strategic decision trees, asymmetric faction identities, anti-snowballing/anti-stalemate mechanics, transparent telegraphing, and high retention.
@@ -20,10 +20,10 @@ The user has granted you **extensive creative freedom and refactoring/redesign l
 
 ## 1. Core Strategic Priorities
 
-1. **Priority #1: Strategy, Core Gameplay & Marketability Overhaul**
-   * Redesign key strategic loops, win conditions, and counter-play to ensure Flock is intensely fun, competitive, and replayable.
+1. **Priority #1: Strategy, Menus & Core Gameplay Overhaul**
+   * Redesign key strategic loops, menus, HUD controls, win conditions, and counter-play to ensure Flock is intensely fun, intuitive, and replayable.
    * Eliminate snowballing and stalemates; ensure every cult archetype has compelling, distinct decision trees.
-2. **Priority #2: 1980s American Small-Town Worldgen & Visual Overhaul ("Stranger Things" Era)**
+2. **Priority #2: 1980s American Small-Town Worldgen & Bulk Sprite Overhaul ("Stranger Things" Era)**
    * Transform procedural world generation from basic blocky shapes into an authentic, recognizable 1980s American town (Hawkins, Indiana aesthetic).
    * Recognizable architecture: courthouse square, Main St strip, red-brick high school, wood-clapboard suburbs, industrial rail siding, water tower.
    * 1980s vehicle fleet (wood-paneled station wagons, boxy sedans, Blazers, bubble-light police cruisers, school buses, BMX bikes).
@@ -31,13 +31,20 @@ The user has granted you **extensive creative freedom and refactoring/redesign l
 
 ---
 
-## 2. Token-Efficient Bulk Sprite Design & Dual-QA Protocol
+## 2. Token-Efficient Bulk Sprite Design & Dual-QA Strategy
 
-To design and polish large asset sets with maximum quality and minimal token waste:
-1. **Dual-QA Verification**:
-   * **Studio View (Blank Canvas)**: Audit sprites on an isolated dark slate background via `tools/spritesheet.mjs` or `tools/generate_catalog_inspection.mjs` to evaluate silhouette, contrast, and 1px panel seams.
-   * **In-Situ View (Mapgen Context)**: Audit sprites stamped into real procedural town seeds (e.g. seeds 11, 42, 77) across the 4 seasons and lighting conditions to verify road, sidewalk, and parking alignment.
-2. **Programmatic Generation**: Implement sprites programmatically in `@flock/sim/src/townRender.ts` and `palette.ts`. Never waste tokens on manual pixel coordinate guessing—use reusable procedural primitives and character bitmaps.
+To bulk-design and polish large asset suites with high visual quality and minimal token spend:
+
+1. **Declarative Programmatic Authoring (No Conversational Coordinate Spam)**:
+   * Define sprites in `packages/sim/src/townRender.ts` and `palette.ts` using compact character matrices or structural procedural primitives.
+   * Never output thousands of lines of raw ASCII or coordinate lists into conversational context—keep code edits surgical and modular.
+2. **Dual-Harness Visual QA (Studio vs. In-Situ)**:
+   * **Harness A: Studio View (Blank Studio Slate)**: Run `node tools/spritesheet.mjs` or `node tools/generate_catalog_inspection.mjs`. Renders all new assets in an isolated grid against dark slate (`#181512`) at $8\times$ zoom with 1px grid guides. Inspect via image tool to verify silhouette readability, contrast, and 1px panel seams in isolation.
+   * **Harness B: In-Situ View (Procedural Map Context)**: Run `node tools/generate_curated_suite.mjs` on benchmark seeds (11, 42, 77) across the 4 seasons. Crop focal zones (Downtown Square, High School Campus, Suburban Cul-de-Sacs, Rail Siding, Waterways) to verify that buildings sit naturally on roads, align with sidewalks/curb cuts, and blend into seasonal foliage.
+3. **Automated Fast-Fail Invariant Linting**:
+   * Automated tests (`npm test`) verify pixel dimensions, palette color mappings, and physical setback rules (no non-exempt structures on water, 6-tile zoning buffer) before image generation, preventing token waste on buggy iterations.
+4. **Logical Batching**:
+   * Execute in themed batches (Vehicles $\to$ Downtown/Commercial $\to$ Residential/School $\to$ Industrial/Rural $\to$ Hydrology/Foliage).
 
 ---
 

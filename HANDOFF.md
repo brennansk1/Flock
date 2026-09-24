@@ -30,6 +30,12 @@ Whatever you refactor or redesign, you must honor four foundational pillars:
 3. **Token-Efficient Execution**: Programmatic bulk sprite authoring in code, Dual-Harness Visual QA (Studio Blank Slate vs. In-Situ Map Crops), and pausing at stage checkpoints.
 4. **100% Lockstep Determinism**: All simulation math must remain bit-identical across clients (zero floating-point divergence, zero unseeded PRNG, zero network desyncs). `npm test` must always pass cleanly.
 
+### 2.3 Subagent Concurrency & Delegation Guardrails
+When delegating tasks to subagents in Claude Code:
+* **Max 2 Concurrent Subagents**: You may spawn a **maximum of 2 subagents at any given time**. Never exceed 2 active subagents simultaneously to maintain token budget control and oversight.
+* **Strict Domain Separation (Zero File Overlap)**: Subagents must operate on completely distinct files, packages, and architectural surfaces (e.g., Subagent 1 on `packages/sim/` and Subagent 2 on `packages/client/`). They must **never** edit or write to the same files concurrently, eliminating race conditions and merge conflicts.
+* **No Recursive Delegation**: Subagents must be explicitly instructed **never to spawn subagents of their own**. All delegation is strictly single-tier (Parent Lead Agent $\to$ Worker Subagent).
+
 ---
 
 ## 3. Strategic Priority Hierarchy

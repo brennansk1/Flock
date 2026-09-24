@@ -15,6 +15,10 @@ The user has granted you **complete creative freedom and extensive refactoring/r
   2. **Best Game Design Principles**: Deep strategic decision trees, asymmetric faction identities, anti-snowballing/anti-stalemate mechanics, transparent telegraphing, and high retention.
   3. **Token-Efficient Execution**: Programmatic bulk sprite generation, Dual-QA visual inspection (Studio Blank Slate vs In-Situ Map Crops), and pausing at stage checkpoints.
   4. **100% Lockstep Determinism**: All simulation math must remain bit-identical across clients (zero floating-point divergence, zero unseeded PRNG). `npm test` must always pass cleanly.
+* **Subagent Concurrency Guardrails**:
+  * You may spawn a **maximum of 2 subagents concurrently**.
+  * Enforce **strict domain separation** (zero file overlap) between active subagents to eliminate race conditions and merge conflicts.
+  * Explicitly instruct subagents that they are **forbidden from spawning their own subagents** (strictly flat, single-tier delegation).
 
 ---
 

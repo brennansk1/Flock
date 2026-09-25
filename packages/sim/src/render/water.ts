@@ -102,9 +102,9 @@ export function drawWater(w: World, t: number, tx: number, ty: number, put: Put,
     for (let px = 0; px < TILE_PX; px++) {
       const gx = x0 + px, gy = y0 + py;
       // ---- soft rims: round convex corners, nub concave ones
-      const cr = 2.2 + valueNoise(gx, gy, 4, 107) * 1.6;
       const dNW = px + py, dNE = (7 - px) + py, dSW = px + (7 - py), dSE = (7 - px) + (7 - py);
-      if ((!wN && !wW && dNW < cr) || (!wN && !wE && dNE < cr) || (!wS && !wW && dSW < cr) || (!wS && !wE && dSE < cr)) {
+      const near = Math.min(!wN && !wW ? dNW : 99, !wN && !wE ? dNE : 99, !wS && !wW ? dSW : 99, !wS && !wE ? dSE : 99);
+      if (near < 4 && near < 2.2 + valueNoise(gx, gy, 4, 107) * 1.6) {
         put(gx, gy, bankC(gx, gy));
         continue;
       }
@@ -168,14 +168,29 @@ export function drawWater(w: World, t: number, tx: number, ty: number, put: Put,
  * on two orthogonal sides + that diagonal) grows a gravel/sand bar into the
  * corner. Returns the bar colour or null.
  */
-export function pointBarAt(w: World, tx: number, ty: number, px: number, py: number): RGB | null {
+const BAR_MASK = new WeakMap<World, Uint8Array>();
+function barMask(w: World): Uint8Array {
+  let m = BAR_MASK.get(w);
+  if (m) return m;
+  m = new Uint8Array(w.width * w.height);
   const water = (x: number, y: number): boolean =>
     x >= 0 && y >= 0 && x < w.width && y < w.height && w.terrain[y * w.width + x] === Terrain.Lake;
-  const nw = water(tx - 1, ty) && water(tx, ty - 1) && water(tx - 1, ty - 1);
-  const ne = water(tx + 1, ty) && water(tx, ty - 1) && water(tx + 1, ty - 1);
-  const sw = water(tx - 1, ty) && water(tx, ty + 1) && water(tx - 1, ty + 1);
-  const se = water(tx + 1, ty) && water(tx, ty + 1) && water(tx + 1, ty + 1);
-  if (!nw && !ne && !sw && !se) return null;
+  for (let ty = 0; ty < w.height; ty++) for (let tx = 0; tx < w.width; tx++) {
+    let b = 0;
+    if (water(tx - 1, ty) && water(tx, ty - 1) && water(tx - 1, ty - 1)) b |= 1;
+    if (water(tx + 1, ty) && water(tx, ty - 1) && water(tx + 1, ty - 1)) b |= 2;
+    if (water(tx - 1, ty) && water(tx, ty + 1) && water(tx - 1, ty + 1)) b |= 4;
+    if (water(tx + 1, ty) && water(tx, ty + 1) && water(tx + 1, ty + 1)) b |= 8;
+    m[ty * w.width + tx] = b;
+  }
+  BAR_MASK.set(w, m);
+  return m;
+}
+
+export function pointBarAt(w: World, tx: number, ty: number, px: number, py: number): RGB | null {
+  const b = barMask(w)[ty * w.width + tx]!;
+  if (b === 0) return null;
+  const nw = (b & 1) !== 0, ne = (b & 2) !== 0, sw = (b & 4) !== 0, se = (b & 8) !== 0;
   const gx = tx * TILE_PX + px, gy = ty * TILE_PX + py;
   const r = 3.2 + 2 * valueNoise(gx, gy, 4, 121);
   const hit = (nw && px + py < r) || (ne && 7 - px + py < r) || (sw && px + 7 - py < r) || (se && 14 - px - py < r);

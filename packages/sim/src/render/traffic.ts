@@ -141,7 +141,7 @@ export function drawAmbientTraffic(w: World, tick: number, fog: Uint8Array | nul
         // lane: the double highway splits directions by row; a plain
         // street keeps to the right half of its single row
         let px: number, py: number;
-        const inner = hsh % 3 !== 0;
+        const inner = true; // outer lanes hold downtown's curb parking
         if (st.axis === 0) {
           px = st.from * TILE_PX + pos;
           const row = st.double ? (fwd ? st.at + 1 : st.at) : st.at;

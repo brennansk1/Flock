@@ -27,13 +27,13 @@ function blank(biome = Biome.Temperate) {
   return w;
 }
 /** Render the subject window at LOD; stage(w) mutates the world. */
-function shot(stage, fw, fh, biome, road = true) {
+function shot(stage, fw, fh, biome, road = true, viewOverride) {
   const frames = [false, true].map((on) => {
     const w = blank(biome);
     if (!road) for (let x = 0; x < N; x++) w.terrain[ROAD_Y * N + x] = Terrain.Grass;
     if (on) stage(w);
     const sim = createSim({ seed: 99, balance, world: w, spawns: [], timerTicks: 0, dominationPermille: 1000 });
-    const view = { x: 4, y: ROAD_Y - fh - 1, w: fw + 2, h: fh + 2 };
+    const view = viewOverride ?? { x: 4, y: ROAD_Y - fh - 1, w: fw + 2, h: fh + 2 };
     return renderTown(sim, { frameTick: 0, lod: LOD, view, season, timeOfDay: time });
   });
   const [bg, fg] = frames, px = LOD * 8;
@@ -77,6 +77,28 @@ const terrain = (tr, fw = 3, fh = 2) => (w) => {
 const landmark = (id) => (w) => { const t = at(X0, ROAD_Y - 1); w.terrain[t] = Terrain.Citizen; w.landmark[t] = id; w.pop[t] = 4; w.district[t] = Districts.Downtown; };
 
 const S = (name, stage, fw = 1, fh = 1, biome, road) => ({ name, stage, fw, fh, biome, road });
+/**
+ * The SAME lot (same tile, so the same hashed style) with its street on
+ * each side in turn — N, S, E, W — for the orientation check.
+ */
+const QX = 6, QY = 5;
+const oneSide = (side, setup) => (w) => {
+  for (let x = 0; x < N; x++) w.terrain[ROAD_Y * N + x] = Terrain.Grass;
+  const [rx, ry] = side === "N" ? [QX, QY - 1] : side === "S" ? [QX, QY + 1] : side === "E" ? [QX + 1, QY] : [QX - 1, QY];
+  for (let k = -2; k <= 2; k++) {
+    const x = side === "N" || side === "S" ? rx + k : rx, y = side === "N" || side === "S" ? ry : ry + k;
+    w.terrain[at(x, y)] = Terrain.Road;
+  }
+  setup(w, at(QX, QY));
+};
+const QUAD_VIEW = { x: QX - 1, y: QY - 1, w: 3, h: 3 };
+const Q = (name, setup) => ({ name, quad: ["N", "S", "E", "W"].map((side) => oneSide(side, setup)) });
+const shopLot = (w, t) => { w.terrain[t] = Terrain.Citizen; w.lot[t] = Lot.Shop; w.district[t] = Districts.Downtown; w.pop[t] = 4; };
+const houseLot = (w, t) => { w.terrain[t] = Terrain.Citizen; w.district[t] = Districts.Suburbs; w.pop[t] = 5; };
+const aptLot = (w, t) => { w.terrain[t] = Terrain.Citizen; w.district[t] = Districts.ResHigh; w.pop[t] = 9; };
+const apartments = (n = 4) => (w) => {
+  for (let i = 0; i < n; i++) { const t = at(X0 + i, ROAD_Y - 1); w.terrain[t] = Terrain.Citizen; w.district[t] = Districts.ResHigh; w.pop[t] = 9 + i; }
+};
 const D = Districts;
 const BATCHES = {
   "2_downtown_commercial": [
@@ -86,6 +108,10 @@ const BATCHES = {
     S("Cinema 2x2", lot(Lot.Cinema, 2, 2), 2, 2), S("GasStation 2x1", lot(Lot.GasStation, 2, 1, D.Commercial), 2, 1),
     S("Motel 2x1", lot(Lot.Motel, 2, 1, D.Commercial), 2, 1), S("Sheriff 2x1", lot(Lot.Sheriff, 2, 1), 2, 1),
     S("FireStation 2x2", lot(Lot.FireStation, 2, 2), 2, 2), S("Parking 2x1", lot(Lot.Parking, 2, 1), 2, 1),
+  ],
+  "1_orientation": [
+    Q("Shop · street N / S / E / W", shopLot), Q("House · street N / S / E / W", houseLot), Q("Apartment · street N / S / E / W", aptLot),
+    S("ResHigh apartments x4", apartments(4), 4, 1),
   ],
   "3_residential_school": [
     S("Suburbs houses", houses(D.Suburbs), 6, 1), S("OldTown houses", houses(D.OldTown, 6, 1), 6, 1),
@@ -125,7 +151,11 @@ const page = await browser.newPage({ viewport: { width: 1600, height: 400 } });
 for (const [batch, subjects] of Object.entries(BATCHES)) {
   const cells = subjects.map((s) => {
     let img;
-    try { img = `<img src="data:image/png;base64,${shot(s.stage, s.fw, s.fh, s.biome, s.road)}">`; }
+    try {
+      img = s.quad
+        ? `<div style="display:flex;gap:6px">${s.quad.map((st) => `<img src="data:image/png;base64,${shot(st, 1, 1, undefined, false, QUAD_VIEW)}">`).join("")}</div>`
+        : `<img src="data:image/png;base64,${shot(s.stage, s.fw, s.fh, s.biome, s.road)}">`;
+    }
     catch (e) { img = `<b>ERROR ${String(e.message).slice(0, 60)}</b>`; }
     return `<figure>${img}<figcaption>${s.name}</figcaption></figure>`;
   }).join("");

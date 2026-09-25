@@ -29,6 +29,7 @@ import {
   type World,
 } from "./types.js";
 import { toFloat } from "./fixed.js";
+import { footprintOf } from "./footprints.js";
 import { watchtowerSees } from "./buildings.js";
 import {
   hexToRgb,
@@ -36,7 +37,6 @@ import {
   territoryPixel,
   colorForPlayer,
   NEUTRAL_BY_DISTRICT,
-  COLOR_APOSTATE,
   type RGB,
   type Archetype,
 } from "./palette.js";
@@ -47,10 +47,11 @@ import { drawRock, screeAt } from "./render/rock.js";
 import { drawCourthouse, drawTrack, drawBallField } from "./render/civic.js";
 import { drawStorefront } from "./render/storefront.js";
 import { drawAmbientTraffic } from "./render/traffic.js";
-import { lotFrontage } from "./render/frontage.js";
+import { lotFrontage, roadClass } from "./render/frontage.js";
+import { drawParkingTile, diagonalStall } from "./render/parking.js";
 import { composeFacade } from "./render/compose.js";
 import { drawWater, pointBarAt, bleedWater } from "./render/water.js";
-import { drawHouse, drawBackyard, frontageOf, isHouseTile, curbCutAt, homeCarSpot } from "./render/houses.js";
+import { drawHouse, drawBackyard, drawApartment, frontageOf, isHouseTile, curbCutAt, homeCarSpot } from "./render/houses.js";
 import { drawVehicle, householdVehicle, householdPaint, dirOf, type VehicleKind } from "./render/vehicles.js";
 import { TILE_PX, RS, C, DEFAULT_COLORS, pixHash, valueNoise, isLitHour, type Put } from "./render/core.js";
 
@@ -435,58 +436,6 @@ const LOT_STYLE: Record<number, [RGB, RGB, RGB]> = {
   [Lot.Sawmill]: [hexToRgb("#8a6a48"), hexToRgb("#6a4e32"), hexToRgb("#d8c89a")],
 };
 
-/** roof palettes by district */
-const ROOFS: RGB[] = [
-  hexToRgb("#8a7a6a"), // 0: none
-  hexToRgb("#a4543e"), // 1: suburbs — terracotta
-  hexToRgb("#7a4e3a"), // 2: college — brick
-  hexToRgb("#5f6670"), // 3: downtown — slate
-  hexToRgb("#54483a"), // 4: old town — weathered shake
-  hexToRgb("#9c9489"), // 5: trailer — tin
-  hexToRgb("#4c535c"), // 6: commercial — dark slate
-  hexToRgb("#8c8c8c"), // 7: industrial — tin
-  hexToRgb("#b2614b"), // 8: ResHigh — terracotta brick
-];
-
-const DISTRICT_WALLS: Record<number, RGB[]> = {
-  1: [ // Suburbs
-    hexToRgb("#ddd2bd"), // warm beige
-    hexToRgb("#e8e0d0"), // cream
-    hexToRgb("#d6cdc0"), // grey-beige
-    hexToRgb("#c9d2c2"), // sage siding
-    hexToRgb("#d9c9b0"), // butter tan
-  ],
-  2: [ // College
-    hexToRgb("#cbbca8"), // warm tan
-    hexToRgb("#b0a490"), // brown tan
-    hexToRgb("#dcd3c5"), // light tan
-    hexToRgb("#c2b49e"), // oat
-  ],
-  3: [ // Downtown
-    hexToRgb("#ddd2bd"),
-    hexToRgb("#cbbca8"),
-    hexToRgb("#dcd3c5"),
-  ],
-  4: [ // Old Town
-    hexToRgb("#c8cbb4"), // sage/grey
-    hexToRgb("#bca89a"), // weathered wood
-    hexToRgb("#efe9da"), // clean white
-    hexToRgb("#c4b4c2"), // faded lilac (painted lady)
-    hexToRgb("#b2bcc0"), // slate blue-grey
-  ],
-  5: [ // Trailer
-    hexToRgb("#cbd6c8"), // pale green
-    hexToRgb("#c8cbd6"), // pale blue
-    hexToRgb("#d6cac8"), // pale pinkish
-    hexToRgb("#d8d4c4"), // sun-bleached cream
-  ],
-  8: [ // ResHigh
-    hexToRgb("#c8b0a0"), // reddish brick
-    hexToRgb("#b8ab90"), // warm stone
-    hexToRgb("#dcd2be"), // warm beige
-    hexToRgb("#b5a493"), // brownstone
-  ]
-};
 
 export interface RenderOpts {
   /** viewing player for fog + own-agent markers; 0 = omniscient (spectator) */
@@ -1075,6 +1024,12 @@ function drawTile(
           if (w.district[n] === 3) downtownFront = true; // Districts.Downtown
         }
       }
+      // Main Street through downtown carries angled curb stalls on the
+      // side(s) where the storefronts are
+      const mainSt = roadClass(w)[t] === 5 && (roadE || roadW);
+      const dtAt = (n: number): boolean => n >= 0 && n < w.terrain.length && w.terrain[n] === Terrain.Citizen && w.district[n] === 3;
+      const diagN = mainSt && !roadN && dtAt(t - w.width);
+      const diagS = mainSt && !roadS && dtAt(t + w.width);
       // CROSSWALKS: zebra dashes where two downtown streets meet
       const intersection = downtownFront && (roadN || roadS) && (roadE || roadW);
       const fourWay = downtownFront && roadN && roadS && roadE && roadW;
@@ -1143,6 +1098,9 @@ function drawTile(
             c = shade(C.crosswalk, 0.9);
           }
 
+          // DIAGONAL CURB PARKING along Main Street through downtown
+          if (diagN && (py === 1 || py === 2)) c = diagonalStall(gx, py - 1, ty * 2) ?? c;
+          else if (diagS && (py === 5 || py === 6)) c = diagonalStall(gx, py - 5, ty * 2 + 1) ?? c;
           // the tracks continue straight across the pavement
           if (crossingH && (py === 2 || py === 5)) c = C.railSteel;
           if (crossingV && (px === 2 || px === 5)) c = C.railSteel;
@@ -1494,7 +1452,7 @@ function drawTile(
             continue;
           }
 
-          if (isMarsh) {
+          if (isMarsh && RS.season !== "winter") {
             c = cell === 0 ? hexToRgb("#82935c") : hexToRgb("#6e7e4c"); // swampy green
           }
 
@@ -2115,8 +2073,12 @@ function drawTile(
 
   if (lot !== 0) {
     drawLotBuilding(w, t, tx, ty, x0, y0, lot, put);
-  } else if (pop >= 8 && (district === 3 || district === 8)) {
-    drawBlock(w, tx, ty, x0, y0, t, put); // downtown/ResHigh: segmented building row (§8A)
+  } else if (pop >= 8 && district === 8) {
+    castShadow(x0, y0, put);
+    drawApartment(w, t, x0, y0, put); // ResHigh walk-up: one building per tile
+  } else if (pop >= 8 && district === 3) {
+    castShadow(x0, y0, put);
+    drawStorefront(w, t, x0, y0, put); // downtown commercial block
   } else if (pop >= 3) {
     if (district === 5) {
       drawVerge(w, t, tx, ty, x0, y0, district, put);
@@ -2201,81 +2163,32 @@ function lotRect(
   ty: number,
   lot: number,
 ): { ax: number; ay: number; fw: number; fh: number } {
-  let ax = tx;
-  while (ax > 0 && w.lot[ty * w.width + ax - 1] === lot) ax--;
-  let ay = ty;
-  while (ay > 0 && w.lot[(ay - 1) * w.width + tx] === lot) ay--;
-  let fw = 1;
-  while (ax + fw < w.width && w.lot[ay * w.width + ax + fw] === lot && fw < 8) fw++;
-  let fh = 1;
-  while (ay + fh < w.height && w.lot[(ay + fh) * w.width + ax] === lot && fh < 8) fh++;
-  return { ax, ay, fw, fh };
-}
-
-/**
- * A real parking lot composed over the whole Parking strip: asphalt with
- * wear, a concrete curb along the building side, painted bays facing the
- * building, a clear aisle, open on the road side. Bays stay empty — cars
- * are a moving system (they drive in and park), never static dressing.
- */
-function drawParkingLot(
-  w: World,
-  ax: number,
-  ay: number,
-  fw: number,
-  fh: number,
-  clip: Put,
-): void {
-  const W = fw * TILE_PX;
-  const H = fh * TILE_PX;
-  const AX = ax * TILE_PX;
-  const AY = ay * TILE_PX;
-  const p = (x: number, y: number, c: RGB): void => clip(AX + x, AY + y, c);
-  // which side has the street? bays face the OTHER way (the building)
-  const counts = [0, 0, 0, 0]; // S, N, E, W
-  for (let dx = 0; dx < fw; dx++) {
-    if (ay + fh < w.height && w.terrain[(ay + fh) * w.width + ax + dx] === Terrain.Road) counts[0]!++;
-    if (ay - 1 >= 0 && w.terrain[(ay - 1) * w.width + ax + dx] === Terrain.Road) counts[1]!++;
+  // the contiguous same-lot component's bounding rows/cols through (tx, ty)
+  const at = (x: number, y: number): boolean => x >= 0 && y >= 0 && x < w.width && y < w.height && w.lot[y * w.width + x] === lot;
+  let cx0 = tx;
+  while (at(cx0 - 1, ty)) cx0--;
+  let cx1 = tx;
+  while (at(cx1 + 1, ty)) cx1++;
+  let cy0 = ty;
+  while (at(tx, cy0 - 1)) cy0--;
+  let cy1 = ty;
+  while (at(tx, cy1 + 1)) cy1++;
+  const cw = cx1 - cx0 + 1, ch = cy1 - cy0 + 1;
+  // S2 (buildings read as their OWN building): a component bigger than the
+  // lot's footprint is several buildings — chunk it into footprint-sized
+  // pieces anchored at the component's top-left
+  const fp = footprintOf(lot as Lot);
+  const fits = (a: number, b: number): boolean => cw <= a && ch <= b;
+  if (lot === Lot.Parking || lot === Lot.Park || fits(fp.w, fp.h) || fits(fp.h, fp.w) || (fp.alt && (fits(fp.alt.w, fp.alt.h) || fits(fp.alt.h, fp.alt.w)))) {
+    return { ax: cx0, ay: cy0, fw: cw, fh: ch };
   }
-  for (let dy = 0; dy < fh; dy++) {
-    if (ax + fw < w.width && w.terrain[(ay + dy) * w.width + ax + fw] === Terrain.Road) counts[2]!++;
-    if (ax - 1 >= 0 && w.terrain[(ay + dy) * w.width + ax - 1] === Terrain.Road) counts[3]!++;
-  }
-  let side = 0;
-  for (let i = 1; i < 4; i++) if (counts[i]! > counts[side]!) side = i;
-  const vert = side <= 1; // depth runs along y
-  const DEPTH = vert ? H : W;
-  const LAT = vert ? W : H;
-  // (l, d) → canvas px, with d=0 on the building side and d=DEPTH-1 at the road
-  const at = (l: number, d: number): [number, number] =>
-    vert ? [l, side === 0 ? d : DEPTH - 1 - d] : [side === 2 ? d : DEPTH - 1 - d, l];
-  // asphalt base with wear
-  for (let l = 0; l < LAT; l++) {
-    for (let d = 0; d < DEPTH; d++) {
-      const [x, y] = at(l, d);
-      p(x, y, pixHash(AX + x, AY + y, 53) % 11 === 0 ? shade(C.asphalt, 1.08) : C.asphalt);
-    }
-  }
-  // concrete curb along the building side
-  for (let l = 0; l < LAT; l++) {
-    const [x, y] = at(l, 0);
-    p(x, y, shade(C.sidewalk, 0.95));
-  }
-  // painted bays (3px pitch) — kept EMPTY: cars are a moving system (they
-  // drive in and park), never static dressing
-  for (let l = 1; l + 2 < LAT; l += 3) {
-    for (let d = 1; d <= 3 && d < DEPTH - 2; d++) {
-      const [x, y] = at(l, d);
-      p(x, y, C.asphaltDash); // bay stripe
-    }
-  }
-  // final stripe closing the last bay
-  if ((LAT - 1) % 3 !== 0) {
-    for (let d = 1; d <= 3 && d < DEPTH - 2; d++) {
-      const [x, y] = at(LAT - 1, d);
-      p(x, y, C.asphaltDash);
-    }
-  }
+  // orient the footprint along the component's long axis
+  const long = Math.max(fp.w, fp.h), short = Math.min(fp.w, fp.h);
+  const pw = cw >= ch ? long : short;
+  const ph = cw >= ch ? short : long;
+  const ix = Math.floor((tx - cx0) / pw), iy = Math.floor((ty - cy0) / ph);
+  const ax = cx0 + ix * pw, ay = cy0 + iy * ph;
+  return { ax, ay, fw: Math.min(pw, cx1 - ax + 1), fh: Math.min(ph, cy1 - ay + 1) };
 }
 
 /** Reusable facade canvas (presentation scratch — never sim state). */
@@ -2965,79 +2878,7 @@ export function drawLotBuilding(
     return;
   }
   if (lot === Lot.Parking) {
-    // High-detail asphalt parking lot system paired with civic & commercial buildings
-    const asphalt = C.asphalt;
-    const asphaltMottle = hexToRgb("#202227");
-    const yellowStall = hexToRgb("#e0c34a");
-    const whiteStall = hexToRgb("#f0f0f4");
-    const stopGray = hexToRgb("#9fa6ac");
-    const handicapBlue = hexToRgb("#2260a8");
-
-    // Base asphalt with subtle gravel aggregate mottle
-    for (let py = 0; py < TILE_PX; py++) {
-      for (let px = 0; px < TILE_PX; px++) {
-        put(x0 + px, y0 + py, (px * 3 + py * 7) % 11 === 0 ? asphaltMottle : asphalt);
-      }
-    }
-
-    const sameL = tx > 0 && w.lot[t - 1] === Lot.Parking;
-    const sameR = tx < w.width - 1 && w.lot[t + 1] === Lot.Parking;
-    const sameU = ty > 0 && w.lot[t - w.width] === Lot.Parking;
-    const sameD = ty < w.height - 1 && w.lot[t + w.width] === Lot.Parking;
-
-    // Painted parking stalls (yellow angled lines / double stripes)
-    for (let py = 1; py <= 6; py += 3) {
-      put(x0 + 1, y0 + py, yellowStall);
-      put(x0 + 2, y0 + py, yellowStall);
-      put(x0 + 5, y0 + py, yellowStall);
-      put(x0 + 6, y0 + py, yellowStall);
-    }
-    // Concrete wheel stops at stall heads
-    put(x0 + 2, y0 + 6, stopGray);
-    put(x0 + 5, y0 + 6, stopGray);
-
-    // Handicap accessible parking stall on perimeter corner
-    if (!sameL && !sameU) {
-      put(x0 + 2, y0 + 2, handicapBlue);
-      put(x0 + 3, y0 + 2, handicapBlue);
-      put(x0 + 2, y0 + 3, handicapBlue);
-      put(x0 + 3, y0 + 3, handicapBlue);
-      put(x0 + 2, y0 + 2, whiteStall); // white wheelchair glyph center
-    }
-
-    // Landscaped island curb tree on edges
-    if (!sameR && !sameU && pixHash(t, 5, 23) % 2 === 0) {
-      put(x0 + 6, y0 + 1, hexToRgb("#4c9c28"));
-      put(x0 + 7, y0 + 1, hexToRgb("#326e1c"));
-      put(x0 + 6, y0 + 2, hexToRgb("#326e1c"));
-      put(x0 + 7, y0 + 2, hexToRgb("#4c9c28"));
-      put(x0 + 6, y0 + 3, hexToRgb("#8c9296")); // curb border
-      put(x0 + 7, y0 + 3, hexToRgb("#8c9296"));
-    }
-
-    // Authentic retro parked cars (hashing selects presence & color)
-    const h = pixHash(t, 13, 71);
-    if (h % 3 !== 0) {
-      const palette = [
-        hexToRgb("#2b4260"), // midnight navy sedan
-        hexToRgb("#8a252a"), // burgundy maroon wagon
-        hexToRgb("#2d5236"), // dark forest green pickup
-        hexToRgb("#d4ccba"), // parchment beige
-        hexToRgb("#36383c"), // charcoal slate
-      ];
-      const carCol = palette[h % palette.length]!;
-      const carX = (h % 2 === 0) ? 1 : 4;
-      const carY = 2 + (h % 2);
-      put(x0 + carX, y0 + carY, carCol);
-      put(x0 + carX + 1, y0 + carY, carCol);
-      put(x0 + carX, y0 + carY + 1, hexToRgb("#15181c")); // windshield
-      put(x0 + carX + 1, y0 + carY + 1, hexToRgb("#15181c"));
-      put(x0 + carX, y0 + carY + 2, shade(carCol, 0.82));
-      put(x0 + carX + 1, y0 + carY + 2, shade(carCol, 0.82));
-      // Tires
-      put(x0 + carX - 1 < 0 ? 0 : x0 + carX - 1, y0 + carY, hexToRgb("#111111"));
-      put(x0 + carX + 2 >= TILE_PX ? TILE_PX - 1 : x0 + carX + 2, y0 + carY, hexToRgb("#111111"));
-    }
+    drawParkingTile(w, t, tx, ty, x0, y0, put);
     return;
   }
   if (lot === Lot.Park) {
@@ -3122,10 +2963,12 @@ export function drawLotBuilding(
   }
 
   const [body, roof, accent] = LOT_STYLE[lot] ?? LOT_STYLE[Lot.Shop]!;
-  const sameLeft = tx > 0 && w.lot[t - 1] === lot;
-  const sameRight = tx < w.width - 1 && w.lot[t + 1] === lot;
-  const sameUp = ty > 0 && w.lot[t - w.width] === lot;
-  const sameDown = ty < w.height - 1 && w.lot[t + w.width] === lot;
+  // merge only within this building's footprint chunk (lotRect)
+  const ch = lotRect(w, tx, ty, lot);
+  const sameLeft = tx > ch.ax;
+  const sameRight = tx < ch.ax + ch.fw - 1;
+  const sameUp = ty > ch.ay;
+  const sameDown = ty < ch.ay + ch.fh - 1;
 
   // shadow on the south/east faces of the whole footprint (sun from NW)
   if (!sameDown || !sameRight) castShadow(x0, y0, put);
@@ -4193,80 +4036,6 @@ export function drawTrailerHome(
  * cornice, window rhythm, and a dark party-wall seam at each boundary — so a
  * row reads as a street of distinct buildings, never one repeated texture.
  */
-function drawBlock(w: World, tx: number, ty: number, x0: number, y0: number, t: number, put: Put): void {
-  const isBlockTile = (x: number, y: number): boolean => {
-    if (x < 0 || y < 0 || x >= w.width || y >= w.height) return false;
-    const n = y * w.width + x;
-    return (
-      w.terrain[n] === Terrain.Citizen &&
-      w.lot[n] === 0 &&
-      (w.pop[n] ?? 0) >= 8 &&
-      (w.district[n] === 3 || w.district[n] === 8) &&
-      w.district[n] === w.district[t]
-    );
-  };
-  // find this row-run's start, then hash-chain building widths (1–3 tiles)
-  // from the run anchor so every tile in a building agrees on its identity
-  let runStart = tx;
-  while (isBlockTile(runStart - 1, ty)) runStart--;
-  const anchor = ty * w.width + runStart;
-  let segStart = runStart;
-  let segW = 1 + (pixHash(anchor, segStart, 61) % 3);
-  while (tx >= segStart + segW) {
-    segStart += segW;
-    segW = 1 + (pixHash(anchor, segStart, 61) % 3);
-  }
-  const segId = ty * w.width + segStart; // stable per-building hash key
-  const d = w.district[t]!;
-  // per-building wall tone: downtown = brick/stone range, ResHigh = warmer
-  const tones =
-    d === 3
-      ? [C.block, shade(C.block, 0.86), hexToRgb("#8a6a52"), hexToRgb("#7d7468")]
-      : [shade(C.block, 1.08), hexToRgb("#93755c"), shade(C.block, 0.92)];
-  const wall = tones[pixHash(segId, 3, 67) % tones.length]!;
-  const cornice = shade(wall, 0.72);
-  const accent = pixHash(segId, 9, 67) % 3 === 0; // parapet accent band
-  const isSegStart = tx === segStart;
-  const isSegEnd = tx === segStart + segW - 1 || !isBlockTile(tx + 1, ty);
-  const isRunEnd = !isBlockTile(tx + 1, ty);
-  castShadow(x0, y0, put);
-  // body: fuse across tiles inside a building; dark seam at building edges
-  // Vary the depth (startY) of the building slightly to break the monolith
-  const startY = pixHash(segId, 17, 67) % 3; // 0, 1, or 2
-  const pxFrom = isSegStart ? 1 : 0;
-  const pxTo = isRunEnd ? 6 : isSegEnd ? 6 : 7;
-  for (let py = startY; py <= 6; py++) {
-    for (let px = pxFrom; px <= pxTo; px++) {
-      put(x0 + px, y0 + py, py === startY ? (accent ? shade(wall, 1.25) : cornice) : wall);
-    }
-  }
-  if (isSegStart) for (let py = startY; py <= 6; py++) put(x0, y0 + py, shade(wall, 0.5)); // party-wall seam
-  // window rhythm: per-building offset + lit density
-  const wxOff = 2 + (pixHash(segId, 5, 67) % 2);
-  const litMod = 3 + (pixHash(segId, 7, 67) % 3);
-  for (let wy = startY + 1; wy <= 5; wy += 2) {
-    for (let wx = wxOff; wx <= 6; wx += 2) {
-      const lit = pixHash(t, wx * 8 + wy) % litMod !== 0;
-      put(x0 + wx, y0 + wy, lit && isLitHour() ? C.windowLit : pixHash(t, wx + wy * 8, 71) % 5 === 0 ? C.glass : C.windowDark);
-    }
-  }
-  // downtown ground floor: storefront glass strip + door on the street row
-  if (d === 3) {
-    for (let px = pxFrom + 1; px <= pxTo - 1; px++) put(x0 + px, y0 + 6, hexToRgb("#3a4650"));
-    if (pixHash(segId, 11, 67) % 2 === 0 && isSegStart) put(x0 + 2, y0 + 6, shade(wall, 1.3)); // door
-  }
-  // aerial flavor: a rooftop vent/AC unit on some buildings
-  if (pixHash(t, 13, 67) % 5 === 0) put(x0 + 3 + (pixHash(t, 15, 67) % 3), y0 + startY + 1, shade(wall, 0.6));
-  
-  // Sidewalk for the entire block if there's a road fronting it
-  if (ty < w.height - 1 && w.terrain[t + w.width] === Terrain.Road) {
-    for (let px = 0; px < TILE_PX; px++) {
-      put(x0 + px, y0 + 7, C.sidewalk);
-      if (px % 4 === 0) put(x0 + px, y0 + 7, shade(C.sidewalk, 0.9)); // sidewalk expansion joints
-    }
-  }
-}
-
 function drawIcon(bitmap: string[], tile: number, width: number, body: RGB, put: Put, accentCol: RGB = C.iconAccent): void {
   const x0 = (tile % width) * TILE_PX;
   const y0 = ((tile / width) | 0) * TILE_PX;
@@ -4424,7 +4193,8 @@ export function drawRockOutcrop(x0: number, y0: number, put: Put, rockVar = 0): 
 export function drawBrushPocket(x0: number, y0: number, put: Put, bushVar = 0): void {
   const leafLight = hexToRgb("#7ca84c"); // Sunlit leaf sprig
   const leafDark = hexToRgb("#344e26"); // Shaded bramble interior
-  const berry = hexToRgb("#c83232"); // Wild crimson berry
+  // berries only on a late-summer bramble now and then — no red confetti
+  const berry = RS.season === "summer" && ((x0 ^ y0) & 24) === 24 ? hexToRgb("#a83a32") : leafDark;
   if (bushVar === 1) {
     put(x0 + 2, y0 + 4, leafLight);
     put(x0 + 3, y0 + 4, C.bush);
@@ -4843,59 +4613,6 @@ function putPerson(px: number, py: number, color: RGB, put: Put, vivid = false):
   put(stepL ? px : px + 1, py + 1, C.shadow);
 }
 const SKIN = hexToRgb("#d8a880");
-
-/** Real-world car paint for neutral households (cult cars wear cult colors). */
-const CAR_COLORS: RGB[] = [
-  hexToRgb("#c8c4bc"), // silver
-  hexToRgb("#e8e4dc"), // white
-  hexToRgb("#2e2e32"), // black
-  hexToRgb("#a03028"), // red
-  hexToRgb("#3a5a8c"), // blue
-  hexToRgb("#4a6a42"), // green
-  hexToRgb("#b09a6a"), // tan
-  hexToRgb("#6a3038"), // maroon
-];
-
-/**
- * A commuting car with a FACE: a compact body block with dark wheel corners,
- * a lit roof stripe, and a windshield band on the leading end — the form
- * turns with the travel axis so heading reads at a glance, parked or moving.
- */
-function putCar(
-  px: number,
-  py: number,
-  color: RGB,
-  dx: number,
-  dy: number,
-  put: Put,
-  vivid = false,
-): void {
-  const wheel = shade(color, 0.55);
-  const roof = shade(color, vivid ? 1.55 : 1.18); // cult cars run hot roofs
-  if (dy === 0) {
-    // east/west: 3 long × 2 tall — rear wheels dark, roof stripe, glass front
-    const east = dx >= 0;
-    const fx = east ? px + 1 : px - 1; // front column
-    const rx = east ? px - 1 : px + 1; // rear column
-    put(rx, py, wheel);
-    put(px, py, roof);
-    put(fx, py, C.unitGlass);
-    put(rx, py + 1, wheel);
-    put(px, py + 1, color);
-    put(fx, py + 1, shade(color, 0.85));
-  } else {
-    // north/south: 2 wide × 3 long — windshield band leads, wheels trail
-    const south = dy >= 0;
-    const fy = south ? py + 1 : py - 1;
-    const ry = south ? py - 1 : py + 1;
-    put(px, fy, C.unitGlass);
-    put(px + 1, fy, shade(C.unitGlass, 1.15));
-    put(px, py, roof);
-    put(px + 1, py, color);
-    put(px, ry, wheel);
-    put(px + 1, ry, wheel);
-  }
-}
 
 /**
  * Fleet car at a putCar-convention centre (E–W: px−1..px+1 × py..py+1;
@@ -5619,41 +5336,6 @@ function drawIndustrialShed(x0: number, y0: number, t: number, put: Put, detail:
     put(x0 + 4, y0 + 6, shade(C.iconDark, 1.8));
     put(x0 + 1, y0 + 6, hexToRgb("#bfa26b")); // crate
   }
-}
-
-function drawCommercialStorefront(x0: number, y0: number, t: number, put: Put, detail: Detail | null): void {
-  castShadow(x0, y0, put);
-  const brick = pixHash(t, 8) % 2 === 0 ? hexToRgb("#b0563f") : hexToRgb("#cbb89a");
-  const brickDark = shade(brick, 0.85);
-  const roof = hexToRgb("#6e665e");
-  
-  // Cornice / roof line
-  for (let px = 1; px <= 6; px++) {
-    put(x0 + px, y0 + 2, roof);
-    put(x0 + px, y0 + 1, brickDark);
-  }
-  // Brick walls
-  for (let py = 3; py <= 6; py++) {
-    for (let px = 1; px <= 6; px++) {
-      put(x0 + px, y0 + py, px % 2 === 0 ? brick : brickDark);
-    }
-  }
-  // Large display window
-  const windowC = hexToRgb("#3f7fbf"); // blue glass
-  put(x0 + 1, y0 + 4, windowC);
-  put(x0 + 2, y0 + 4, windowC);
-  put(x0 + 1, y0 + 5, windowC);
-  put(x0 + 2, y0 + 5, windowC);
-  
-  // Store door
-  put(x0 + 4, y0 + 4, C.glassFrame);
-  put(x0 + 4, y0 + 5, C.door);
-  
-  // Awning above window (striped red/white or blue/white)
-  const awnC = pixHash(t, 9) % 2 === 0 ? hexToRgb("#d23b3b") : hexToRgb("#3f7fbf");
-  put(x0 + 1, y0 + 3, awnC);
-  put(x0 + 2, y0 + 3, C.crosswalk);
-  put(x0 + 3, y0 + 3, awnC);
 }
 
 function drawCollegeBlock(x0: number, y0: number, t: number, put: Put, detail: Detail | null): void {

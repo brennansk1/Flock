@@ -28,8 +28,15 @@ const hx = hexToRgb;
 export type Frontage = -1 | 0 | 1 | 2 | 3;
 
 /** Street frontage of a 1-tile lot (priority rules in frontage.ts; houses hash ties). */
+const FRONT_CACHE = new WeakMap<World, Int8Array>();
 export function frontageOf(w: World, t: number, house = true): Frontage {
-  return lotFrontage(w, t % w.width, (t / w.width) | 0, 1, 1, house ? t : -1);
+  // memoised per world (roads never change mid-match): [house, non-house]
+  let c = FRONT_CACHE.get(w);
+  if (!c) { c = new Int8Array(w.terrain.length * 2).fill(-2); FRONT_CACHE.set(w, c); }
+  const k = t * 2 + (house ? 0 : 1);
+  let v = c[k]!;
+  if (v === -2) { v = lotFrontage(w, t % w.width, (t / w.width) | 0, 1, 1, house ? t : -1); c[k] = v; }
+  return v as Frontage;
 }
 
 /** Districts whose pop≥3 plain lots are single-family houses. */
@@ -218,7 +225,6 @@ export function drawHouse(
   const roofBase = style === "adobe" ? ADOBE_ROOF[pixHash(t, 3, 401) % 2]! : ROOFS[pixHash(t, 3, 401) % ROOFS.length]!;
 
   const l0 = driveLane(t);
-  const hl0 = 2;
   const hasFront = fr >= 0;
 
   // ---- driveway (+ over the sidewalk), before the house so eaves overlap
@@ -311,7 +317,7 @@ export function drawHouse(
   // front porch deck on the frontage side (whatever the orientation)
   const porch = hasFront && (style === "foursquare" || style === "cape");
   if (porch) {
-    const p0 = style === "foursquare" ? 3 : 2;
+    const p0 = style === "foursquare" ? 3 : 2; // porch spans the house band
     for (let l = p0; l <= 7; l++) P(l, 6, l === p0 || l === 7 ? siding : C.plank);
   }
   // door + stoop: the front door shows on the wall face only for S; other
@@ -369,8 +375,8 @@ export function drawSmoke(put: Put, x: number, y: number, t: number, tick: numbe
   const burning = RS.season === "winter" ? pixHash(t, 6, 59) % 4 !== 0 : RS.season === "fall" && (RS.time === "dusk" || RS.time === "night") && pixHash(t, 6, 59) % 3 === 0;
   if (!burning) return;
   const phase = ((tick >> 2) + t * 3) % 12; // 0..11 rise cycle
-  const puffA = hx("#dcdcd8");
-  const puffB = hx("#b9bab8");
+  const puffA = hx("#a9a9a6"); // wood smoke reads grey against snowy roofs
+  const puffB = hx("#8f908e");
   if (RS.lod < 2) {
     put(x + (phase > 6 ? 1 : 0), y - (phase >> 2), puffA);
     return;
@@ -491,4 +497,65 @@ export function drawBackyard(w: World, t: number, tx: number, ty: number, x0: nu
     default:
       break; // plain mown back lawn
   }
+}
+
+// ------------------------------------------------------------ apartments
+
+const APT_WALLS: readonly RGB[] = ["#9a5a44", "#b06a4c", "#8a4e3c", "#c8b89a", "#b8a888", "#a8a49a"].map(hx);
+const APT_ROOFS: readonly RGB[] = ["#6a6660", "#5a5854", "#7a746a"].map(hx);
+
+/**
+ * ResHigh walk-up: a 2–3 storey brick / siding apartment block, one per
+ * tile, with a flat parapet roof, rooftop HVAC, an exterior metal stair on
+ * one end and a 1px side-yard gap so neighbouring buildings count apart.
+ * Oriented to its street like the houses (3/4 camera shows the south face).
+ */
+export function drawApartment(w: World, t: number, x0: number, y0: number, put: Put): void {
+  const fr = frontageOf(w, t, false);
+  const f: Frontage = fr < 0 ? 0 : fr;
+  const P = (l: number, d: number, c: RGB): void => {
+    const [sx, sy] = toScreen(f, l, d);
+    put(x0 + sx, y0 + sy, c);
+  };
+  const wall = APT_WALLS[pixHash(t, 2, 409) % APT_WALLS.length]!;
+  const roof = RS.season === "winter" ? hx("#e2e9ee") : APT_ROOFS[pixHash(t, 3, 409) % APT_ROOFS.length]!;
+  const storeys = 2 + (pixHash(t, 4, 409) % 2);
+  const night = RS.time === "night" || RS.time === "dusk";
+  // massing: lateral 1..7 (l=0 is the side-yard gap), depth 0..5
+  const [ax, ay] = toScreen(f, 1, 0);
+  const [bx, by] = toScreen(f, 7, 5);
+  const sx0 = Math.min(ax, bx), sx1 = Math.max(ax, bx);
+  const sy0 = Math.min(ay, by), sy1 = Math.max(ay, by);
+  const wallRows = storeys === 3 ? 3 : 2;
+  const wallY = Math.max(sy0 + 2, sy1 - wallRows + 1);
+  for (let y = sy0; y < wallY; y++) {
+    for (let x = sx0; x <= sx1; x++) {
+      const edge = x === sx0 || x === sx1 || y === sy0 || y === wallY - 1;
+      put(x0 + x, y0 + y, edge ? shade(roof, 1.25) : pixHash(t, x + y * 8, 411) % 6 === 0 ? shade(roof, 0.9) : roof);
+    }
+  }
+  // rooftop HVAC box + a stair bulkhead
+  put(x0 + sx0 + 2, y0 + sy0 + 1, hx("#b8bcc0"));
+  if (wallY - sy0 > 3) put(x0 + sx1 - 2, y0 + sy0 + 2, shade(roof, 0.7));
+  // brick south face: a window per bay per storey
+  for (let y = wallY; y <= sy1; y++) {
+    for (let x = sx0; x <= sx1; x++) {
+      let c = x === sx1 ? shade(wall, 0.84) : wall;
+      if ((x - sx0) % 2 === 1 && x < sx1) c = night && pixHash(t, x * 8 + y, 413) % 3 !== 0 ? C.windowLit : C.windowDark;
+      put(x0 + x, y0 + y, c);
+    }
+  }
+  // exterior metal stair zig-zagging down one end of the face
+  const stairX = pixHash(t, 5, 409) & 1 ? sx0 : sx1;
+  for (let y = wallY; y <= sy1; y++) put(x0 + stairX + ((y - wallY) & 1 ? 0 : 0), y0 + y, (y - wallY) % 2 === 0 ? hx("#3a3a3e") : hx("#6a6a70"));
+  // entrance: a door + stoop on the street side
+  if (f === 0) {
+    const dx = (sx0 + sx1) >> 1;
+    put(x0 + dx, y0 + sy1, C.door);
+    put(x0 + dx, y0 + sy1 + 1, hx("#b8b0a2"));
+  } else if (fr >= 0) {
+    P(4, 6, hx("#b8b0a2"));
+  }
+  // the building's own outline: a shade seam along the gap side
+  for (let d = 0; d <= 5; d++) P(0, d, shade(C.shadow, 0.9));
 }

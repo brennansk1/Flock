@@ -400,7 +400,7 @@ for (const town of TYPES) {
     let pop = 0, tiles = 0; for (const s of [11, 42, 77]) { const w = generateWorld(s, size, size, { townType: town }); pop += countTotalPop(w); tiles += countPopulated(w); }
     rows.push({ size, town, pop: Math.round(pop / 3), tiles: Math.round(tiles / 3) });
   }
-  MG.push({ id: "mg-balance", name: "Population & pacing across town types", placement: "Population floor per map size, ceiling at floor +12% so every town type plays at one pace. 30-match bot telemetry on the new maps: every cult wins (Radiant 11, Circle 8, Dawn 6, Visitors 5), matches 12–16 min, the 5:00 leader wins 30% (was 67%).", table: rows, images: [] });
+  MG.push({ id: "mg-balance", name: "Population & pacing across town types", placement: "Population floor per map size, ceiling at floor +12% so every town type plays at one pace. 30-match bot telemetry on the Stage 2b maps: every cult wins (Dawn 11, Radiant 7, Circle 6, Visitors 6), matches average 14 min (12–16 by town type). Flagged for the strategy stage: the 5:00 leader now wins 66% (Stage 2: 30%) — a snowball regression to fix in the gameplay overhaul, not in worldgen.", table: rows, images: [] });
 }
 {
   // AGRICULTURE placement aspects (Stage 2b farm belt)

@@ -261,10 +261,11 @@ export function generateWorld(seed: number, width: number, height: number, opts:
     // §2A: the archetype reshapes geography/economy; "farm" skips entirely
     if (townType !== "farm") applyTownArchetype(w, rng, town, townType, riverPath);
     // §2A oceanside: the harbor, not the elevator, anchors the economy —
-    // the grain elevator (and its boxcars) yields to a second cannery house
+    // the grain elevator yields to a rail-side cold-storage warehouse (the
+    // cannery itself stands on its pier — the waterfront pass)
     if (townType === "oceanside") {
       for (let t = 0; t < w.terrain.length; t++) {
-        if (w.lot[t] === Lot.GrainElevator) w.lot[t] = Lot.Cannery;
+        if (w.lot[t] === Lot.GrainElevator) w.lot[t] = Lot.Warehouse;
       }
     }
     // FARM PLAN (Stage 2): fields on cleared land, never in the woods;

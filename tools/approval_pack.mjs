@@ -421,12 +421,13 @@ for (const town of TYPES) {
   // WATERFRONT, DAM, TRAILER PARK, ALLEYS, CEMETERY, SUBSTATION (Stage 2b)
   const lh = findCentre("oceanside", (w2, tt) => w2.lot[tt] === Lot.Jetty);
   const cn = findCentre("oceanside", (w2, tt) => w2.lot[tt] === Lot.Cannery);
-  const mr = findCentre("lakeside", (w2, tt) => w2.lot[tt] === Lot.Dock && w2.terrain[tt] === Terrain.Lake);
+  const wet = (w2, k) => w2.lot[k] === Lot.Dock && w2.terrain[k] === Terrain.Lake;
+  const mr = findCentre("lakeside", (w2, tt) => wet(w2, tt) && (wet(w2, tt - 1) || wet(w2, tt + 1)) && (wet(w2, tt - w2.width) || wet(w2, tt + w2.width)));
   const bch = findCentre("lakeside", (w2, tt) => w2.biome[tt] === Biome.Ocean && w2.terrain[tt] !== Terrain.Lake);
   const wf = [];
   if (lh) wf.push({ label: "Lighthouse jetty · day (oceanside 42)", file: save(crop("oceanside", lh.x, lh.y, 20, 12, { lod: 2 }), "wf_jetty") }, { label: "Same · night (beam)", file: save(crop("oceanside", lh.x, lh.y, 20, 12, { lod: 2, time: "night" }), "wf_jetty_n") });
   if (cn) wf.push({ label: "Cannery on its pier, boardwalk (oceanside 42)", file: save(crop("oceanside", cn.x, cn.y, 20, 12, { lod: 2 }), "wf_cannery") });
-  if (mr) wf.push({ label: "Lake marina + small dock (lakeside 42)", file: save(crop("lakeside", mr.x, mr.y, 20, 12, { lod: 2 }), "wf_marina") });
+  if (mr) wf.push({ label: "Lake marina (2-wide pier with slips) + small dock (lakeside 42)", file: save(crop("lakeside", mr.x + 4, mr.y + 2, 24, 12, { lod: 2 }), "wf_marina") });
   if (bch) wf.push({ label: "Town beach (lakeside 42)", file: save(crop("lakeside", bch.x, bch.y, 20, 12, { lod: 2 }), "wf_beach") });
   MG.push({ id: "mg-waterfront", name: "Waterfront: boardwalk, piers, marina, jetty, beaches", placement: "Oceanside: continuous boardwalk and Shore Drive, up to 3 fishing piers (the first a 2-wide marina), the cannery at the root of its own pier, the lighthouse at the end of a stone jetty. Lakeside: sand beaches on the town shore, bridges where the lake cut a road, a marina and a small dock.", images: wf });
   const dm = findIn(["farm", "lakeside", "mountain", "desert"], (w2, tt) => w2.lot[tt] === Lot.Powerhouse);

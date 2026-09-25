@@ -778,6 +778,21 @@ export function ensureAdjacentParking(w: World): void {
         if (bestStreet) break;
       }
     }
+    if (!has && (best < 0 || !bestStreet)) {
+      // hemmed in on every side: a neighbouring storefront (the whole shop)
+      // becomes the lot next door — a curb-fronting shop only
+      for (const c of comp) {
+        const n = neighbors4(w, c).find((k) => w.lot[k] === Lot.Shop && fronts(w, k));
+        if (n === undefined) continue;
+        const st = [n], shop = [n];
+        const seenS = new Set([n]);
+        while (st.length) { const k = st.pop()!; for (const m of neighbors4(w, k)) if (!seenS.has(m) && w.lot[m] === Lot.Shop) { seenS.add(m); st.push(m); shop.push(m); } }
+        if (shop.length > 2) continue; // part of a Main St party-wall run: leave it
+        for (const k of shop) { w.lot[k] = Lot.Parking; w.pop[k] = 0; }
+        has = true;
+        break;
+      }
+    }
     if (has || best < 0 || !bestStreet) continue; // a lot needs a curb cut onto a street
     if (w.terrain[best] !== Terrain.Citizen) { w.terrain[best] = Terrain.Citizen; w.district[best] = w.district[comp[0]!]!; }
     w.lot[best] = Lot.Parking;
@@ -978,7 +993,8 @@ export function ensureSchoolGrounds(w: World): void {
   const isSchool = (k: number): boolean => w.lot[k] === Lot.School || w.lot[k] === Lot.HighSchool;
   const takeable = (k: number): boolean =>
     w.landmark[k] === 0 && ((w.terrain[k] === Terrain.Citizen && w.lot[k] === 0) || w.terrain[k] === Terrain.Grass) &&
-    !neighbors4(w, k).some((n) => w.terrain[n] === Terrain.Lake);
+    !neighbors4(w, k).some((n) => w.terrain[n] === Terrain.Lake ||
+      (NEEDS_LOT.has(w.lot[n]!) && w.lot[n] !== Lot.School && w.lot[n] !== Lot.HighSchool)); // leave room for their lots
   const adjoins = (lot: number, pred: (k: number) => boolean): boolean => {
     for (let k = 0; k < w.lot.length; k++) if (w.lot[k] === lot && neighbors4(w, k).some(pred)) return true;
     return false;

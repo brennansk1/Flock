@@ -171,7 +171,7 @@ function beltStyle(kind: TownType, rng: RngState): BeltStyle {
     case "lakeside":
       return { density: 0.8, pivots: 1, fringe: fringeMap ? 8 : 4, waterSetback: 3, valleyHalf: 0 };
     default:
-      return { density: 1, pivots: 1 + nextRange(rng, 2), fringe: fringeMap ? 9 : 4, waterSetback: 3, valleyHalf: 0 };
+      return { density: 1, pivots: 2 + nextRange(rng, 2), fringe: fringeMap ? 9 : 4, waterSetback: 3, valleyHalf: 0 };
   }
 }
 

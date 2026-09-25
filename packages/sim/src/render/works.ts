@@ -165,7 +165,7 @@ export function waterTower(p: Plan): void {
   const beaconOn = ((RS.tick >> 3) & 1) === 0;
   const steel = hx("#34383f"), steelL = hx("#555a62"), rung = hx("#b8bcc2");
   {
-    const px0 = x - R - 3, px1 = x + R + 3, py0 = Math.max(2, base - 5), py1 = Math.min(SH - 2, base + 2);
+    const px0 = x - R - 3, px1 = x + R + 3, py0 = Math.max(2, rim + 2), py1 = Math.min(SH - 2, base + 2); // the whole yard under the tank is fenced gravel
     for (let y = py0; y <= py1; y++) for (let xx = px0; xx <= px1; xx++) {
       const h = pixHash(p.AX + xx, p.AY + y, 53);
       const edge = y === py0 || y === py1 || xx === px0 || xx === px1;

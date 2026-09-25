@@ -10,7 +10,7 @@
  *    the river and a road (standard in the arid West by the 1980s).
  * Pure function of (world, rng); integer math.
  */
-import { nextRange, type RngState } from "./rng.js";
+import { nextRange, seedRng, type RngState } from "./rng.js";
 import { Lot, Terrain, Biome, TileFlag, type World } from "./types.js";
 
 const AG: ReadonlySet<number> = new Set([Terrain.Field, Terrain.Orchard, Terrain.Pasture]);
@@ -270,6 +270,50 @@ export function layoutFarmBelt(
     for (const y of sectionY) for (let x = 1; x < width - 1; x++) paint(y * width + x);
   }
 
+  const rect = (x0: number, y0: number, fw: number, fh: number, pred: (t: number) => boolean): boolean => {
+    if (x0 < 2 || y0 < 2 || x0 + fw >= width - 2 || y0 + fh >= height - 2) return false;
+    for (let y = y0; y < y0 + fh; y++) for (let x = x0; x < x0 + fw; x++) if (!pred(y * width + x)) return false;
+    return true;
+  };
+  // ---- 1b. center pivots first, on open section land beside a section road
+  // (laid before the farmsteads so a whole quarter-section is still free) ----
+  // own stream: circles never shift the farmstead / town draws
+  const prng = seedRng((width * 73856093) ^ (town.cx * 19349663) ^ (town.cy * 83492791) ^ 0x9e3779b1);
+  const R = 4;
+  const sites: number[] = [];
+  if (style.pivots > 0)
+    for (let cy = R + 3; cy < height - R - 3; cy++)
+      for (let cx = R + 3; cx < width - R - 3; cx++) {
+        if (!rect(cx - R - 1, cy - R - 1, 2 * R + 3, 2 * R + 3, (t) => farmable(t) || w.terrain[t] === Terrain.Field)) continue;
+        // a section road or lane within the band 1–3 tiles outside the square
+        let road = false;
+        for (let dy = -R - 4; dy <= R + 4 && !road; dy++)
+          for (let dx = -R - 4; dx <= R + 4; dx++) {
+            if (Math.max(Math.abs(dx), Math.abs(dy)) <= R + 1) continue;
+            const x = cx + dx, y = cy + dy;
+            if (x < 0 || y < 0 || x >= width || y >= height) continue;
+            const tr = w.terrain[y * width + x];
+            if (tr === Terrain.Road || tr === Terrain.Dirt) { road = true; break; }
+          }
+        if (road) sites.push(cy * width + cx);
+      }
+  const placed: number[] = [];
+  let pivots = 0;
+  for (let attempt = 0; attempt < 64 && pivots < style.pivots && sites.length; attempt++) {
+    const c = sites[nextRange(prng, sites.length)]!;
+    const cx = c % width, cy = (c / width) | 0;
+    if (placed.some((q) => Math.max(Math.abs(q % width - cx), Math.abs(((q / width) | 0) - cy)) < 2 * R + 3)) continue;
+    if (!rect(cx - R - 1, cy - R - 1, 2 * R + 3, 2 * R + 3, (t) => farmable(t) || w.terrain[t] === Terrain.Field)) continue;
+    for (let dy = -R; dy <= R; dy++)
+      for (let dx = -R; dx <= R; dx++) {
+        if (dx * dx + dy * dy > R * R) continue;
+        const t = (cy + dy) * width + cx + dx;
+        w.terrain[t] = Terrain.Field;
+        w.flags[t] = w.flags[t]! | TileFlag.Pivot;
+      }
+    placed.push(c);
+    pivots++;
+  }
   // ---- 2+3. farmsteads with their fields, strung along rural roads ----
   const rural: number[] = [];
   for (let t = 0; t < w.terrain.length; t++) {
@@ -277,11 +321,6 @@ export function layoutFarmBelt(
   }
   const farms: number[] = [];
   const want = Math.max(1, Math.round(((width * height) / (96 * 96)) * 16 * style.density));
-  const rect = (x0: number, y0: number, fw: number, fh: number, pred: (t: number) => boolean): boolean => {
-    if (x0 < 2 || y0 < 2 || x0 + fw >= width - 2 || y0 + fh >= height - 2) return false;
-    for (let y = y0; y < y0 + fh; y++) for (let x = x0; x < x0 + fw; x++) if (!pred(y * width + x)) return false;
-    return true;
-  };
   const fill = (x0: number, y0: number, fw: number, fh: number, tr: number): void => {
     for (let y = y0; y < y0 + fh; y++) for (let x = x0; x < x0 + fw; x++) w.terrain[y * width + x] = tr;
   };
@@ -347,26 +386,5 @@ export function layoutFarmBelt(
     farms.push(road);
   }
 
-  // ---- 4. center pivots in open section land ----
-  let pivots = 0;
-  for (let attempt = 0; attempt < 200 && pivots < style.pivots; attempt++) {
-    const cx = 6 + nextRange(rng, width - 12);
-    const cy = 6 + nextRange(rng, height - 12);
-    const R = 4;
-    if (!rect(cx - R - 1, cy - R - 1, 2 * R + 3, 2 * R + 3, (t) => farmable(t) || w.terrain[t] === Terrain.Field)) continue;
-    let road = false;
-    for (let d = -R - 3; d <= R + 3 && !road; d++)
-      for (const t of [(cy - R - 3) * width + cx + d, (cy + R + 3) * width + cx + d, (cy + d) * width + cx - R - 3, (cy + d) * width + cx + R + 3])
-        if (t >= 0 && t < w.terrain.length && (w.terrain[t] === Terrain.Road || w.terrain[t] === Terrain.Dirt)) road = true;
-    if (!road) continue;
-    for (let dy = -R; dy <= R; dy++)
-      for (let dx = -R; dx <= R; dx++) {
-        if (dx * dx + dy * dy > R * R) continue;
-        const t = (cy + dy) * width + cx + dx;
-        w.terrain[t] = Terrain.Field;
-        w.flags[t] = w.flags[t]! | TileFlag.Pivot;
-      }
-    pivots++;
-  }
   void fill;
 }

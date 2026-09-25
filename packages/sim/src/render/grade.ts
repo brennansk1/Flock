@@ -20,6 +20,11 @@ export const EMISSIVE = {
   taillight: [255, 51, 51] as RGB,
   neonPink: [255, 90, 200] as RGB,
   neonCyan: [80, 240, 255] as RGB,
+  /** lighthouse beam (pale sodium-white) */
+  beam: [255, 236, 170] as RGB,
+  /** police light-bar bloom: dimmer halos around the flashing bar */
+  policeRedGlow: [170, 36, 48] as RGB,
+  policeBlueGlow: [40, 70, 190] as RGB,
   /** cult members' white beacon heads glow through the night grade */
   beaconWhite: [255, 255, 255] as RGB,
 };

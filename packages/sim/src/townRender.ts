@@ -54,6 +54,9 @@ import { composeFacade } from "./render/compose.js";
 import { drawWater, pointBarAt, bleedWater } from "./render/water.js";
 import { drawHouse, drawBackyard, drawApartment, frontageOf, isHouseTile, curbCutAt, homeCarSpot } from "./render/houses.js";
 import { drawVehicle, householdVehicle, householdPaint, dirOf, type VehicleKind } from "./render/vehicles.js";
+import { drawPlanned, planFrame } from "./render/plan.js";
+import { PLANNED } from "./render/registry.js";
+import { COMPOUND_LOTS, drawLotOverlays } from "./render/landmarks.js";
 import { TILE_PX, RS, C, DEFAULT_COLORS, pixHash, valueNoise, isLitHour, type Put } from "./render/core.js";
 
 // ---------------------------------------------------------------- sprites
@@ -520,6 +523,7 @@ function renderTownFrame(sim: SimState, opts: RenderOpts): RenderedFrame {
   RS.time = timeOfDay;
   RS.lod = S;
   RS.tick = tick;
+  planFrame();
 
   // Reset global color palette to default state
   Object.assign(C, DEFAULT_COLORS);
@@ -736,12 +740,17 @@ function renderTownFrame(sim: SimState, opts: RenderOpts): RenderedFrame {
     }
   }
 
+  // ---- pass 1.7: overlays reaching past a footprint (lighthouse beam) ----
+  drawLotOverlays(w, tick, put, { x0: tx0, y0: ty0, x1: tx1, y1: ty1 });
+
   // ---- pass 2: landmarks + cult buildings as icons ----
   for (let t = 0; t < w.landmark.length; t++) {
     if (w.landmark[t] !== 0) {
       const lm = w.landmark[t]!;
       // the courthouse IS the town hall: its building carries the landmark
       if (lm === Landmark.TownHall && w.lot[t] === Lot.Courthouse) continue;
+      // landmark compounds draw the whole compound from their Lot
+      if (COMPOUND_LOTS.has(w.lot[t]!)) continue;
       if (lm === Landmark.RadioTower) {
         // 2-frame blinking red aviation warning beacon (1.0s cycle)
         const isBeaconLit = ((tick >> 3) % 2) === 0;
@@ -2812,6 +2821,14 @@ export function drawLotBuilding(
       };
       drawCourthouse(w, ax, ay, fw, fh, clip);
     }
+    return;
+  }
+  // plan-kit lots (render/registry.ts): one composed building / compound
+  // over the whole footprint, authored once in frontage-local space
+  const author = PLANNED[lot];
+  if (author) {
+    const { ax, ay, fw, fh } = lotRect(w, tx, ty, lot);
+    drawPlanned(w, lot, ax, ay, fw, fh, x0, y0, put, author);
     return;
   }
   // the specials compose one front-facing building over their footprint

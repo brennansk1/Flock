@@ -36,7 +36,9 @@ for (const name of names.split(",")) {
   const lot = Lot[name]; const fp = footprintOf(lot);
   const dist = distA !== "" ? +distA : (DEF_DIST[name] ?? Districts.Downtown);
   const ONLY = process.env.ONLY ?? "";
-  const parts = ONLY === "var" ? [] : ["S", "N", "E", "W"].map((s) => shot(lot, fp.w, fp.h, s, "summer", "day", dist));
+  const SIDES = ONLY.startsWith("side:") ? ONLY.slice(5).split("") : ["S", "N", "E", "W"];
+  const parts = ONLY === "var" ? [] : SIDES.map((s) => shot(lot, fp.w, fp.h, s, "summer", "day", dist));
+  if (ONLY.startsWith("side:")) { rows.push(parts); continue; }
   if (ONLY === "facing") { rows.push(parts); continue; }
   if (fp.alt) { parts.push(shot(lot, fp.alt.w, fp.alt.h, "S", "summer", "day", dist)); parts.push(shot(lot, fp.alt.h, fp.alt.w, "E", "summer", "day", dist)); }
   parts.push(shot(lot, fp.w, fp.h, "S", "winter", "day", dist));

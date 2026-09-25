@@ -45,7 +45,7 @@ export { TILE_PX } from "./render/core.js";
 import { makeGrader, EMISSIVE } from "./render/grade.js";
 import { drawRock, screeAt } from "./render/rock.js";
 import { drawCourthouse, drawTrack, drawBallField } from "./render/civic.js";
-import { drawStorefront } from "./render/storefront.js";
+import { drawStorefront, drawBackRoom, shopFrontOf } from "./render/storefront.js";
 import { drawAmbientTraffic } from "./render/traffic.js";
 import { lotFrontage, roadClass } from "./render/frontage.js";
 import { drawParkingTile, diagonalStall } from "./render/parking.js";
@@ -53,8 +53,9 @@ import { edgeBlend, wildGround, wildMask } from "./render/ground.js";
 import { composeFacade } from "./render/compose.js";
 import { drawWater, pointBarAt, bleedWater } from "./render/water.js";
 import { drawHouse, drawBackyard, drawApartment, frontageOf, isHouseTile, curbCutAt, homeCarSpot } from "./render/houses.js";
-import { drawVehicle, householdVehicle, householdPaint, dirOf, type VehicleKind } from "./render/vehicles.js";
+import { drawVehicle, householdVehicle, householdPaint, dirOf, vehicleSize, type VehicleKind } from "./render/vehicles.js";
 import { drawPlanned, planFrame } from "./render/plan.js";
+import { drawPark, drawOrchard, drawDock, drawPierOverWater, drawPivotTile } from "./render/grounds.js";
 import { PLANNED } from "./render/registry.js";
 import { COMPOUND_LOTS, drawLotOverlays } from "./render/landmarks.js";
 import { TILE_PX, RS, C, DEFAULT_COLORS, pixHash, valueNoise, isLitHour, type Put } from "./render/core.js";
@@ -1218,36 +1219,7 @@ function drawTile(
       return;
     }
     case Terrain.Orchard: {
-      // orchard: mown ground with tree rows every other tile-row
-      for (let py = 0; py < TILE_PX; py++) {
-        for (let px = 0; px < TILE_PX; px++) {
-          put(x0 + px, y0 + py, (px + py) % 2 === 0 ? C.meadowLight : C.meadow);
-        }
-      }
-      const rowY = ty % 2 === 0 ? 2 : 5;
-      for (const cxp of [1, 4, 6]) {
-        put(x0 + cxp + 1, y0 + rowY + 1, C.shadow);
-        put(x0 + cxp, y0 + rowY, C.canopy);
-        put(x0 + cxp + (pixHash(t, cxp, 3) % 2), y0 + rowY - 1 < 0 ? 0 : y0 + rowY - 1, C.canopyLight);
-      }
-      if (detail) {
-        const fruitHash = pixHash(t, 19);
-        let fruitCol = null;
-        if (RS.season === "spring") {
-          fruitCol = fruitHash % 2 === 0 ? hexToRgb("#ffd0e8") : hexToRgb("#ffffff"); // blossoms
-        } else if (RS.season === "summer") {
-          fruitCol = fruitHash % 2 === 0 ? hexToRgb("#d23b3b") : hexToRgb("#d87a24"); // red apples / peaches
-        } else if (RS.season === "fall") {
-          fruitCol = fruitHash % 2 === 0 ? hexToRgb("#e6b830") : null; // pears
-        }
-        if (fruitCol) {
-          for (const cxp of [1, 4, 6]) {
-            const fx = x0 + cxp + (fruitHash % 2);
-            const fy = y0 + rowY - (fruitHash % 2);
-            put(fx, fy, fruitCol);
-          }
-        }
-      }
+      drawOrchard(t, x0, y0, put); // true tree grid, seasonal (grounds.ts)
       return;
     }
     case Terrain.Pasture: {
@@ -1720,6 +1692,7 @@ function drawTile(
       return;
     }
     case Terrain.Field: {
+      if (drawPivotTile(w, t, x0, y0, put)) return; // desert center pivot
       const fenceN = ty > 0 && w.terrain[t - w.width] !== Terrain.Field;
       const fenceW = tx > 0 && w.terrain[t - 1] !== Terrain.Field;
       const roadN = ty > 0 && w.terrain[t - w.width] === Terrain.Road;
@@ -1862,6 +1835,7 @@ function drawTile(
     }
     case Terrain.Lake: {
       drawWater(w, t, tx, ty, put, frameTick);
+      drawPierOverWater(w, t, tx, ty, put);
       return;
     }
     case Terrain.Rock: {
@@ -2151,24 +2125,43 @@ function drawTile(
 // 1px ring of the footprint is left untouched so the territory tint (the
 // conversion read) still rings the building.
 
+// (the downtown / civic / school lots moved to the plan kit — render/
+// registry.ts; the facade path keeps the remaining anchors)
 const FACADE_LOTS = new Set<number>([
-  Lot.School,
-  Lot.HighSchool,
   Lot.Sheriff,
-  Lot.Supermarket,
   Lot.Church,
-  Lot.Chapel,
   Lot.FireStation,
-  Lot.GasStation,
-  Lot.Bank,
-  Lot.Library,
-  Lot.PostOffice,
-  Lot.Cinema,
   Lot.Factory,
-  Lot.Office,
   Lot.Warehouse,
   Lot.Motel,
 ]);
+
+/** Bounding rect of a park's whole connected component (the square's lawn
+ * ring included, courthouse tiles counted as part of it), cached per world. */
+const PARK_RECT = new WeakMap<World, Map<number, { ax: number; ay: number; fw: number; fh: number }>>();
+function parkRect(w: World, t: number): { ax: number; ay: number; fw: number; fh: number } {
+  let m = PARK_RECT.get(w);
+  if (!m) { m = new Map(); PARK_RECT.set(w, m); }
+  const hit = m.get(t);
+  if (hit) return hit;
+  const isP = (n: number): boolean => w.lot[n] === Lot.Park || w.lot[n] === Lot.Courthouse;
+  const comp: number[] = [t];
+  const seen = new Set<number>([t]);
+  let x0 = t % w.width, x1 = x0, y0 = (t / w.width) | 0, y1 = y0;
+  for (let i = 0; i < comp.length; i++) {
+    const c = comp[i]!;
+    const cx = c % w.width, cy = (c / w.width) | 0;
+    x0 = Math.min(x0, cx); x1 = Math.max(x1, cx); y0 = Math.min(y0, cy); y1 = Math.max(y1, cy);
+    for (const n of [cx > 0 ? c - 1 : -1, cx < w.width - 1 ? c + 1 : -1, c - w.width, c + w.width]) {
+      if (n < 0 || n >= w.lot.length || seen.has(n) || !isP(n)) continue;
+      seen.add(n);
+      comp.push(n);
+    }
+  }
+  const r = { ax: x0, ay: y0, fw: x1 - x0 + 1, fh: y1 - y0 + 1 };
+  for (const c of comp) m.set(c, r);
+  return r;
+}
 
 /** Top-left anchor + extent of the contiguous same-lot rectangle (stamps are rects). */
 function lotRect(
@@ -2323,128 +2316,6 @@ function drawFacade(
   };
 
   switch (lot) {
-    case Lot.HighSchool: {
-      // 1980s consolidated HIGH SCHOOL: a long, low red-brick box — flat
-      // tar-and-gravel roof crowded with HVAC boxes, one continuous ribbon
-      // of windows, a flat entrance canopy, and a taller gym block at the end
-      apron("lawn");
-      walk();
-      const brick = hexToRgb("#9a4a36");
-      const roofTar = RS.season === "winter" ? hexToRgb("#dde4ea") : hexToRgb("#5f5a55");
-      const parapet = RS.season === "winter" ? hexToRgb("#c2ccd4") : hexToRgb("#8c857c");
-      const gymX = bx1 - Math.max(5, (wallW / 4) | 0);
-      const wallTop = by1 - 2;
-      faceTop = wallTop;
-      for (let y = by0; y < wallTop; y++) {
-        for (let x = bx0; x <= bx1; x++) {
-          const gym = x >= gymX;
-          let c = gym ? shade(roofTar, 1.12) : pixHash(AX + x, AY + y, 29) % 6 === 0 ? shade(roofTar, 0.9) : roofTar;
-          if (y === by0 || x === bx0 || x === bx1 || x === gymX) c = parapet;
-          if (!gym && x === gymX - 1 && y > by0) c = shade(roofTar, 0.7); // the gym's shadow on the low roof
-          p(x, y, c);
-        }
-      }
-      // rooftop HVAC boxes + a hatch, on a hashed rhythm
-      const hv = hexToRgb("#b8bcc0");
-      for (let x = bx0 + 3; x + 1 < gymX - 1; x += 5) {
-        const y = by0 + 2 + (pixHash(AX + x, AY, 41) % Math.max(1, wallTop - by0 - 4));
-        p(x, y, hv); p(x + 1, y, shade(hv, 0.85)); p(x, y + 1, shade(hv, 0.8)); p(x + 1, y + 1, C.shadow);
-      }
-      // wall: brick with the continuous ribbon window band
-      for (let y = wallTop; y <= by1; y++) {
-        for (let x = bx0; x <= bx1; x++) {
-          let c = x === bx1 ? shade(brick, 0.8) : (x + y * 3) % 7 === 0 ? shade(brick, 0.88) : brick;
-          if (y === wallTop + 1 && x > bx0 && x < gymX - 1) {
-            c = (x - bx0) % 3 === 0 ? hexToRgb("#e8e2d4") : RS.time === "night" || RS.time === "dusk" ? (pixHash(x, AY, 43) % 3 === 0 ? C.windowLit : C.windowDark) : C.windowDark;
-          }
-          p(x, y, c);
-        }
-      }
-      for (let x = bx0 + 1; x <= bx1 + 1; x++) p(x, by1 + 1, C.shadow);
-      // entrance: flat white canopy over glass double doors
-      for (let x = cx - 2; x <= cx + 3; x++) p(x, wallTop, hexToRgb("#ece8de"));
-      p(cx, by1, hexToRgb("#6c8ea0")); p(cx + 1, by1, hexToRgb("#6c8ea0"));
-      p(cx, by1 - 1, hexToRgb("#6c8ea0")); p(cx + 1, by1 - 1, hexToRgb("#6c8ea0"));
-      // gym doors + letter-board sign on the lawn (school maroon)
-      p(gymX + 2, by1, C.door); p(gymX + 3, by1, C.door);
-      p(bx0 + 2, H - 3, hexToRgb("#7a2a30")); p(bx0 + 3, H - 3, hexToRgb("#f0ece0")); p(bx0 + 4, H - 3, hexToRgb("#7a2a30"));
-      p(bx0 + 2, H - 2, C.iconDark); p(bx0 + 4, H - 2, C.iconDark);
-      // flagpole by the walk
-      for (let y = H - 4; y < H - 1; y++) p(cx - 3, y, hexToRgb("#c8c8c8"));
-      p(cx - 2, H - 4, hexToRgb("#b22234")); p(cx - 2, H - 3, hexToRgb("#3c3b6e"));
-      break;
-    }
-    case Lot.School: {
-      // ELEMENTARY school: smaller and homelier — a hipped shingle roof
-      // with a white bell cupola, orange-brick walls with separate
-      // classroom windows, a pedimented entry, bike rack + flag out front
-      apron("lawn");
-      walk();
-      const brick = hexToRgb("#b8653f");
-      const shingle = RS.season === "winter" ? hexToRgb("#e2e9ee") : hexToRgb("#6b6a5a");
-      const wallTop = by1 - 1;
-      faceTop = wallTop;
-      const rows = wallTop - by0;
-      const midY = by0 + (rows >> 1);
-      for (let y = by0; y < wallTop; y++) {
-        const k = y - by0;
-        for (let x = bx0; x <= bx1; x++) {
-          const hipW = x - bx0 < k + 1 && x - bx0 < wallTop - y;
-          const hipE = bx1 - x < k + 1 && bx1 - x < wallTop - y;
-          let c = shingle;
-          if (hipW || (y < midY && !hipE)) c = shade(c, 1.12);
-          else if (hipE || y >= midY) c = shade(c, 0.86);
-          p(x, y, c);
-        }
-      }
-      // bell cupola on the ridge
-      p(cx, midY - 2, hexToRgb("#f4f0e6")); p(cx + 1, midY - 2, hexToRgb("#d8d2c4"));
-      p(cx, midY - 1, C.windowDark); p(cx + 1, midY - 1, hexToRgb("#d8d2c4"));
-      p(cx, midY - 3, hexToRgb("#6a6a6a"));
-      for (let y = wallTop; y <= by1; y++) {
-        for (let x = bx0; x <= bx1; x++) {
-          let c = x === bx1 ? shade(brick, 0.8) : brick;
-          if (y === wallTop && (x - bx0) % 3 === 1 && x < bx1 - 1) c = RS.time === "night" ? C.windowLit : C.windowDark;
-          p(x, y, c);
-        }
-      }
-      for (let x = bx0 + 1; x <= bx1 + 1; x++) p(x, by1 + 1, C.shadow);
-      p(cx - 1, wallTop - 1, hexToRgb("#f4f0e6")); p(cx, wallTop - 1, hexToRgb("#f4f0e6")); p(cx + 1, wallTop - 1, hexToRgb("#f4f0e6")); p(cx + 2, wallTop - 1, hexToRgb("#f4f0e6"));
-      doorAt(cx, by1, 1);
-      // bike rack + flagpole
-      p(bx1 - 3, H - 3, hexToRgb("#9aa0a6")); p(bx1 - 2, H - 3, hexToRgb("#c0392b")); p(bx1 - 1, H - 3, hexToRgb("#3f7fbf"));
-      for (let y = H - 4; y < H - 1; y++) p(cx - 3, y, hexToRgb("#c8c8c8"));
-      p(cx - 2, H - 4, hexToRgb("#b22234")); p(cx - 2, H - 3, hexToRgb("#3c3b6e"));
-      break;
-    }
-
-    case Lot.Supermarket: {
-      apron("pave");
-      // big-box: parapet + rooftop HVAC, sign band, full glass storefront
-      roofBand(bx0, bx1, by0, 2, roofC);
-      p(bx0 + 3, by0, C.rockShade); // HVAC units on the roof
-      p(bx0 + 4, by0, C.rock);
-      p(bx1 - 4, by0, C.rockShade);
-      p(bx1 - 3, by0, C.rock);
-      // tall sign band in the brand color with white "letters"
-      for (let y = by0 + 2; y <= by0 + 3; y++) {
-        for (let x = bx0; x <= bx1; x++) p(x, y, accent);
-      }
-      for (let x = bx0 + 2; x <= bx1 - 2; x += 3) p(x, by0 + 2, C.crosswalk);
-      wallBox(bx0, by0 + 4, bx1, by1, body);
-      // glass front: full width, dark panes behind pale frame ribs
-      for (let y = by1 - 1; y <= by1; y++) {
-        for (let x = bx0 + 1; x <= bx1 - 1; x++) {
-          p(x, y, x % 3 === 0 ? C.glassFrame : C.windowDark);
-        }
-      }
-      doorAt(cx, by1, 2);
-      // cart corral on the pad
-      p(bx1 - 2, H - 2, C.rock);
-      p(bx1 - 1, H - 2, C.rockShade);
-      break;
-    }
-
     case Lot.Sheriff: {
       apron("pave");
       walk();
@@ -2467,8 +2338,7 @@ function drawFacade(
       break;
     }
 
-    case Lot.Church:
-    case Lot.Chapel: {
+    case Lot.Church: {
       apron("lawn");
       const white = body;
       if (W >= 16) {
@@ -2565,137 +2435,6 @@ function drawFacade(
       break;
     }
 
-    case Lot.GasStation: {
-      planFlip = true;
-      apron("pave");
-      // pavement under everything — the whole lot is an apron
-      for (let y = 1; y < H - 1; y++) {
-        for (let x = 1; x < W - 1; x++) {
-          p(x, y, pixHash(AX + x, AY + y, 53) % 9 === 0 ? shade(C.asphalt, 1.1) : C.asphalt);
-        }
-      }
-      if (fw === 1) {
-        // roadside 1×1: just the canopy, pumps, and a price sign
-        for (let x = 1; x <= 6; x++) {
-          p(x, 2, hexToRgb("#ffffff"));
-          p(x, 3, accent);
-        }
-        p(1, 4, C.rockShade);
-        p(6, 4, C.rockShade);
-        p(3, 5, hexToRgb("#cc3333"));
-        p(4, 5, hexToRgb("#3f7fbf"));
-        p(1, H - 2, C.iconDark);
-        p(1, H - 3, accent);
-        break;
-      }
-      // 1980s full-service station: brand canopy over two pump islands with
-      // mechanical pumps, a 2-bay service garage, and the tall pole sign
-      const brands = [
-        [hexToRgb("#c8342a"), hexToRgb("#f2efe6")], // red / white
-        [hexToRgb("#2f7a3a"), hexToRgb("#f2efe6")], // green / white
-        [hexToRgb("#e0782a"), hexToRgb("#2a2a2e")], // orange / black
-        [hexToRgb("#2a4f9a"), hexToRgb("#e8c040")], // blue / gold
-      ] as const;
-      const [brandA, brandB] = brands[pixHash(seed, 3, 131) % brands.length]!;
-      const garX = Math.max(bx0 + 7, bx1 - 5);
-      // service garage (back-east): flat roof, office window, two roll doors
-      roofBand(garX, bx1, by0, 1, shade(body, 0.9));
-      wallBox(garX, by0 + 1, bx1, by0 + 2, body);
-      for (let x = garX; x <= bx1; x++) p(x, by0 + 1, x % 2 === 0 ? brandA : brandB); // brand stripe
-      p(garX + 1, by0 + 2, C.windowDark);
-      p(garX + 2, by0 + 2, hexToRgb("#d0ccc2")); p(garX + 3, by0 + 2, hexToRgb("#b8b4aa")); // roll doors
-      p(garX + 4, by0 + 2, hexToRgb("#d0ccc2"));
-      // canopy (west), pumps beneath in its shadow
-      const can0 = bx0 + 2, can1 = garX - 2;
-      for (let x = can0; x <= can1; x++) {
-        p(x, by0, hexToRgb("#f2efe6"));
-        p(x, by0 + 1, brandA);
-        p(x, by0 + 2, shade(C.asphalt, 0.72)); // canopy shadow
-      }
-      for (let x = can0 + 1; x <= can1 - 1; x += 3) {
-        p(x, by0 + 3, hexToRgb("#b8b2a4")); // island
-        p(x + 1, by0 + 3, hexToRgb("#b8b2a4"));
-        p(x, by0 + 2, hexToRgb("#c83a2a")); // mechanical pumps
-        p(x + 1, by0 + 2, hexToRgb("#e8e4d8"));
-      }
-      // tall pole sign at the street corner (neon rim after dark)
-      p(bx0, by1 + 1, hexToRgb("#6a6a6a"));
-      p(bx0, by1, hexToRgb("#6a6a6a"));
-      p(bx0, by1 - 1, brandA);
-      p(bx0 + 1, by1 - 1, isLitHour() ? EMISSIVE.neonPink : brandB);
-      p(bx0, by1 - 2, isLitHour() ? EMISSIVE.neonPink : brandB);
-      p(bx0 + 1, by1 - 2, brandA);
-      // a customer at the pumps while the attendant fills up
-      if (pixHash(seed, 5, 131) % 2 === 0) {
-        drawVehicle((x, y, c) => p(x - AX, y - AY, c), householdVehicle(pixHash(seed, 6, 131)), AX + can0 + 1, AY + by0 + 4, 0, householdPaint(pixHash(seed, 7, 131)));
-      }
-      break;
-    }
-
-    case Lot.Bank: {
-      apron("pave");
-      walk();
-      // temple front: pediment, columns, tall dark entrance
-      p(cx, by0, accent);
-      p(cx + 1, by0, accent);
-      for (let x = bx0 + 1; x <= bx1 - 1; x++) p(x, by0 + 1, accent);
-      wallBox(bx0, by0 + 2, bx1, by1, body);
-      for (let y = by0 + 2; y <= by1; y++) {
-        p(bx0 + 1, y, hexToRgb("#efe9da")); // the columns
-        p(bx1 - 1, y, hexToRgb("#efe9da"));
-      }
-      doorAt(cx, by1, 3);
-      break;
-    }
-
-    case Lot.Library: {
-      apron("lawn");
-      walk();
-      // flat cornice (vs the bank's pediment), round window, wide steps
-      roofBand(bx0, bx1, by0, 2, roofC);
-      wallBox(bx0, by0 + 2, bx1, by1, body);
-      p(cx, by0 + 3, isLitHour() ? C.windowLit : C.windowDark); // the round reading-room window
-      p(cx + 1, by0 + 3, isLitHour() ? C.windowLit : C.windowDark);
-      winRow(by1 - 1, bx0 + 1, cx - 2);
-      winRow(by1 - 1, cx + 3, bx1 - 1);
-      doorAt(cx, by1, 2);
-      for (let x = cx - 1; x <= cx + 2; x++) p(x, by1 + 1, shade(C.pathStone, 1.05));
-      break;
-    }
-
-    case Lot.PostOffice: {
-      apron("pave");
-      walk();
-      roofBand(bx0, bx1, by0, 2, roofC);
-      for (let x = bx0; x <= bx1; x++) p(x, by0 + 2, accent); // the eagle stripe
-      wallBox(bx0, by0 + 3, bx1, by1, body);
-      winRow(by1 - 1, bx0 + 1, cx - 2);
-      doorAt(cx, by1, 2);
-      p(bx1 - 1, by1, hexToRgb("#3f5e7a")); // the collection box
-      // the flag mast
-      p(bx0 + 1, by0, C.iconDark);
-      p(bx0 + 1, Math.max(1, by0 - 1), C.iconDark);
-      p(bx0 + 2, Math.max(1, by0 - 1), hexToRgb("#d23b3b"));
-      break;
-    }
-
-    case Lot.Cinema: {
-      apron("pave");
-      roofBand(bx0, bx1, by0, 2, roofC);
-      wallBox(bx0, by0 + 2, bx1, by1, body);
-      // the blade sign: a lit vertical strip at the west end
-      for (let y = by0; y <= by1 - 1; y++) {
-        p(bx0 + 1, y, y % 2 === 0 ? accent : shade(accent, 0.7));
-      }
-      // marquee canopy: lit gold strip over the entrance
-      for (let x = bx0 + 3; x <= bx1 - 1; x++) p(x, by1 - 2, accent);
-      doorAt(cx, by1, 2);
-      // poster bills flanking the doors
-      p(cx - 2, by1, C.crosswalk);
-      p(cx + 3, by1, C.crosswalk);
-      break;
-    }
-
     case Lot.Factory: {
       apron("pave");
       // sawtooth roof: alternating lit/dark 2px teeth
@@ -2724,29 +2463,6 @@ function drawFacade(
       }
       for (let x = dx - 1; x <= dx + 2; x++) p(x, by1 + 1, C.rock);
       doorAt(bx0 + 2, by1, 2);
-      break;
-    }
-
-    case Lot.Office: {
-      apron("pave");
-      walk();
-      faceTop = by0 + 1;
-      roofBand(bx0, bx1, by0, 1, roofC);
-      wallBox(bx0, by0 + 1, bx1, by1, body);
-      // the curtain-wall window grid
-      for (let y = by0 + 2; y <= by1 - 1; y += 2) {
-        for (let x = bx0 + 1; x <= bx1 - 1; x += 2) {
-          p(x, y, isLitHour() && pixHash(AX + x, AY + y, 23) % 3 === 0 ? C.windowLit : accent);
-        }
-      }
-      // glass entry
-      p(cx, by1, C.glass);
-      p(cx + 1, by1, C.glass);
-      p(cx, by1 - 1, C.glassFrame);
-      p(cx + 1, by1 - 1, C.glassFrame);
-      // planters by the door
-      p(cx - 2, H - 2, C.bush);
-      p(cx + 3, H - 2, C.bush);
       break;
     }
 
@@ -2844,59 +2560,16 @@ export function drawLotBuilding(
     drawFacade(w, lot, ax, ay, fw, fh, clip);
     return;
   }
-  if (lot === Lot.Shop || lot === Lot.Diner) {
+  if (lot === Lot.Shop) {
+    // 1×2 shop: storefront on the street tile, its back room behind it
+    const back = shopFrontOf(w, t);
     castShadow(x0, y0, put);
-    drawStorefront(w, t, x0, y0, put, lot === Lot.Diner);
-    return;
-  }
-  if (lot === Lot.Playground) {
-    // a mown play lot: swing frame, slide, sandbox
-    for (let py = 0; py < TILE_PX; py++) {
-      for (let px = 0; px < TILE_PX; px++) {
-        put(x0 + px, y0 + py, (px + py) % 2 === 0 ? C.meadowLight : C.meadow);
-      }
-    }
-    put(x0 + 1, y0 + 2, C.trunk); // swing frame
-    put(x0 + 1, y0 + 3, C.trunk);
-    put(x0 + 3, y0 + 2, C.trunk);
-    put(x0 + 3, y0 + 3, C.trunk);
-    put(x0 + 2, y0 + 1, C.trunk); // crossbar
-    put(x0 + 2, y0 + 3, hexToRgb("#c8554a")); // the swing seat
-    put(x0 + 5, y0 + 2, hexToRgb("#3f7fbf")); // slide
-    put(x0 + 6, y0 + 3, hexToRgb("#3f7fbf"));
-    put(x0 + 5, y0 + 5, C.sand); // sandbox
-    put(x0 + 6, y0 + 5, C.sand);
+    if (back) drawBackRoom(w, t, back[0], back[1], x0, y0, put);
+    else drawStorefront(w, t, x0, y0, put);
     return;
   }
   if (lot === Lot.Dock) {
-    // a plank walkway reaching into the water, rowboat moored at its end
-    for (let py = 0; py < TILE_PX; py++) {
-      for (let px = 0; px < TILE_PX; px++) {
-        put(x0 + px, y0 + py, (px * 7 + py * 13) % 11 === 0 ? shade(C.meadow, 0.94) : C.meadow);
-      }
-    }
-    const waterE = tx < w.width - 1 && w.terrain[t + 1] === Terrain.Lake;
-    const waterW = tx > 0 && w.terrain[t - 1] === Terrain.Lake;
-    const waterN = ty > 0 && w.terrain[t - w.width] === Terrain.Lake;
-    if (waterE || waterW) {
-      const dir = waterE ? 1 : -1;
-      const sx = waterE ? 2 : 5;
-      for (let i = 0; i < 6; i++) {
-        put(x0 + sx + dir * i, y0 + 3, i % 2 === 0 ? C.plank : C.plankDark);
-        put(x0 + sx + dir * i, y0 + 4, i % 2 === 0 ? C.plankDark : C.plank);
-      }
-      put(x0 + sx + dir * 5, y0 + 6, C.wall); // the rowboat
-      put(x0 + sx + dir * 4, y0 + 6, C.wall);
-    } else {
-      const dir = waterN ? -1 : 1;
-      const sy = waterN ? 5 : 2;
-      for (let i = 0; i < 6; i++) {
-        put(x0 + 3, y0 + sy + dir * i, i % 2 === 0 ? C.plank : C.plankDark);
-        put(x0 + 4, y0 + sy + dir * i, i % 2 === 0 ? C.plankDark : C.plank);
-      }
-      put(x0 + 6, y0 + sy + dir * 5, C.wall);
-      put(x0 + 6, y0 + sy + dir * 4, C.wall);
-    }
+    drawDock(w, t, x0, y0, put); // the pier runs on over the water tile (grounds.ts)
     return;
   }
   if (lot === Lot.Parking) {
@@ -2904,90 +2577,8 @@ export function drawLotBuilding(
     return;
   }
   if (lot === Lot.Park) {
-    // PARK / courthouse-square lawn: always green turf (whatever the
-    // district's ground), a walk grid toward the centre, shade trees,
-    // benches and a lamp — the town square reads as one mown green
-    const turf =
-      RS.season === "winter" ? hexToRgb("#dfe7ee")
-      : RS.season === "fall" ? hexToRgb("#8a8b54")
-      : RS.season === "spring" ? hexToRgb("#4c9c28")
-      : hexToRgb("#3f8526");
-    const walkC = hexToRgb("#c9c2b2");
-    const parkAt = (n: number): boolean => n >= 0 && n < w.lot.length && (w.lot[n] === Lot.Park || w.lot[n] === Lot.Courthouse);
-    const pN = ty > 0 && parkAt(t - w.width), pS = ty < w.height - 1 && parkAt(t + w.width);
-    const pW = tx > 0 && parkAt(t - 1), pE = tx < w.width - 1 && parkAt(t + 1);
-    for (let py = 0; py < TILE_PX; py++) {
-      for (let px = 0; px < TILE_PX; px++) {
-        const gx = x0 + px, gy = y0 + py;
-        let c = ((gx >> 1) + (gy >> 1)) % 2 === 0 ? turf : shade(turf, 1.07);
-        // walks: along the tile seams that continue the park (a walk grid)
-        if ((px === 7 && pE && ty % 2 === 0) || (py === 7 && pS && tx % 2 === 0)) c = walkC;
-        // the kerb/hedge line where the park meets a street or lot; toward
-        // open country the mown turf gives way to the land instead
-        const eb = edgeBlend(w, t, tx, ty, px, py);
-        if (eb) c = eb;
-        else if ((py === 0 && !pN) || (py === 7 && !pS) || (px === 0 && !pW) || (px === 7 && !pE)) {
-          const wm = wildMask(w)[t]!;
-          const wildSide = (py === 0 && wm & 1) || (py === 7 && wm & 2) || (px === 0 && wm & 4) || (px === 7 && wm & 8);
-          if (!wildSide) c = shade(turf, 0.8);
-        }
-        put(gx, gy, c);
-      }
-    }
-    // a shade tree on most tiles, a bench or lamp on the rest
-    const r = pixHash(t, 5, 21) % 4;
-    if (r < 3) {
-      const leaf = RS.season === "winter" ? hexToRgb("#6a5a44") : RS.season === "fall" ? hexToRgb("#b06f33") : hexToRgb("#2f6a24");
-      const lite = RS.season === "winter" ? hexToRgb("#e8eef2") : RS.season === "fall" ? hexToRgb("#c89a48") : hexToRgb("#4f8a3a");
-      const cx = x0 + 2 + (pixHash(t, 6, 21) % 3), cy = y0 + 2 + (pixHash(t, 7, 21) % 2);
-      put(cx + 1, cy + 3, C.shadow); put(cx + 2, cy + 2, C.shadow);
-      put(cx, cy, lite); put(cx + 1, cy, leaf); put(cx - 1, cy + 1, leaf); put(cx, cy + 1, leaf); put(cx + 1, cy + 1, shade(leaf, 0.85));
-      put(cx, cy + 2, shade(leaf, 0.75));
-    } else {
-      put(x0 + 3, y0 + 4, C.plank); put(x0 + 4, y0 + 4, C.plankDark); // bench
-      put(x0 + 5, y0 + 2, C.iconDark); put(x0 + 5, y0 + 1, isLitHour() ? C.windowLit : C.crosswalk); // lamp
-    }
-    return;
-  }
-  if (lot === Lot.Cemetery) {
-    // mown grass with neat rows of little headstones + a shade tree
-    for (let py = 0; py < TILE_PX; py++) {
-      for (let px = 0; px < TILE_PX; px++) {
-        put(x0 + px, y0 + py, (px + py) % 2 === 0 ? C.meadow : shade(C.meadow, 0.95));
-      }
-    }
-    for (let ry = 1; ry <= 6; ry += 2) {
-      for (let rx = 1; rx <= 6; rx += 2) {
-        const c = pixHash(t, rx * 8 + ry, 61) % 4 === 0 ? C.rockShade : C.rock;
-        put(x0 + rx, y0 + ry, c); // headstone
-        put(x0 + rx, y0 + ry + 1, C.shadow); // its little shadow
-      }
-    }
-    return;
-  }
-  if (lot === Lot.BallField) {
-    // a green outfield with the brown infield diamond + base paths
-    for (let py = 0; py < TILE_PX; py++) {
-      for (let px = 0; px < TILE_PX; px++) {
-        put(x0 + px, y0 + py, (px + py) % 2 === 0 ? C.meadowLight : C.meadow);
-      }
-    }
-    // diamond of skinned dirt in the lower-left corner (home plate)
-    for (let py = 3; py <= 6; py++) {
-      for (let px = 1; px <= 4; px++) {
-        if (Math.abs(px - 1) + Math.abs(py - 6) <= 3) put(x0 + px, y0 + py, C.dirt);
-      }
-    }
-    put(x0 + 1, y0 + 6, C.wall); // home plate
-    // backstop arc behind home plate + a bleacher strip along the foul line (§7)
-    put(x0, y0 + 5, C.iconDark);
-    put(x0, y0 + 6, C.iconDark);
-    put(x0 + 1, y0 + 7, C.iconDark);
-    put(x0 + 4, y0 + 1, hexToRgb("#b0a890")); // bleachers
-    put(x0 + 5, y0 + 1, hexToRgb("#b0a890"));
-    put(x0 + 6, y0 + 1, hexToRgb("#b0a890"));
-    put(x0 + 5, y0 + 2, shade(hexToRgb("#b0a890"), 0.8));
-    put(x0 + 6, y0 + 2, shade(hexToRgb("#b0a890"), 0.8));
+    const r = parkRect(w, t);
+    drawPark(w, t, tx, ty, x0, y0, put, r.ax, r.ay, r.fw, r.fh);
     return;
   }
 
@@ -3021,14 +2612,6 @@ export function drawLotBuilding(
 
   // type-specific dressing
   switch (lot) {
-    case Lot.Chapel:
-      // white wooden chapel: steeple, arched window, door
-      put(x0 + 3, y0, accent); // belfry top
-      put(x0 + 3, y0 + 1, hexToRgb("#ffffff")); // belfry body
-      put(x0 + 3, y0 + 2, C.windowDark); // bell window
-      put(x0 + 5, y0 + 3, C.windowDark); // chapel window
-      put(x0 + 3, y0 + 5, C.door); // chapel entrance door
-      break;
     case Lot.Silo: {
       // Grain Silo: silver domed roof cap + corrugated metal cylinder
       const domeCap = hexToRgb("#d0d8dc");
@@ -3037,463 +2620,6 @@ export function drawLotBuilding(
       put(x0 + 4, y0, domeCap);
       put(x0 + 2, y0 + 1, domeCap);
       put(x0 + 5, y0 + 1, domeCap);
-      break;
-    }
-    case Lot.Barn: {
-      put(x0 + 3, y0 + 3, accent); // the white X door
-      put(x0 + 4, y0 + 4, accent);
-      put(x0 + 4, y0 + 3, accent);
-      put(x0 + 3, y0 + 4, accent);
-      // Hay bale stacks beside barn
-      const hayGold = hexToRgb("#e0c34a");
-      const hayShadow = hexToRgb("#b89c30");
-      put(x0 + 1, y0 + 5, hayGold);
-      put(x0 + 2, y0 + 5, hayGold);
-      put(x0 + 1, y0 + 6, hayShadow);
-      // a tractor parked by the barn on some farmsteads (§9)
-      if (pixHash(t, 17, 43) % 2 === 0) {
-        const tractorC = pixHash(t, 18, 43) % 2 === 0 ? hexToRgb("#2f6e2f") : hexToRgb("#b03a2a");
-        put(x0 + 6, y0 + 6, tractorC);
-        put(x0 + 6, y0 + 5, tractorC);
-        put(x0 + 7, y0 + 6, C.iconDark); // rear wheel
-      }
-      break;
-    }
-    case Lot.GasStation: {
-      // Gas station canopy, price sign, pumps, support posts, vacuum island
-      for (let px = 1; px <= 6; px++) {
-        put(x0 + px, y0 + 3, hexToRgb("#ffffff")); // white flat canopy roof
-        put(x0 + px, y0 + 4, accent); // brand color stripe
-      }
-      put(x0 + 1, y0 + 5, hexToRgb("#8c8c8c")); // support posts
-      put(x0 + 6, y0 + 5, hexToRgb("#8c8c8c"));
-      put(x0 + 3, y0 + 5, hexToRgb("#e83a3a")); // red gas pump
-      put(x0 + 4, y0 + 5, hexToRgb("#3a7be8")); // blue gas pump
-      put(x0 + 6, y0 + 6, hexToRgb("#3270b8")); // blue air/vacuum island
-      // Roadside price sign board on corner
-      put(x0 + 1, y0 + 1, hexToRgb("#ffee44")); // yellow sign face
-      put(x0 + 1, y0 + 2, hexToRgb("#8c8c8c")); // sign post
-      break;
-    }
-    case Lot.School:
-      if (!sameLeft && !sameUp) {
-        put(x0 + 1, y0, accent); // flagpole on the corner tile
-        put(x0 + 1, y0 + 1, accent);
-        // White bell belfry on schoolhouse roof
-        put(x0 + 4, y0, hexToRgb("#ffffff"));
-        put(x0 + 4, y0 + 1, C.windowDark);
-      }
-      if (!sameUp) {
-        put(x0 + 3, y0 + 3, C.windowDark);
-        put(x0 + 5, y0 + 3, C.windowDark);
-      }
-      // the school bus parked at the curb corner (§7)
-      if (!sameLeft && !sameDown) {
-        const bus = hexToRgb("#e8b820");
-        put(x0 + 4, y0 + 6, bus);
-        put(x0 + 5, y0 + 6, bus);
-        put(x0 + 6, y0 + 6, bus);
-        put(x0 + 6, y0 + 5, shade(bus, 0.8)); // cab end
-      }
-      break;
-    case Lot.Shop: {
-      // Main Street retail shop with flat gravel roof, HVAC chillers, striped awning, and rear service dumpster
-      put(x0 + 3, y0 + 5, C.door);
-      put(x0 + 2, y0 + 4, hexToRgb("#87ceeb")); // display window
-      put(x0 + 4, y0 + 4, hexToRgb("#87ceeb"));
-
-      // Rooftop HVAC compressor units & vents
-      put(x0 + 5, y0 + 1, hexToRgb("#687278"));
-      put(x0 + 5, y0 + 2, hexToRgb("#485055"));
-      put(x0 + 2, y0 + 1, hexToRgb("#586066"));
-
-      // Striped awning: 3 colorways (Red, Blue, Green)
-      const awningRoll = pixHash(t, 9) % 3;
-      const awnA = awningRoll === 0 ? hexToRgb("#b83232") : awningRoll === 1 ? hexToRgb("#2b5bb8") : hexToRgb("#2b8c42");
-      const awnB = hexToRgb("#f0f0f0");
-      for (let px = 1; px <= 6; px++) {
-        put(x0 + px, y0 + 3, px % 2 === 0 ? awnA : awnB);
-      }
-
-      // Rear service alley dumpster on parcel edge
-      put(x0 + 1, y0 + 6, hexToRgb("#2f4f2f"));
-      put(x0 + 1, y0 + 7, hexToRgb("#203820"));
-      break;
-    }
-    case Lot.Diner: {
-      const chrome = hexToRgb("#dbe2e6");
-      const chromeDark = hexToRgb("#9ba3a8");
-      const neonRed = hexToRgb("#e83a3a");
-      const neonCyan = hexToRgb("#3acfe8");
-      for (let py = 3; py <= 5; py++) {
-        for (let px = 1; px <= 6; px++) {
-          put(x0 + px, y0 + py, px % 2 === 0 ? chrome : chromeDark); // shiny chrome siding
-        }
-      }
-      for (let px = 0; px < TILE_PX; px++) put(x0 + px, y0 + 2, neonRed); // red neon roof overhang
-      put(x0 + 1, y0 + 1, neonCyan);
-      put(x0 + 6, y0 + 1, neonCyan);
-      put(x0 + 2, y0 + 4, hexToRgb("#5ab0e8")); // big glass window glint
-      put(x0 + 5, y0 + 4, hexToRgb("#5ab0e8"));
-      put(x0 + 3, y0 + 5, C.door);
-      // Striped blue & white entrance awning
-      const awnA = hexToRgb("#2b5bb8");
-      const awnB = hexToRgb("#f0f0f0");
-      put(x0 + 2, y0 + 3, awnA);
-      put(x0 + 3, y0 + 3, awnB);
-      put(x0 + 4, y0 + 3, awnA);
-      break;
-    }
-    case Lot.Supermarket: {
-      const awnGreen = hexToRgb("#2b8c42");
-      const awnWhite = hexToRgb("#f0f0f0");
-      const cartSteel = hexToRgb("#b0b8c0");
-      const cartRed = hexToRgb("#c83232");
-      const glassGlint = hexToRgb("#87ceeb");
-      const hvacGray = hexToRgb("#586066");
-
-      if (!sameUp) {
-        // Roof floor: gravel ballast, HVAC chiller compressor units, roof access hatch
-        put(x0 + 2, y0 + 2, hvacGray);
-        put(x0 + 3, y0 + 2, hexToRgb("#485055"));
-        put(x0 + 5, y0 + 2, hvacGray);
-        put(x0 + 6, y0 + 2, hexToRgb("#485055"));
-        if (!sameLeft) {
-          // Corner supermarket illuminated logo sign
-          put(x0 + 1, y0 + 1, accent);
-          put(x0 + 2, y0 + 1, accent);
-          put(x0 + 3, y0 + 1, accent);
-        }
-      } else {
-        // Front entrance facade floor: wide striped awning + automatic glass sliding doors
-        for (let px = 1; px <= 6; px++) {
-          put(x0 + px, y0 + 2, px % 2 === 0 ? awnGreen : awnWhite);
-        }
-        // Wide automatic glass doors
-        put(x0 + 3, y0 + 4, glassGlint);
-        put(x0 + 4, y0 + 4, glassGlint);
-        put(x0 + 3, y0 + 5, C.door);
-        put(x0 + 4, y0 + 5, C.door);
-        // Shopping cart corral on right side
-        if (!sameRight) {
-          put(x0 + 6, y0 + 5, cartSteel);
-          put(x0 + 6, y0 + 6, cartRed);
-          put(x0 + 5, y0 + 6, cartRed);
-        }
-        // Promotional window display
-        if (!sameLeft) {
-          put(x0 + 1, y0 + 4, hexToRgb("#e8e040")); // yellow specials poster
-          put(x0 + 2, y0 + 4, glassGlint);
-        }
-      }
-      break;
-    }
-    case Lot.Library:
-      // Classical Library: triangular pediment top, white columns, stairs
-      put(x0 + 3, y0 + 1, accent); // triangular pediment top
-      put(x0 + 4, y0 + 1, accent);
-      put(x0 + 2, y0 + 2, accent);
-      put(x0 + 5, y0 + 2, accent);
-      for (let py = 3; py <= 5; py++) {
-        put(x0 + 1, y0 + py, hexToRgb("#efe9da")); // columns
-        put(x0 + 6, y0 + py, hexToRgb("#efe9da"));
-      }
-      put(x0 + 3, y0 + 5, hexToRgb("#968e7c")); // grand entrance steps
-      put(x0 + 4, y0 + 5, hexToRgb("#968e7c"));
-      break;
-    case Lot.Sheriff: {
-      const goldStar = hexToRgb("#ffd700");
-      const policeBlue = hexToRgb("#3070ff");
-      const policeRed = hexToRgb("#e83030");
-      put(x0 + 3, y0, policeBlue); // flashing police beacon
-      put(x0 + 3, y0 + 1, goldStar); // Sheriff gold star badge emblem
-      put(x0 + 4, y0 + 1, goldStar);
-      put(x0 + 2, y0 + 1, goldStar);
-      put(x0 + 3, y0 + 4, C.windowDark);
-      put(x0 + 5, y0 + 4, C.windowDark);
-      put(x0 + 4, y0 + 5, C.door);
-
-      // Dedicated police cruisers parked in apron stalls
-      // Cruiser 1 (W)
-      put(x0 + 1, y0 + 6, hexToRgb("#1a1a1a"));
-      put(x0 + 2, y0 + 6, hexToRgb("#f0f0f0")); // white roof
-      put(x0 + 2, y0 + 5, policeRed); // lightbar
-      put(x0 + 1, y0 + 7, hexToRgb("#1a1a1a"));
-      put(x0 + 2, y0 + 7, hexToRgb("#1a1a1a"));
-      // Cruiser 2 (E)
-      put(x0 + 5, y0 + 6, hexToRgb("#1a1a1a"));
-      put(x0 + 6, y0 + 6, hexToRgb("#f0f0f0")); // white roof
-      put(x0 + 6, y0 + 5, policeBlue); // lightbar
-      put(x0 + 5, y0 + 7, hexToRgb("#1a1a1a"));
-      put(x0 + 6, y0 + 7, hexToRgb("#1a1a1a"));
-      break;
-    }
-    case Lot.Church:
-      // steeple with a cross on the top (north) tile, arched window below
-      if (!sameUp) {
-        // Steeples rising
-        put(x0 + 3, y0 + 1, roof);
-        put(x0 + 4, y0 + 1, roof);
-        put(x0 + 3, y0 + 2, roof);
-        put(x0 + 4, y0 + 2, roof);
-        // Golden Cross on top
-        const gold = hexToRgb("#caa53a");
-        put(x0 + 3, y0, gold);
-        put(x0 + 2, y0, gold);
-        put(x0 + 4, y0, gold);
-        put(x0 + 3, y0 - 1 < 0 ? 0 : y0 - 1, gold);
-      } else {
-        // Sanctuary/nave stained glass
-        put(x0 + 3, y0 + 1, hexToRgb("#4477aa")); // Blue stained glass
-        put(x0 + 4, y0 + 1, hexToRgb("#4477aa"));
-        put(x0 + 3, y0 + 2, hexToRgb("#cc9933")); // Yellow stained glass
-        put(x0 + 4, y0 + 2, hexToRgb("#cc9933"));
-        // Double wooden doors
-        put(x0 + 3, y0 + 5, C.door);
-        put(x0 + 4, y0 + 5, C.door);
-      }
-      break;
-    case Lot.Bank: {
-      const stoneWhite = hexToRgb("#f8fafc");
-      const pedimentShade = hexToRgb("#cbd5e1");
-      const goldDollar = hexToRgb("#16a34a"); // recognizable currency green
-      const goldAccent = hexToRgb("#eab308");
-      const vaultSteel = hexToRgb("#475569");
-      const vaultWheel = hexToRgb("#94a3b8");
-
-      // Classical triangular pediment roof gable
-      put(x0 + 3, y0 + 1, stoneWhite);
-      put(x0 + 4, y0 + 1, stoneWhite);
-      put(x0 + 2, y0 + 2, stoneWhite);
-      put(x0 + 3, y0 + 2, pedimentShade);
-      put(x0 + 4, y0 + 2, pedimentShade);
-      put(x0 + 5, y0 + 2, stoneWhite);
-      // Green '$' sign in pediment tympanum
-      put(x0 + 3, y0 + 2, goldDollar);
-      put(x0 + 4, y0 + 2, goldAccent);
-
-      // Architrave / lintel stone
-      for (let px = 1; px <= 6; px++) put(x0 + px, y0 + 3, stoneWhite);
-
-      // 3 Classical white stone Doric columns
-      for (let py = 4; py <= 5; py++) {
-        put(x0 + 1, y0 + py, stoneWhite); // Left column
-        put(x0 + 3, y0 + py, stoneWhite); // Center column
-        put(x0 + 6, y0 + py, stoneWhite); // Right column
-      }
-
-      // Teller window & polished brass/steel entrance
-      put(x0 + 2, y0 + 4, hexToRgb("#38bdf8")); // Teller glass window
-      put(x0 + 4, y0 + 5, vaultSteel);          // Heavy vault entrance door
-      put(x0 + 5, y0 + 5, vaultSteel);
-      put(x0 + 5, y0 + 4, vaultWheel);          // Vault spin wheel
-      // Grand marble entrance steps plinth
-      for (let px = 1; px <= 6; px++) put(x0 + px, y0 + 6, pedimentShade);
-      break;
-    }
-    case Lot.PostOffice: {
-      const uspsBlue = hexToRgb("#2255cc");
-      const uspsRed = hexToRgb("#e23b3b");
-      put(x0 + 2, y0 + 1, uspsRed); // red & blue stripe header
-      put(x0 + 3, y0 + 1, uspsBlue);
-      put(x0 + 4, y0 + 1, uspsRed);
-      put(x0 + 5, y0 + 1, uspsBlue);
-      put(x0 + 2, y0 + 4, C.windowDark);
-      put(x0 + 4, y0 + 4, C.windowDark);
-      put(x0 + 3, y0 + 5, C.door);
-      put(x0 + 1, y0 + 6, uspsBlue); // blue drop collection box
-      break;
-    }
-    case Lot.FireStation: {
-      const bayRed = hexToRgb("#b83232");
-      const bayDark = hexToRgb("#6e1f1f");
-      const cautionYellow = hexToRgb("#ffcc00");
-      put(x0 + 3, y0 + 1, bayRed); // red siren roof dome
-      for (let px = 1; px <= 6; px++) put(x0 + px, y0 + 3, cautionYellow); // yellow caution stripe
-      // Twin Fire Engine Bay Doors
-      put(x0 + 2, y0 + 4, bayRed);
-      put(x0 + 2, y0 + 5, bayDark);
-      put(x0 + 5, y0 + 4, bayRed);
-      put(x0 + 5, y0 + 5, bayDark);
-      break;
-    }
-    case Lot.Factory: {
-      const smokestack = hexToRgb("#503028");
-      const soot = hexToRgb("#1a120e");
-      const skylight = hexToRgb("#7098b0");
-      const bayMetal = hexToRgb("#7a8288");
-
-      if (!sameUp) {
-        // Sawtooth roofline with triangular north-facing skylights
-        put(x0 + 2, y0 + 1, skylight);
-        put(x0 + 3, y0 + 2, skylight);
-        put(x0 + 5, y0 + 1, skylight);
-        put(x0 + 6, y0 + 2, skylight);
-        if (!sameLeft) {
-          // Industrial brick smokestack
-          put(x0 + 1, y0, soot);
-          put(x0 + 1, y0 + 1, smokestack);
-          put(x0 + 1, y0 + 2, smokestack);
-        }
-      } else {
-        // Factory ground floor: heavy corrugated cargo rollup door
-        for (let py = 3; py <= 5; py++) {
-          put(x0 + 2, y0 + py, bayMetal);
-          put(x0 + 3, y0 + py, bayMetal);
-        }
-        put(x0 + 5, y0 + 3, hexToRgb("#ffb030")); // Sodium security lamp
-        put(x0 + 5, y0 + 5, C.door);
-      }
-      break;
-    }
-    case Lot.Motel: {
-      const poolWater = hexToRgb("#7fc4e8");
-      const poolCoping = hexToRgb("#f0f0f4");
-      const neonRed = hexToRgb("#e83a3a");
-
-      put(x0 + 2, y0 + 5, C.door);
-      put(x0 + 5, y0 + 5, C.door);
-      put(x0 + 1, y0 + 4, C.windowDark);
-      put(x0 + 4, y0 + 4, C.windowDark);
-
-      if (!sameUp && !sameLeft) {
-        // Roadside neon "VACANCY" sign
-        put(x0 + 1, y0 + 1, neonRed);
-        put(x0 + 2, y0 + 1, hexToRgb("#32d060"));
-      }
-
-      // Motel courtyard pool on corner
-      if (!sameRight && !sameDown) {
-        for (let py = 3; py <= 6; py++) {
-          for (let px = 4; px <= 6; px++) {
-            put(x0 + px, y0 + py, (px === 4 || py === 3) ? poolCoping : poolWater);
-          }
-        }
-      }
-      break;
-    }
-    case Lot.Office:
-      for (let wy = 2; wy <= 5; wy += 2) {
-        for (let wx = 2; wx <= 5; wx += 2) {
-          put(x0 + wx, y0 + wy, pixHash(t, wx + wy) % 2 ? accent : C.windowDark);
-        }
-      }
-      break;
-    case Lot.Cinema: {
-      const bulbGold = hexToRgb("#ffea60");
-      const neonRed = hexToRgb("#f43f5e");
-      const posterWhite = hexToRgb("#ffffff");
-      const marqueeBack = hexToRgb("#1e1e24");
-      const goldTrim = hexToRgb("#eab308");
-
-      if (!sameUp) {
-        // Upper roofline / vertical pylon: giant illuminated neon CINEMA marquee sign
-        for (let px = 1; px <= 6; px++) put(x0 + px, y0 + 1, neonRed);
-        // Flashing yellow bulb border along the marquee crest
-        for (let px = 1; px <= 6; px += 2) put(x0 + px, y0, bulbGold);
-        // Lettering / vertical signage accent
-        put(x0 + 2, y0 + 2, bulbGold);
-        put(x0 + 3, y0 + 2, posterWhite);
-        put(x0 + 4, y0 + 2, bulbGold);
-        put(x0 + 5, y0 + 2, posterWhite);
-      } else {
-        // Lower level / entrance: overhanging triangular marquee canopy with bulb trim
-        for (let px = 0; px < TILE_PX; px++) put(x0 + px, y0 + 1, marqueeBack);
-        // Chasing perimeter bulbs on marquee edge
-        for (let px = 0; px < TILE_PX; px++) {
-          put(x0 + px, y0 + 2, px % 2 === 0 ? bulbGold : goldTrim);
-        }
-        // Poster display cases on flanking walls
-        put(x0 + 1, y0 + 3, posterWhite);
-        put(x0 + 1, y0 + 4, neonRed);
-        put(x0 + 6, y0 + 3, posterWhite);
-        put(x0 + 6, y0 + 4, hexToRgb("#38bdf8")); // Cyan movie poster
-        // Box office booth in center
-        put(x0 + 3, y0 + 4, hexToRgb("#e2e8f0")); // glass booth window
-        put(x0 + 4, y0 + 4, hexToRgb("#e2e8f0"));
-        // Red carpet runner leading to entrance
-        put(x0 + 3, y0 + 5, hexToRgb("#dc2626"));
-        put(x0 + 4, y0 + 5, hexToRgb("#dc2626"));
-        put(x0 + 3, y0 + 6, hexToRgb("#b91c1c"));
-        put(x0 + 4, y0 + 6, hexToRgb("#b91c1c"));
-        // Double entrance doors
-        put(x0 + 2, y0 + 5, C.door);
-        put(x0 + 5, y0 + 5, C.door);
-      }
-      break;
-    }
-    case Lot.HighSchool: {
-      const clockGold = hexToRgb("#e0c040");
-      const trimWhite = hexToRgb("#f0f0f4");
-
-      if (!sameUp) {
-        // Roof & upper level: clock tower belfry & classroom window rows
-        if (!sameLeft) {
-          put(x0 + 1, y0, hexToRgb("#d8d8d8")); // Flagpole
-          put(x0 + 1, y0 + 1, hexToRgb("#e83a3a")); // Flag
-        }
-        // Central clock tower
-        if (sameLeft && !sameRight) {
-          put(x0 + 2, y0, trimWhite);
-          put(x0 + 2, y0 + 1, clockGold); // Clock face
-          put(x0 + 3, y0, trimWhite);
-        }
-        // Classroom windows
-        put(x0 + 2, y0 + 3, C.windowDark);
-        put(x0 + 4, y0 + 3, C.windowDark);
-        put(x0 + 6, y0 + 3, C.windowDark);
-      } else {
-        // Ground floor: grand main entrance atrium & gym doors
-        put(x0 + 3, y0 + 4, hexToRgb("#87ceeb")); // Glass entrance
-        put(x0 + 4, y0 + 4, hexToRgb("#87ceeb"));
-        put(x0 + 3, y0 + 5, C.door);
-        put(x0 + 4, y0 + 5, C.door);
-        put(x0 + 1, y0 + 4, C.windowDark);
-        put(x0 + 6, y0 + 4, C.windowDark);
-      }
-      break;
-    }
-    case Lot.GrainElevator: {
-      const lightSteel = hexToRgb("#dce2e6");
-      const darkSteel = hexToRgb("#8a9399");
-      const redLight = hexToRgb("#d23b3b");
-      if (!sameLeft) {
-        // Left part: Tall cylindrical concrete silos
-        for (let py = 1; py <= 6; py++) {
-          put(x0 + 1, y0 + py, lightSteel);
-          put(x0 + 2, y0 + py, darkSteel);
-          put(x0 + 3, y0 + py, darkSteel);
-          put(x0 + 5, y0 + py, lightSteel);
-          put(x0 + 6, y0 + py, darkSteel);
-        }
-        // Silo dome tops
-        put(x0 + 2, y0, lightSteel);
-        put(x0 + 6, y0, lightSteel);
-      } else {
-        // Right part: Main headhouse tower (extends higher)
-        for (let py = 0; py <= 6; py++) {
-          put(x0 + 2, y0 + py, darkSteel);
-          put(x0 + 3, y0 + py, lightSteel);
-          put(x0 + 4, y0 + py, darkSteel);
-        }
-        // Red warning beacon on top of headhouse
-        put(x0 + 3, y0 - 1 < 0 ? 0 : y0 - 1, redLight);
-        // Grain loading spout chute & overhead conveyor steel truss
-        put(x0 + 5, y0 + 2, darkSteel);
-        put(x0 + 6, y0 + 3, darkSteel);
-        put(x0 + 7, y0 + 3, lightSteel);
-        // Red railroad grain boxcar parked on siding
-        const boxcarRed = hexToRgb("#96382b");
-        const boxcarRoof = hexToRgb("#70251c");
-        put(x0 + 1, y0 + 7, boxcarRoof);
-        put(x0 + 2, y0 + 7, boxcarRed);
-        put(x0 + 3, y0 + 7, boxcarRed);
-        // the OFFICE SHED (§7): a small scale-house at the elevator's foot
-        put(x0 + 5, y0 + 5, hexToRgb("#9a8468"));
-        put(x0 + 6, y0 + 5, hexToRgb("#9a8468"));
-        put(x0 + 5, y0 + 6, hexToRgb("#8a7458"));
-        put(x0 + 6, y0 + 6, C.door);
-      }
       break;
     }
     case Lot.Depot: {
@@ -3548,83 +2674,6 @@ export function drawLotBuilding(
       put(x0 + 6, y0 + 5, bench);
       break;
     }
-    case Lot.Warehouse: {
-      const ribMetal = hexToRgb("#8c969e");
-      const dockConc = hexToRgb("#a8adb2");
-      const hazardYellow = hexToRgb("#ffcc00");
-      const rollDoor = hexToRgb("#48525a");
-
-      if (!sameUp) {
-        for (let px = 1; px <= 6; px += 2) put(x0 + px, y0 + 2, ribMetal);
-      } else {
-        // Rollup bay doors
-        for (let py = 3; py <= 5; py++) {
-          put(x0 + 2, y0 + py, rollDoor);
-          put(x0 + 5, y0 + py, rollDoor);
-        }
-        // Concrete loading dock with hazard stripe
-        if (!sameDown) {
-          for (let px = 1; px <= 6; px++) {
-            put(x0 + px, y0 + 6, dockConc);
-            put(x0 + px, y0 + 7, px % 2 === 0 ? hazardYellow : hexToRgb("#222222"));
-          }
-        }
-      }
-      break;
-    }
-    case Lot.Greenhouse:
-      // glass panes with frame ribs + a sun glint
-      for (let gy2 = 2; gy2 <= 5; gy2++) {
-        for (let gx2 = 2; gx2 <= 5; gx2++) {
-          put(x0 + gx2, y0 + gy2, gx2 % 2 === 0 ? C.glassFrame : C.glass);
-        }
-      }
-      put(x0 + 3, y0 + 3, C.crosswalk); // glint
-      put(x0 + 3, y0 + 6, C.door);
-      break;
-    case Lot.Shop: {
-      const shopHash = pixHash(t, 29);
-      const isFlatParapet = shopHash % 3 === 0;
-      const doorX = (shopHash % 3 === 1) ? 2 : (shopHash % 3 === 2) ? 5 : 3;
-
-      for (let py = 3; py <= 6; py++) {
-        for (let px = 1; px <= 6; px++) {
-          put(x0 + px, y0 + py, body);
-        }
-      }
-
-      if (isFlatParapet) {
-        const cornice = shade(roof, 0.8);
-        for (let px = 1; px <= 6; px++) put(x0 + px, y0 + 2, cornice);
-        const winX = doorX === 2 ? 5 : 2;
-        put(x0 + winX, y0 + 4, C.windowDark);
-        put(x0 + winX + 1, y0 + 4, C.windowDark);
-      } else {
-        for (let px = 1; px <= 6; px++) put(x0 + px, y0 + 2, roof);
-        const awnCol = [hexToRgb("#d23b3b"), hexToRgb("#3f7fbf"), hexToRgb("#3fbf7f")][shopHash % 3]!;
-        for (let px = 1; px <= 6; px++) {
-          const isStripe = px % 2 === 0;
-          put(x0 + px, y0 + 3, isStripe ? awnCol : shade(awnCol, 0.85));
-        }
-      }
-
-      put(x0 + doorX, y0 + 5, C.door);
-      put(x0 + doorX, y0 + 6, C.door);
-      // strip fillers (§7): some shops read as the LAUNDROMAT (a porthole
-      // washer window row) or the BARBER (red/white pole by the door)
-      const filler = pixHash(t, 31) % 5;
-      if (filler === 0) {
-        put(x0 + 2, y0 + 4, hexToRgb("#cfd8de")); // washer portholes
-        put(x0 + 4, y0 + 4, hexToRgb("#cfd8de"));
-        put(x0 + 6, y0 + 4, hexToRgb("#cfd8de"));
-      } else if (filler === 1) {
-        const poleX = doorX <= 3 ? doorX + 1 : doorX - 1;
-        put(x0 + poleX, y0 + 4, hexToRgb("#d23b3b")); // the barber pole
-        put(x0 + poleX, y0 + 5, hexToRgb("#f0f0f0"));
-        put(x0 + poleX, y0 + 6, hexToRgb("#3f5fbf"));
-      }
-      break;
-    }
     case Lot.Dam: {
       const concrete = hexToRgb("#8c8c8c");
       const shadowC = hexToRgb("#5c5c5c");
@@ -3641,179 +2690,6 @@ export function drawLotBuilding(
             put(x0 + px, y0 + py, C.waterDeep);
           }
         }
-      }
-      break;
-    }
-    case Lot.WaterTower: {
-      const metal = hexToRgb("#cbd2d6");
-      const metalDark = hexToRgb("#8a9399");
-      const shadowC = C.shadow;
-      for (let py = 4; py <= 6; py++) {
-        put(x0 + 2, y0 + py, metalDark);
-        put(x0 + 5, y0 + py, metalDark);
-      }
-      put(x0 + 3, y0 + 6, metalDark);
-      put(x0 + 4, y0 + 6, metalDark);
-      put(x0 + 2, y0 + 1, metal);
-      put(x0 + 3, y0 + 1, metal);
-      put(x0 + 4, y0 + 1, metal);
-      put(x0 + 5, y0 + 1, metal);
-      put(x0 + 1, y0 + 2, metal);
-      put(x0 + 2, y0 + 2, metalDark);
-      put(x0 + 3, y0 + 2, metal);
-      put(x0 + 4, y0 + 2, metal);
-      put(x0 + 5, y0 + 2, metalDark);
-      put(x0 + 6, y0 + 2, metal);
-      put(x0 + 2, y0 + 3, metal);
-      put(x0 + 3, y0 + 3, metal);
-      put(x0 + 4, y0 + 3, metal);
-      put(x0 + 5, y0 + 3, metal);
-      put(x0 + 2, y0 + 7, shadowC);
-      put(x0 + 5, y0 + 7, shadowC);
-      break;
-    }
-    case Lot.Substation: {
-      const gravel = hexToRgb("#cbd0d4");
-      const metal = hexToRgb("#8a9399");
-      const fence = C.iconDark;
-      const warning = hexToRgb("#d23b3b"); // danger sign
-      for (let py = 0; py < TILE_PX; py++) {
-        for (let px = 0; px < TILE_PX; px++) {
-          put(x0 + px, y0 + py, gravel);
-        }
-      }
-      for (let i = 0; i < TILE_PX; i++) {
-        if (i % 2 === 0) {
-          put(x0 + i, y0, fence);
-          put(x0 + i, y0 + TILE_PX - 1, fence);
-          put(x0, y0 + i, fence);
-          put(x0 + TILE_PX - 1, y0 + i, fence);
-        }
-      }
-      put(x0 + 2, y0 + 2, metal);
-      put(x0 + 2, y0 + 3, metal);
-      put(x0 + 5, y0 + 2, metal);
-      put(x0 + 5, y0 + 3, metal);
-      put(x0 + 4, y0 + 5, warning);
-      put(x0 + 3, y0 + 2, C.glassFrame);
-      put(x0 + 4, y0 + 2, C.glassFrame);
-      put(x0 + 2, y0 + 1, C.wire);
-      put(x0 + 3, y0 + 1, C.wire);
-      put(x0 + 4, y0 + 1, C.wire);
-      put(x0 + 5, y0 + 1, C.wire);
-      break;
-    }
-    case Lot.Lighthouse: {
-      // white tower with the red lamp room — the coast's landmark (§2A)
-      for (let py = 1; py <= 6; py++) {
-        put(x0 + 3, y0 + py, body);
-        put(x0 + 4, y0 + py, shade(body, 0.88));
-      }
-      put(x0 + 3, y0 + 1, roof); // lamp room
-      put(x0 + 4, y0 + 1, roof);
-      put(x0 + 3, y0, accent); // the light
-      put(x0 + 4, y0, accent);
-      put(x0 + 2, y0 + 4, shade(body, 0.8)); // gallery band
-      put(x0 + 5, y0 + 4, shade(body, 0.8));
-      break;
-    }
-    case Lot.Cannery: {
-      // long low fish house: gray body, skylight strip, crate stack
-      put(x0 + 2, y0 + 2, accent); // skylights
-      put(x0 + 4, y0 + 2, accent);
-      put(x0 + 2, y0 + 5, hexToRgb("#8a6a42")); // crates
-      put(x0 + 3, y0 + 5, hexToRgb("#8a6a42"));
-      put(x0 + 5, y0 + 4, C.door);
-      break;
-    }
-    case Lot.Sawmill: {
-      // timber shed + the log deck (stacked butts) out front
-      if (!sameLeft) {
-        put(x0 + 1, y0 + 5, hexToRgb("#c8a25c")); // log butts
-        put(x0 + 1, y0 + 6, hexToRgb("#b08a48"));
-        put(x0 + 2, y0 + 6, hexToRgb("#c8a25c"));
-      }
-      put(x0 + 4, y0 + 2, accent); // roof vent
-      put(x0 + 3, y0 + 5, C.door);
-      if (!sameRight) put(x0 + 6, y0 + 1, C.iconDark); // sawdust burner
-      break;
-    }
-    case Lot.Dock: {
-      // Wooden fishing dock: pier planking, mooring pilings, and tied boat slips
-      const wood = hexToRgb("#7e6244");
-      const piling = hexToRgb("#503a27");
-      const boatBlue = hexToRgb("#3270b8");
-      const boatWhite = hexToRgb("#f0f0f0");
-      for (let py = 1; py <= 6; py++) {
-        put(x0 + 3, y0 + py, wood);
-        put(x0 + 4, y0 + py, shade(wood, 0.88));
-      }
-      put(x0 + 2, y0 + 2, piling);
-      put(x0 + 5, y0 + 2, piling);
-      put(x0 + 2, y0 + 5, piling);
-      put(x0 + 5, y0 + 5, piling);
-      // Tied rowing boat
-      put(x0 + 1, y0 + 3, boatBlue);
-      put(x0 + 1, y0 + 4, boatWhite);
-      break;
-    }
-    case Lot.Cemetery: {
-      // Quiet cemetery: rows of granite tombstones, obelisk, and gravel walkways
-      const tombstone = hexToRgb("#9e9e9e");
-      const obelisk = hexToRgb("#c0c0c0");
-      const pathGravel = hexToRgb("#b0b5ba");
-      for (let px = 0; px < TILE_PX; px++) put(x0 + px, y0 + 3, pathGravel);
-      put(x0 + 1, y0 + 1, tombstone);
-      put(x0 + 3, y0 + 1, tombstone);
-      put(x0 + 5, y0 + 1, tombstone);
-      put(x0 + 2, y0 + 5, tombstone);
-      put(x0 + 4, y0 + 5, obelisk);
-      put(x0 + 6, y0 + 5, tombstone);
-      break;
-    }
-    case Lot.Playground: {
-      // Schoolyard playground: red/blue swingset, slide structure, sandbox
-      const redMetal = hexToRgb("#b83232");
-      const blueSlide = hexToRgb("#3270b8");
-      const sand = hexToRgb("#e8d2a0");
-      put(x0 + 1, y0 + 2, redMetal); // swingset frame
-      put(x0 + 2, y0 + 1, redMetal);
-      put(x0 + 3, y0 + 2, redMetal);
-      put(x0 + 5, y0 + 1, blueSlide); // slide top
-      put(x0 + 6, y0 + 3, blueSlide); // slide chute
-      for (let py = 4; py <= 6; py++)
-        for (let px = 2; px <= 5; px++) put(x0 + px, y0 + py, sand); // sandbox
-      break;
-    }
-    case Lot.BallField: {
-      // Baseball diamond: dirt infield, home plate & base chalk lines
-      const dirt = hexToRgb("#d0c0a0");
-      const chalk = hexToRgb("#f0f0f0");
-      for (let py = 2; py <= 5; py++)
-        for (let px = 2; px <= 5; px++) put(x0 + px, y0 + py, dirt);
-      put(x0 + 3, y0 + 5, chalk); // home plate
-      put(x0 + 5, y0 + 3, chalk); // 1st base
-      put(x0 + 3, y0 + 2, chalk); // 2nd base
-      put(x0 + 2, y0 + 3, chalk); // 3rd base
-      break;
-    }
-    case Lot.Parking: {
-      // Commercial strip parking lot: asphalt, yellow stall lines, wheel stops, island tree
-      const asphalt = C.asphalt;
-      const yellowStall = hexToRgb("#e0c34a");
-      const stopGray = hexToRgb("#888888");
-      for (let py = 0; py < TILE_PX; py++)
-        for (let px = 0; px < TILE_PX; px++) put(x0 + px, y0 + py, asphalt);
-      for (let py = 1; py <= 6; py += 2) {
-        put(x0 + 2, y0 + py, yellowStall);
-        put(x0 + 5, y0 + py, yellowStall);
-      }
-      put(x0 + 3, y0 + 6, stopGray);
-      put(x0 + 4, y0 + 6, stopGray);
-      // Landscaping island tree pocket
-      if (!sameLeft && !sameUp) {
-        put(x0 + 1, y0 + 1, hexToRgb("#4c9c28"));
-        put(x0 + 1, y0 + 2, hexToRgb("#326e1c"));
       }
       break;
     }
@@ -4659,8 +3535,10 @@ function putFleetCar(
   kind: VehicleKind,
 ): void {
   const dir = dirOf(dx, dy);
-  const x = dir < 2 ? px - 1 : px;
-  const y = dir < 2 ? py : py - 1;
+  // centre along the heading (3- and 4-long kinds alike)
+  const len = vehicleSize(kind, 0).w;
+  const x = dir < 2 ? px - ((len - 1) >> 1) : px;
+  const y = dir < 2 ? py : py - ((len - 1) >> 1);
   drawVehicle(put, kind, x, y, dir, vivid ? shade(color, 1.15) : color);
 }
 

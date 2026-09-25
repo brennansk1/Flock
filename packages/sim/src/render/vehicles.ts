@@ -2,8 +2,9 @@
  * The 1980s vehicle fleet (Stage 2). Every car is authored as a compact
  * E-facing character matrix (columns = rear → front, rows = north flank →
  * south flank; the south row is the flank the 3/4 camera sees) and rotated
- * for the four headings. Sizes follow SPRITE_SCALE: cars 3×2 (E–W) / 2×3
- * (N–S), the school bus 6×2, a BMX + rider 2×1.
+ * for the four headings. Sizes (E–W): sedan, K-car, Blazer, Beetle 3×2;
+ * wagon, pickup, Camaro, van, cruiser 4×2; school bus 6×2; BMX 2×1 (N–S
+ * transposed).
  *
  * Presentation only: the kind and paint are pure hashes of a household /
  * agent seed, and the cruiser's bubble light + the bus hazards flash off
@@ -33,17 +34,28 @@ export const VEHICLE_KINDS = [
 ] as const;
 export type VehicleKind = (typeof VEHICLE_KINDS)[number];
 
-/** E-facing matrices (rear → front). */
+/**
+ * E-facing matrices (rear → front). Row 0 is the roof / top the camera
+ * looks down on, row 1 the south flank. Silhouettes differ in LENGTH and in
+ * where the glass sits: the sedan's roof is centred with trunk and hood
+ * either side; the K-car is a stubby notchback (short trunk, glass right
+ * behind the hood); the Blazer is tall with its white hardtop running to
+ * the tailgate; the pickup's open bed shows its floor and rails; the
+ * Beetle has rounded ends (transparent corners); the Camaro's long hood;
+ * the van a slab-sided box with its stripe; the cruiser black-and-white
+ * with the light bar on the roof; the wagon's roof runs to the tailgate
+ * over a wood-grain flank.
+ */
 const SPRITES: Record<VehicleKind, readonly string[]> = {
-  sedan: ["BRG", "bbg"],
-  wagon: ["RRG", "WWg"],
-  kcar: ["RRG", "bBg"],
-  blazer: ["TTG", "bBg"],
-  pickup: ["kRG", "bbg"],
-  beetle: ["bRb", "KBK"],
-  camaro: ["RGS", "bbB"],
-  van: ["RRR", "SSG"],
-  cruiser: ["KLG", "TTK"],
+  sedan: ["bRB", "bgb"],
+  wagon: ["RRRB", "WWWb"],
+  kcar: ["GRB", "bgB"],
+  blazer: ["TTG", "bgK"],
+  pickup: ["rkRG", "bbgB"],
+  beetle: [".RG", "bBb"],
+  camaro: ["bGBB", "bgSB"],
+  van: ["RRRG", "SSSb"],
+  cruiser: ["KTLG", "KTTK"],
   bus: ["HYYYYy", "Hwwwwy"],
   bmx: ["KP"],
 };
@@ -88,7 +100,8 @@ export function vehicleSize(kind: VehicleKind, dir: number): { w: number; h: num
 
 /**
  * Draw a vehicle with its bounding box's top-left at (x, y).
- * `flash` = frame tick for the cruiser light bar / bus hazards (-1 = off).
+ * `flash` = frame tick for the cruiser light bar / bus hazards (-1 = off);
+ * `bloom` adds the light bar's night halo (drawn outside the box).
  */
 export function drawVehicle(
   put: Put,
@@ -99,9 +112,13 @@ export function drawVehicle(
   paint: RGB,
   tick = -1,
   hazards = false,
+  bloom = false,
 ): void {
   const m = SPRITES[kind];
   const len = m[0]!.length, wid = m.length;
+  // work trucks never go near-black: a dark pickup reads as a hole in the
+  // road, so dark paints fade to a sun-bleached mid tone
+  if (kind === "pickup" && paint[0] * 77 + paint[1] * 150 + paint[2] * 29 < 110 * 256) paint = [(paint[0] + 184) >> 1, (paint[1] + 170) >> 1, (paint[2] + 150) >> 1];
   const lightbar = tick >= 0 && ((tick >> 2) & 1) === 0 ? EMISSIVE.policeRed : EMISSIVE.policeBlue;
   const hazardOn = hazards && tick >= 0 && ((tick >> 3) & 1) === 0;
   const pal = (ch: string): RGB | null => {
@@ -114,7 +131,8 @@ export function drawVehicle(
       case "W": return WOOD;
       case "T": return WHITE;
       case "K": return BLACK;
-      case "k": return shade(paint, 0.5);
+      case "k": return shade(paint, 0.62); // pickup bed floor
+      case "r": return shade(paint, 1.25); // tailgate / bed rail (lit)
       case "S": return kind === "camaro" ? hexToRgb("#d8a830") : hexToRgb("#b8642c");
       case "L": return tick >= 0 ? lightbar : hexToRgb("#8a2020");
       case "H": return hazardOn ? EMISSIVE.hazard : shade(BUS, 0.7);
@@ -125,6 +143,19 @@ export function drawVehicle(
       default: return null;
     }
   };
+  // police light-bar BLOOM after dark: a dim halo round the bar on
+  // alternating frames (red / blue) so the flash reads across the map
+  if (bloom && kind === "cruiser" && tick >= 0) {
+    const red = ((tick >> 2) & 1) === 0;
+    const glow = red ? EMISSIVE.policeRedGlow : EMISSIVE.policeBlueGlow;
+    const a = 2; // light bar column (rear → front)
+    let bx: number, by: number;
+    if (dir === 0) { bx = x + a; by = y; }
+    else if (dir === 1) { bx = x + len - 1 - a; by = y; }
+    else if (dir === 2) { bx = x + (wid - 1); by = y + a; }
+    else { bx = x; by = y + len - 1 - a; }
+    for (const [dx, dy] of [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [0, -2]] as const) put(bx + dx, by + dy, glow);
+  }
   for (let r = 0; r < wid; r++) {
     for (let a = 0; a < len; a++) {
       const c = pal(m[r]![a]!);

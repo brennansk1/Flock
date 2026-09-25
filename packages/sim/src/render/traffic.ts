@@ -14,7 +14,7 @@
  */
 import { Terrain, Lot, type World } from "../types.js";
 import type { RGB } from "../palette.js";
-import { TILE_PX, pixHash, type Put } from "./core.js";
+import { TILE_PX, pixHash, isLitHour, type Put } from "./core.js";
 import { drawVehicle, householdVehicle, householdPaint, vehicleSize, type VehicleKind } from "./vehicles.js";
 import { isHouseTile } from "./houses.js";
 
@@ -104,7 +104,7 @@ function density(day: number): number {
 function drawAt(put: Put, kind: VehicleKind, px: number, py: number, hdx: number, hdy: number, paint: RGB, tick: number, hazards = false): void {
   const dir = hdy === 0 ? (hdx >= 0 ? 0 : 1) : hdy > 0 ? 2 : 3;
   const { w, h } = vehicleSize(kind, dir);
-  drawVehicle(put, kind, px - (w >> 1), py - (h >> 1), dir, paint, tick, hazards);
+  drawVehicle(put, kind, px - (w >> 1), py - (h >> 1), dir, paint, tick, hazards, isLitHour());
 }
 
 export function drawAmbientTraffic(w: World, tick: number, fog: Uint8Array | null, put: Put, kit: RouteKit): void {

@@ -201,10 +201,11 @@ export function postOffice(p: Plan): void {
 export function office(p: Plan): void {
   const { L, D } = p;
   const v = p.h(1) % 3;
-  const spandrel = [M.brickBrown, hx("#e4e0d6"), hx("#c8b89a")][v]!;
-  const glass = [M.glassBronze, hx("#2e3440"), hx("#3e6e74")][v]!;
+  // spandrel / glass pairs with real contrast so the ribbons read
+  const spandrel = [hx("#a8785a"), hx("#e4e0d6"), hx("#d0c0a0")][v]!;
+  const glass = [hx("#2e2620"), hx("#2e3440"), hx("#2e5a62")][v]!;
   const deep = D >= 16;
-  const storeys = deep ? 2 + (p.h(2) % 2) : 2;
+  const storeys = deep ? (p.h(2) % 3 === 0 ? 2 : 3) : 2;
   const h = storeys * 2;
   const bl0 = 1, bl1 = L - 2;
   const bd0 = 1, bd1 = deep ? D - 5 : D - 3;
@@ -213,7 +214,7 @@ export function office(p: Plan): void {
   const cxl = (bl0 + bl1) >> 1;
   p.pave(cxl - 1, bd1 + 1, cxl + 1, fr, "concrete");
   p.box({
-    l0: bl0, d0: bd0, l1: bl1, d1: bd1, h, wall: spandrel, roof: hx("#8a857c"), kind: "flat",
+    l0: bl0, d0: bd0, l1: bl1, d1: bd1, h, wall: spandrel, roof: hx("#6e6a64"), kind: "flat",
     front: (u, r, n, hh) => {
       if (r === hh - 1 && (u === n >> 1 || u === (n >> 1) - 1)) return hx("#2a2622"); // lobby doors
       if (u === 0 || u === n - 1) return shade(spandrel, 0.92); // end piers
@@ -309,7 +310,7 @@ export function library(p: Plan): void {
 export function chapel(p: Plan): void {
   const { L, D } = p;
   const sid = [M.clapboard, hx("#e8dcb0"), hx("#c8d0d8")][p.h(1) % 3]!;
-  const roof = [M.shingle, hx("#3f5a44"), hx("#7a3a30")][p.h(2) % 3]!;
+  const roof = [hx("#7a7470"), hx("#8a6a4a"), hx("#8a3a30")][p.h(2) % 3]!;
   const deep = D >= 16;
   const bl0 = L >= 16 ? (L >> 1) - 3 : 1, bl1 = L >= 16 ? (L >> 1) + 2 : L - 2;
   const bd0 = deep ? 3 : 1, bd1 = deep ? D - 5 : D - 3;
@@ -323,9 +324,9 @@ export function chapel(p: Plan): void {
     lip: (k, n) => (k === n >> 1 || k === (n >> 1) - 1 ? hx("#3a2a1e") : sid),
   });
   // belfry + spire over the front gable end
-  const [x, y] = p.S(cxl, bd1 - (deep ? 4 : 2));
-  const bell = RS.season === "winter" ? M.snow : roof;
-  p.sprAt(x + 1, y, ["g", "s", "b", "B", "B"], { g: C.landmarkGold, s: shade(bell, 1.1), b: shade(sid, 0.85), B: sid }, 0, 300);
+  const [x, y] = p.S(cxl, bd1 - 2);
+  const bell = RS.season === "winter" ? M.snow : shade(roof, 0.8);
+  p.sprAt(x + 1, y, deep ? [".g.", ".s.", ".s.", "sss", "BkB", "BBb"] : [".g.", ".s.", "BkB", "BBb"], { g: C.landmarkGold, s: bell, k: hx("#3a2a1e"), B: sid, b: shade(sid, 0.85) }, 1, 300);
   // sign board on the lawn
   if (deep) {
     p.obj(bl0 - 1 < 1 ? bl1 + 1 : bl0 - 1, fr - 1, hx("#f0ece0"));
@@ -357,32 +358,45 @@ export function cinema(p: Plan): void {
   p.pave(bl0, bd1 + 1, bl1, fr, "terrazzo");
   const bulb = (i: number): RGB => ((i + (tick >> 1)) % 3 === 0 ? (p.lit ? EMISSIVE.hazard : hx("#fff0b0")) : hx("#b89040"));
   const lipC = (k: number): RGB => (k % 2 === 0 ? bulb(k) : (p.lit ? neon : neonDay));
-  // auditorium (tall, plain side brick with a pilaster rhythm)
+  // auditorium + lobby (tall brick, pilaster rhythm on the sides)
+  const mq = deep ? 2 : 1; // marquee depth
+  const ad1 = bd1 - mq;
   p.box({
-    l0: bl0, d0: bd0, l1: bl1, d1: bd1, h: deep ? 5 : 3, wall, roof: M.tar, kind: "flat",
+    l0: bl0, d0: bd0, l1: bl1, d1: ad1, h: deep ? 4 : 2, wall, roof: M.tar, kind: "flat",
     front: (u, r, n, hh) => {
-      // lobby front: marquee board across rows 0..1, then doors + poster cases
-      if (r === 0) return bulb(u); // the chaser border
-      if (r === 1) return u === 0 || u === n - 1 ? bulb(u + 1) : letters(u, n, p.lit ? hx("#fff8e8") : hx("#f0ece0"), hx("#2a2622"), 1);
-      if (r === 2 && hh > 3) return u === 0 || u === n - 1 ? bulb(u + 2) : shade(neonDay, 0.9); // marquee soffit
       const mid = n >> 1;
+      if (r === 0) return shade(wall, 1.1);
       if (u >= mid - 1 && u <= mid) return r === hh - 1 ? hx("#2a2622") : hx("#8a6a3a"); // ticket booth
-      if ((u === mid - 3 || u === mid + 2) && r === hh - 1) return hx("#3a2e22"); // doors
+      if ((u === mid - 3 || u === mid + 2) && r >= hh - 2) return hx("#3a2e22"); // doors
       if ((u === 1 || u === n - 2) && r >= hh - 2) return p.lit ? C.windowLit : hx("#c8b060"); // poster cases
       return null;
     },
-    side: (u, r, n) => (u === n - 1 && r <= 1 ? bulb(r) : u % 3 === 0 ? shade(wall, 0.9) : null),
+    side: (u, r) => (u % 3 === 0 ? shade(wall, 0.9) : r === 0 ? shade(wall, 1.1) : null),
     back: (u, r, n, hh) => (u === 2 && r >= hh - 2 ? C.door : null),
-    lip: lipC,
+    lip: (k) => (k % 3 === 0 ? shade(wall, 0.9) : wall),
     deco: () => {
       p.top(bl0 + 2, bd0 + 1, M.hvac);
       p.top(bl1 - 2, bd0 + 2, M.hvac);
     },
   });
+  // the MARQUEE: projects over the sidewalk; chaser bulbs frame the board
+  p.box({
+    l0: bl0 + 1, d0: ad1 + 1, l1: bl1 - 1, d1: bd1 + 1, h: 2, wall: hx("#f0ece0"), roof: p.lit ? neon : neonDay, kind: "flat", noSnow: true,
+    front: (u, r, n) => (r === 0 ? bulb(u) : u === 0 || u === n - 1 ? bulb(u + 1) : letters(u, n, p.lit ? hx("#fff8e8") : hx("#f0ece0"), hx("#2a2622"), 1)),
+    side: (u, r) => (r === 0 ? bulb(u) : hx("#f0ece0")),
+    back: (u) => bulb(u),
+    lip: lipC,
+    deco: () => {
+      // chaser bulbs round the marquee top
+      const [ax, ay] = p.S(bl0 + 1, ad1 + 1), [bx, by] = p.S(bl1 - 1, bd1 + 1);
+      const x0 = Math.min(ax, bx), x1 = Math.max(ax, bx), y0 = Math.min(ay, by);
+      for (let x = x0; x <= x1; x++) p.scr(x, y0, bulb(x), 2);
+    },
+  });
   // the vertical BLADE sign at the front, rising above the roof
   const bladeL = bl0 + 2;
-  const [x, y] = p.S(bladeL, bd1 - (deep ? 4 : 2));
-  const rows = deep ? ["n", "N", "n", "N", "n", "N", "|"] : ["n", "N", "n", "N"];
+  const [x, y] = p.S(bladeL, ad1 - (deep ? 3 : 1));
+  const rows = deep ? ["nn", "nN", "nn", "nN", "nn", "nN", "nn", "nN", "nn"] : ["nn", "nN", "nN", "nn"];
   const flick = (tick >> 2) % 7 === 0;
   p.sprAt(x, y, rows, {
     n: p.lit ? neon : neonDay,
@@ -407,12 +421,19 @@ export function diner(p: Plan): void {
   const wide = L >= 16;
   const deep = D >= 16;
   const fr = FRONT(p);
-  const bd0 = deep ? D - 8 : 1, bd1 = fr - 1;
+  // a narrow deep lot sets the car END-ON to the street (the classic
+  // diner-on-a-side-lot look), kitchen annex behind it
+  const endOn = !wide && deep;
+  const bd0 = endOn ? 5 : deep ? D - 8 : 1, bd1 = fr - 1;
   const cl0 = 1, cl1 = wide ? 10 : L - 2;
-  if (deep) p.pave(1, 1, L - 2, bd0 - 1, "asphalt");
+  if (deep && !endOn) p.pave(1, 1, L - 2, bd0 - 1, "asphalt");
   p.pave(cl0, bd1 + 1, L - 2, fr, "concrete");
+  if (endOn) {
+    const brick = p.h(2) % 2 ? M.brick : hx("#d8cbb0");
+    p.box({ l0: 1, d0: 1, l1: L - 2, d1: 4, h: 2, wall: brick, roof: M.tar, front: (u) => (u === 1 ? C.door : null), deco: () => p.top(3, 2, M.hvac) });
+  }
   p.box({
-    l0: cl0, d0: bd0, l1: cl1, d1: bd1, h: 3, wall: steel, roof: hx("#b8bcc4"), kind: "barrel",
+    l0: cl0, d0: bd0, l1: cl1, d1: bd1, h: 3, wall: steel, roof: hx("#b8bcc4"), kind: "barrel", across: endOn,
     front: (u, r, n) => {
       if (r === 0) return u === 0 || u === n - 1 ? shade(steel, 0.9) : u === 2 ? hx("#8ab0c8") : u % 3 === 0 ? steel : pane(p, u, 0, 12, hx("#3a4a5a"));
       if (r === 1) return stripe;
@@ -474,7 +495,7 @@ export function supermarket(p: Plan): void {
     }
   }
   p.box({
-    l0: bl0, d0: bd0, l1: bl1, d1: bd1, h: 3, wall, roof: hx("#9a948a"), kind: "flat",
+    l0: bl0, d0: bd0, l1: bl1, d1: bd1, h: 3, wall, roof: hx("#cdc8be"), kind: "flat",
     front: (u, r, n) => {
       if (r === 0) {
         // mansard fascia with the big sign in the middle
@@ -531,7 +552,7 @@ export function gasStation(p: Plan): void {
     lip: (k) => (k % 3 === 0 ? M.white : brandA),
   });
   // canopy over the pump islands
-  const cl0 = deep ? 3 : ol1 + 2, cl1 = L - 3;
+  const cl0 = deep ? 5 : ol1 + 2, cl1 = L - 3;
   const cd0 = deep ? 8 : 1, cd1 = deep ? fr - 3 : fr - 2;
   if (cl1 - cl0 >= 3) {
     const pump = hx("#d8d4c8");
@@ -567,7 +588,7 @@ export function gasStation(p: Plan): void {
   const rows = deep
     ? ["AAA", "ABA", "AAA", "ppp", ".|.", ".|.", ".|.", ".|."]
     : ["AAA", "ABA", "ppp", ".|.", ".|."];
-  p.spr(L - 2, fr, rows, {
+  p.spr(2, fr, rows, {
     A: brandA, B: on && b !== 3 ? EMISSIVE.beaconWhite : brandB,
     p: on ? EMISSIVE.hazard : hx("#f0ece0"), "|": M.steel,
   }, 1, 400);

@@ -250,14 +250,14 @@ export function radioTower(p: Plan): void {
   const on = ((RS.tick >> 3) & 1) === 0;
   p.later(999, () => {
     // guy wires from three heights
-    const wire = hx("#3a352e");
+    const wire = hx("#8a867c");
     for (const [al, ad] of anchors) {
       const [axp, ayp] = p.S(al, ad);
       for (const frac of [0.35, 0.7, 1]) {
         const hy = my - Math.round(H * frac);
         const n = Math.max(Math.abs(axp - mx), Math.abs(ayp - hy));
         for (let s = 1; s < n; s += 1) {
-          if (frac < 1 && s % 2) continue; // lower wires lighter
+          if (s % 2) continue; // fine wire: dotted
           const x = mx + Math.round(((axp - mx) * s) / n), y = hy + Math.round(((ayp - hy) * s) / n);
           p.scr(x, y, wire);
         }
@@ -320,7 +320,7 @@ export function drawLotOverlays(w: World, tick: number, put: Put, view: { x0: nu
     for (let r = 2; r < 34; r++) {
       const half = Math.floor(r / 9);
       for (let k = -half; k <= half; k++) {
-        if ((r + k) % 2 && r > 8) continue; // sparse far end
+        if (k !== 0 && (r + k * 2) % 3 !== 0) continue; // solid core, sparse flanks
         const x = Math.round(lx + ca * r - sa * k), y = Math.round(ly + sa * r + ca * k);
         put(x, y, r < 6 ? EMISSIVE.beaconWhite : beam);
       }

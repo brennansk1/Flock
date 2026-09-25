@@ -312,7 +312,8 @@ export class Plan {
   sprAt(x: number, y: number, rows: readonly string[], pal: Record<string, RGB | null | undefined>, ax = -1, z = 0): void {
     const wid = rows[0]!.length;
     const ox = x - (ax < 0 ? wid >> 1 : ax);
-    const oy = y - rows.length + 1;
+    // a tall sprite near the footprint's top edge slides down to fit
+    const oy = Math.max(1, y - rows.length + 1);
     this.later(y + z, () => {
       for (let r = 0; r < rows.length; r++) {
         const row = rows[r]!;
@@ -390,6 +391,25 @@ export class Plan {
     // walls
     const faceKind: "front" | "back" | "side" = o === 0 ? "front" : o === 1 ? "back" : "side";
     const fn = faceKind === "front" ? b.front : faceKind === "back" ? b.back : b.side;
+    // GABLE END: when the ridge runs up-screen, the visible wall rises into
+    // a triangle under the roof (r < 0 rows are offered to the decorator)
+    if (!horiz && (kind === "gable" || kind === "gambrel") && rw >= 3) {
+      const c2 = sx0 + sx1;
+      for (let rise = 1; rise <= rh - 1; rise++) {
+        const y = wy0 - rise;
+        let any = false;
+        for (let x = sx0; x <= sx1; x++) {
+          const dist2 = Math.abs(2 * x - c2);
+          if (dist2 > rw - 1 - 3 * rise) continue;
+          any = true;
+          const u = faceKind === "side" && o === 3 ? sx1 - x : x - sx0;
+          let c = fn ? fn(u, -rise, rw, H) : null;
+          if (!c) c = shade(b.wall, 0.96);
+          this.scr(x, y, c, MASK_WALL);
+        }
+        if (!any) break;
+      }
+    }
     for (let y = wy0; y <= sy1; y++) {
       const r = y - wy0;
       for (let x = sx0; x <= sx1; x++) {
@@ -513,7 +533,7 @@ export function drawPlanned(
 ): void {
   let m = CACHE.get(w);
   if (!m) { m = new Map(); CACHE.set(w, m); }
-  const key = (lot * 4096 + (ay * w.width + ax)) * 1;
+  const key = (ay * w.width + ax) * 64 + lot; // anchor tile + lot id
   let e = m.get(key);
   if (!e || e.frame !== FRAME || e.season !== RS.season || e.time !== RS.time || e.tick !== RS.tick || e.sw !== fw * TILE_PX || e.sh !== fh * TILE_PX || e.ax !== ax || e.ay !== ay) {
     const f = facing ?? lotFrontage(w, ax, ay, fw, fh);

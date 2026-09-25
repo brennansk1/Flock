@@ -170,7 +170,7 @@ export function school(p: Plan): void {
   if (playW > 0) {
     const d0 = deep ? 2 : 1;
     p.pave(pl0, d0, pl1, fr - 1, "asphalt");
-    const line = hx("#e8d27a");
+    const line = p.winter ? hx("#b8b4a8") : hx("#9a968a");
     // four-square + hopscotch
     for (let i = 0; i < 5; i++) { p.g(pl0 + 1 + i, fr - 2, line); p.g(pl0 + 1, fr - 6 + i, line); p.g(pl0 + 5, fr - 6 + i, line); }
     p.g(pl0 + 3, fr - 4, line); p.g(pl0 + 3, fr - 5, line); p.g(pl0 + 2, fr - 4, line); p.g(pl0 + 4, fr - 4, line);

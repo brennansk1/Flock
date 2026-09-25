@@ -9,7 +9,7 @@
  */
 import { mkdirSync, readFileSync } from "node:fs";
 import { chromium } from "playwright";
-import { loadBalance, createSim, generateWorld, renderTown, Lot, Landmark, Terrain, Districts, Biome } from "../packages/sim/dist/index.js";
+import { loadBalance, createSim, generateWorld, renderTown, Lot, Landmark, Terrain, Districts, Biome, footprintOf } from "../packages/sim/dist/index.js";
 import { encodePNG } from "./lib/png.mjs";
 
 const [lodA = "8", season = "summer", time = "day", OUT = "scratch/studio"] = process.argv.slice(2);
@@ -48,11 +48,18 @@ function shot(stage, fw, fh, biome, road = true, viewOverride) {
 }
 const at = (x, y) => y * N + x;
 const X0 = 5; // subject's west column (view starts at 4 → 1-tile margin)
-const lot = (id, fw = 1, fh = 1, district = Districts.Downtown, pop = 4) => (w) => {
-  for (let dy = 0; dy < fh; dy++) for (let dx = 0; dx < fw; dx++) {
-    const t = at(X0 + dx, ROAD_Y - fh + dy);
-    w.terrain[t] = Terrain.Citizen; w.lot[t] = id; w.district[t] = district; w.pop[t] = pop;
-  }
+/** a lot stamped at its REAL footprint (footprints.ts) unless a size is given */
+const lot = (id, fw0, fh0, district = Districts.Downtown, pop = 4) => {
+  const fp = footprintOf(id);
+  const fw = fw0 ?? fp.w, fh = fh0 ?? fp.h;
+  const f = (w) => {
+    for (let dy = 0; dy < fh; dy++) for (let dx = 0; dx < fw; dx++) {
+      const t = at(X0 + dx, ROAD_Y - fh + dy);
+      w.terrain[t] = Terrain.Citizen; w.lot[t] = id; w.district[t] = district; w.pop[t] = pop;
+    }
+  };
+  f.fw = fw; f.fh = fh;
+  return f;
 };
 const houses = (district, n = 6, seedX = 0) => (w) => {
   for (let i = 0; i < n; i++) {
@@ -76,7 +83,7 @@ const terrain = (tr, fw = 3, fh = 2) => (w) => {
 };
 const landmark = (id) => (w) => { const t = at(X0, ROAD_Y - 1); w.terrain[t] = Terrain.Citizen; w.landmark[t] = id; w.pop[t] = 4; w.district[t] = Districts.Downtown; };
 
-const S = (name, stage, fw = 1, fh = 1, biome, road) => ({ name, stage, fw, fh, biome, road });
+const S = (name, stage, fw = stage.fw ?? 1, fh = stage.fh ?? 1, biome, road) => ({ name, stage, fw, fh, biome, road });
 /**
  * The SAME lot (same tile, so the same hashed style) with its street on
  * each side in turn — N, S, E, W — for the orientation check.
@@ -121,21 +128,21 @@ const BATCHES = {
     S("College block", block(D.College), 5, 5), S("Desert adobe block", block(D.Suburbs, Biome.Desert), 5, 5), S("Desert adobe", houses(D.Suburbs), 6, 1, Biome.Desert),
     S("HighSchool 3x2", lot(Lot.HighSchool, 3, 2, D.College, 8), 3, 2), S("School 2x2", lot(Lot.School, 2, 2, D.Suburbs, 8), 2, 2),
     S("BallField 2x2", lot(Lot.BallField, 2, 2, D.College), 2, 2), S("Track 6x4", lot(Lot.Track, 6, 4, D.College), 6, 4), S("Track 5x3", lot(Lot.Track, 5, 3, D.College), 5, 3),
-    S("Playground", lot(Lot.Playground, 1, 1, D.Suburbs)), S("Park 2x2", lot(Lot.Park, 2, 2, D.Suburbs), 2, 2),
-    S("Library", lot(Lot.Library, 1, 1, D.College)), S("Church 2x2", lot(Lot.Church, 2, 2, D.OldTown), 2, 2),
-    S("Chapel", lot(Lot.Chapel, 1, 1, D.OldTown)), S("Cemetery 2x1", lot(Lot.Cemetery, 2, 1, D.OldTown), 2, 1),
+    S("Playground", lot(Lot.Playground, undefined, undefined, D.Suburbs)), S("Park 2x2", lot(Lot.Park, 2, 2, D.Suburbs), 2, 2),
+    S("Library", lot(Lot.Library, undefined, undefined, D.College)), S("Church 2x2", lot(Lot.Church, 2, 2, D.OldTown), 2, 2),
+    S("Chapel", lot(Lot.Chapel, undefined, undefined, D.OldTown)), S("Cemetery 2x1", lot(Lot.Cemetery, 2, 1, D.OldTown), 2, 1),
   ],
   "4_industrial_rural": [
     S("Factory 2x2", lot(Lot.Factory, 2, 2, D.Industrial), 2, 2), S("Warehouse 2x2", lot(Lot.Warehouse, 2, 2, D.Industrial), 2, 2),
     S("GrainElevator 2x2", lot(Lot.GrainElevator, 2, 2, D.Industrial), 2, 2), S("Depot 2x1", lot(Lot.Depot, 2, 1, D.Industrial), 2, 1),
     S("Sawmill 2x2", lot(Lot.Sawmill, 2, 2, D.Industrial), 2, 2), S("Cannery 2x2", lot(Lot.Cannery, 2, 2, D.Industrial), 2, 2),
-    S("Substation", lot(Lot.Substation, 1, 1, D.Industrial)), S("WaterTower lot", lot(Lot.WaterTower, 1, 1, D.Industrial)),
-    S("Barn", lot(Lot.Barn, 1, 1, D.Trailer)), S("Silo", lot(Lot.Silo, 1, 1, D.Trailer)), S("Greenhouse", lot(Lot.Greenhouse, 1, 1, D.Trailer)),
-    S("Dam", lot(Lot.Dam, 1, 1, D.Trailer)), S("Lighthouse", lot(Lot.Lighthouse, 1, 1, D.Trailer)), S("Dock", lot(Lot.Dock, 1, 1, D.Trailer)),
+    S("Substation", lot(Lot.Substation, undefined, undefined, D.Industrial)), S("WaterTower lot", lot(Lot.WaterTower, undefined, undefined, D.Industrial)),
+    S("Barn", lot(Lot.Barn, undefined, undefined, D.Trailer)), S("Silo", lot(Lot.Silo, undefined, undefined, D.Trailer)), S("Greenhouse", lot(Lot.Greenhouse, undefined, undefined, D.Trailer)),
+    S("Dam", lot(Lot.Dam, undefined, undefined, D.Trailer)), S("Lighthouse", lot(Lot.Lighthouse, undefined, undefined, D.Trailer)), S("Dock", lot(Lot.Dock, undefined, undefined, D.Trailer)),
     S("Field 3x2", terrain(Terrain.Field), 3, 2, undefined, false), S("Orchard 3x2", terrain(Terrain.Orchard), 3, 2, undefined, false),
     S("Pasture 3x2", terrain(Terrain.Pasture), 3, 2, undefined, false), S("Rail 3x1", terrain(Terrain.Rail, 3, 1), 3, 1, undefined, false),
-    S("Megachurch lmk", landmark(Landmark.Megachurch)), S("RadioTower lmk", landmark(Landmark.RadioTower)),
-    S("Fairground lmk", landmark(Landmark.Fairground)), S("WaterTower lmk", landmark(Landmark.WaterTower)),
+    S("Megachurch compound", lot(Lot.Megachurch, undefined, undefined, D.Suburbs)), S("RadioTower compound", lot(Lot.RadioTower, undefined, undefined, D.Trailer)),
+    S("Fairground compound", lot(Lot.Fairground, undefined, undefined, D.Trailer)), S("WaterTower compound", lot(Lot.WaterTower, undefined, undefined, D.Suburbs)),
   ],
   "5_nature_hydro": [
     S("Woods 3x2", terrain(Terrain.Woods), 3, 2, undefined, false), S("Lake 3x2", terrain(Terrain.Lake), 3, 2, undefined, false),

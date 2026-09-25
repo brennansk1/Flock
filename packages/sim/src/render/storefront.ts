@@ -144,3 +144,72 @@ export function drawStorefront(w: World, t: number, x0: number, y0: number, put:
   else if (clutter === 1) { P(4, 7, hx("#c8342a")); P(5, 7, hx("#2a6ab0")); } // newspaper boxes
   void Lot;
 }
+
+/**
+ * The BACK ROOM of a 1×2 Shop lot: the tile directly behind a storefront
+ * (away from its street). The party walls run on through the depth; a
+ * lower tar roof with a vent, a skylight and the AC, and — where the camera
+ * sees it (street N: the back room's south wall is screen-south) — the
+ * service door, trash cans and the electric meter on the back wall facing
+ * the rear lot. `f` is the storefront's frontage, `front` its tile.
+ */
+export function drawBackRoom(w: World, t: number, front: number, f: number, x0: number, y0: number, put: Put): void {
+  const facade = FACADES[pixHash(front, 31, 503) % FACADES.length]!;
+  const snow = RS.season === "winter";
+  const tar = snow ? hx("#dde4ea") : hx("#5f5a55");
+  const P = (l: number, d: number, c: RGB): void => {
+    const [sx, sy] = toScreen(f, l, d);
+    put(x0 + sx, y0 + sy, c);
+  };
+  // lateral neighbour back rooms continue the party wall
+  const lat = f <= 1 ? (f === 0 ? t - 1 : t + 1) : f === 2 ? t + w.width : t - w.width;
+  const seam = lat >= 0 && lat < w.lot.length && w.lot[lat] === Lot.Shop;
+  // local d: 7 = against the storefront, 0 = the rear lot line
+  for (let d = 1; d <= 7; d++) {
+    for (let l = 0; l < 8; l++) {
+      let c: RGB;
+      if (d === 1) c = shade(facade, 1.08); // parapet cap on the rear wall
+      else if (d === 7) c = shade(tar, 0.8); // step down from the shop's roof
+      else c = pixHash(t, l + d * 8, 509) % 9 === 0 ? shade(tar, 0.9) : tar;
+      P(l, d, c);
+    }
+  }
+  if (seam) for (let d = 1; d <= 7; d++) P(0, d, shade(facade, 0.55));
+  // roof dressing: a vent stack + a skylight or an AC unit by hash
+  const r = pixHash(t, 3, 509);
+  P(2 + (r % 3), 3, hx("#9aa0a6"));
+  if (r % 2) { P(5, 5, hx("#8ab0c8")); P(6, 5, hx("#8ab0c8")); }
+  else { P(5, 4, hx("#b8bcc0")); P(6, 4, hx("#9aa0a6")); }
+  // the back wall when it faces the camera (the rear lot is screen-south)
+  if (f === 1) {
+    for (let l = 0; l < 8; l++) P(l, 0, l === 3 ? C.door : l === 6 ? hx("#6a6660") : shade(facade, 0.85));
+    P(1, 0, hx("#3a4a3a")); // trash cans
+  } else {
+    // otherwise a service door on the lot line (seen from above as a stoop)
+    P(3, 0, hx("#8a857c"));
+  }
+}
+
+/**
+ * Which storefront a Shop tile belongs to: the tile itself when it touches
+ * its street, or the street-touching Shop directly in front of it (the
+ * tile is its back room). Returns [frontTile, frontage] or null.
+ */
+export function shopFrontOf(w: World, t: number): [number, number] | null {
+  const f = frontageOf(w, t, false);
+  if (f >= 0) return null; // a storefront itself
+  const W = w.width;
+  const x = t % W;
+  // neighbour in front of us, and the frontage it must have for us to be its back
+  const cands: [number, number][] = [
+    [t + W, 0], // storefront to the S facing S
+    [t - W, 1], // to the N facing N
+    [x < W - 1 ? t + 1 : -1, 2], // to the E facing E
+    [x > 0 ? t - 1 : -1, 3], // to the W facing W
+  ];
+  for (const [n, want] of cands) {
+    if (n < 0 || n >= w.lot.length || w.lot[n] !== Lot.Shop) continue;
+    if (frontageOf(w, n, false) === want) return [n, want];
+  }
+  return null;
+}

@@ -52,7 +52,7 @@ test("winter dusk is graded warm, not hot pink", () => {
   assert.ok(pink / n < 0.01, `magenta pixels ${((pink / n) * 100).toFixed(2)}% (was the whole map)`);
 });
 
-test("every fleet vehicle stays inside its SPRITE_SCALE box in all four headings", () => {
+test("every fleet vehicle stays inside its box in all four headings (3×2 / 4×2 / bus 6×2)", () => {
   for (const kind of VEHICLE_KINDS) {
     for (let dir = 0; dir < 4; dir++) {
       const { w, h } = vehicleSize(kind, dir);
@@ -65,6 +65,7 @@ test("every fleet vehicle stays inside its SPRITE_SCALE box in all four headings
       const long = Math.max(w, h), short = Math.min(w, h);
       if (kind === "bus") assert.deepEqual([long, short], [6, 2]);
       else if (kind === "bmx") assert.deepEqual([long, short], [2, 1]);
+      else if (["wagon", "pickup", "camaro", "van", "cruiser"].includes(kind)) assert.deepEqual([long, short], [4, 2], `${kind} is a 4×2 car`);
       else assert.deepEqual([long, short], [3, 2], `${kind} is a 3×2 car`);
     }
   }

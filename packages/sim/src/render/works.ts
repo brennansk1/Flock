@@ -38,29 +38,53 @@ function smoke(p: Plan, x: number, y: number, dense = false): void {
 
 // ------------------------------------------------------------ SUBSTATION
 
-/** Fenced transformer yard: gravel, steel gantries, transformers, control house. */
+/**
+ * Fenced transformer yard: pale crushed-stone pad inside chain-link, a row
+ * of dark oil-filled TRANSFORMERS (white bushings on top), the steel
+ * A-frame GANTRY carrying the bus over the yard, the brick control house
+ * by the gate, a red DANGER sign; a sodium yard light at night.
+ */
 export function substation(p: Plan): void {
   const { L, D } = p;
-  p.pave(2, 2, L - 3, D - 3, "gravel");
-  chainLink(p, 2, 2, L - 3, D - 3);
-  const steel = hx("#8a9096"), tf = hx("#6e7a72"), fin = hx("#4e5a52"), ins = hx("#e8e4d8");
   const big = L >= 16 && D >= 16;
-  // control house
-  p.box({ l0: 3, d0: 3, l1: big ? 6 : 4, d1: big ? 5 : 4, h: 1, wall: M.brick, roof: M.tar, front: (u, _r, n) => (u === n - 2 ? C.door : null) });
-  // transformers: finned cans on pads
-  const tfs = big ? [[9, 4], [12, 4], [9, 9]] : [[5, 5]];
-  for (const [l, d] of tfs) {
-    p.box({ l0: l!, d0: d!, l1: l! + 1, d1: d! + 1, h: 1, wall: fin, roof: tf, front: (u) => (u % 2 ? fin : tf) });
-    p.obj(l! - 1, d! + 1, ins);
+  const pad = hx("#b4afa4");
+  const e = big ? 2 : 1;
+  p.fill(e, e, L - 1 - e, D - 1 - e, (l, d) => {
+    const [X, Y] = p.gx(l, d);
+    const h = pixHash(X, Y, 91);
+    if (p.winter && h % 3) return M.snow;
+    return h % 5 === 0 ? shade(pad, 0.9) : h % 7 === 0 ? shade(pad, 1.06) : pad;
+  });
+  chainLink(p, e, e, L - 1 - e, D - 1 - e);
+  const tf = hx("#4e5e52"), tfTop = hx("#6e7e72"), bush = hx("#f0ece4"), steel = hx("#5a5e64");
+  // transformers: finned tanks on pads with bushings
+  const n = big ? 3 : 1;
+  const td = big ? 8 : 4;
+  for (let i = 0; i < n; i++) {
+    const l = big ? 4 + i * 3 : 3;
+    p.box({ l0: l, d0: td, l1: l + 1, d1: td + 1, h: 1, wall: tf, roof: tfTop, noSnow: true, front: (u) => (u % 2 ? shade(tf, 0.8) : tf), lip: () => tf });
+    p.spr(l, td, ["b.b"], { b: bush }, 0, 20);
   }
-  // gantries + bus bars across the yard
-  const gs = big ? [4, 8, 12] : [3, 5];
-  for (const l of gs) p.spr(l, big ? 12 : 5, ["s.s", "sss", "s.s", "s.s"], { s: steel }, 1, 5);
-  const busD = big ? 9 : 4;
-  for (let l = 3; l <= L - 4; l++) if (big) p.later(999, () => { const [x, y] = p.S(l, busD); p.scr(x, y - 3, l % 3 === 0 ? ins : steel); });
-  // warning sign on the gate + a yard light
-  p.obj((L >> 1) + 2, D - 3, hx("#c8342a"));
-  if (p.lit) p.g(L - 4, D - 4, hx("#e8c070"));
+  // the gantry: two A-frame legs and the bus bar across the yard
+  if (big) {
+    const gd = 5;
+    p.spr(3, gd, ["sss", "s.s", "s.s", "s.s"], { s: steel }, 1, 6);
+    p.spr(L - 4, gd, ["sss", "s.s", "s.s", "s.s"], { s: steel }, 1, 6);
+    p.later(gd + 6.5, () => {
+      const [x0, y0] = p.S(3, gd), [x1, y1] = p.S(L - 4, gd);
+      const n2 = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0));
+      for (let k = 0; k <= n2; k++) {
+        const x = x0 + Math.round(((x1 - x0) * k) / Math.max(1, n2)), y = y0 + Math.round(((y1 - y0) * k) / Math.max(1, n2)) - 3;
+        p.scr(x, y, k % 3 === 1 ? bush : steel);
+      }
+    });
+  }
+  // control house by the gate
+  const cl0 = big ? L - 7 : L - 5;
+  p.box({ l0: cl0, d0: D - 6, l1: L - 4, d1: D - 4, h: 1, wall: M.brick, roof: M.tar, front: (u) => (u === 1 ? C.door : null) });
+  // danger sign on the gate + a yard light
+  p.obj((L >> 1) - 2, D - 3, hx("#c8342a"));
+  if (p.lit) p.g(3, D - 4, hx("#e8c070"));
 }
 
 // ------------------------------------------------------------ WATER TOWER
@@ -81,25 +105,30 @@ export function waterTower(p: Plan): void {
     p.pave(3, 3, L - 4, D - 3, "gravel");
     chainLink(p, 3, 3, L - 4, D - 3);
     p.box({ l0: L - 7, d0: D - 7, l1: L - 5, d1: D - 5, h: 1, wall: M.brick, roof: M.tar, front: (u) => (u === 1 ? C.door : null) });
+  } else {
+    p.pave(1, 1, L - 2, D - 2, "gravel");
+    chainLink(p, 1, 1, L - 2, D - 2);
   }
-  const cl = (L >> 1) - (big ? 1 : 0), cd = big ? D - 5 : D - 3;
-  const [x, y] = p.S(cl, cd);
+  // tall structure: anchored in SCREEN space (base near the footprint's
+  // south edge) so the tank stands upright in every orientation
+  const x = p.SW >> 1, y = p.SH - (big ? 4 : 2);
   const beacon = ((RS.tick >> 3) & 1) === 0 ? EMISSIVE.beacon : hx("#5a1a1a");
   const t = shade(tank, 0.8);
-  const leg = hx("#6a6e74");
+  const leg = hx("#4a4e56");
   const rows = big
     ? [
         "....b....",
-        "..ccccc..",
+        "...ccc...",
         ".cCcCcCc.",
+        "cCcCcCcCc",
         "TTTTTTTTt",
         "TNNNNNNNt",
         "TTTTTTTTt",
         ".uuuuuuu.",
         "..L.P.L..",
+        "..LxPxL..",
         ".L..P..L.",
         ".LxxPxxL.",
-        ".L..P..L.",
         "L...P...L",
       ]
     : [".b.", "ccc", "TTt", "NNt", "uuu", "LPL", "L.L"];
@@ -207,32 +236,49 @@ export function greenhouse(p: Plan): void {
 
 // ------------------------------------------------------------ LIGHTHOUSE
 
-/** Where the lantern of a lighthouse at this plan lands on screen (for the beam overlay). */
+/** Where the lighthouse tower stands (plan point) and how tall it is (px). */
 export function lighthouseTower(p: Plan): { l: number; d: number; tall: number } {
-  const big = p.L >= 16;
-  return { l: big ? 4 : (p.L >> 1), d: p.D - 3, tall: p.o >= 2 && big ? 11 : big ? 7 : 6 };
+  const wide = p.L >= 16;
+  const l = wide ? 4 : (p.L >> 1);
+  const d = p.D - 3;
+  const [, y] = p.S(l, d);
+  // as tall as the footprint allows above the base (the ring stays clear)
+  return { l, d, tall: Math.max(5, Math.min(11, y - 1)) };
 }
 
 /**
  * White tower with a red lantern room (and a gallery), bands by hash; the
- * keeper's cottage beside it. The rotating beam is an overlay (drawn over
- * the water, unclipped) — see landmarks.ts drawLotOverlays.
+ * keeper's cottage beside it (or behind it on a deep lot). The rotating
+ * beam is an overlay drawn over the water, unclipped — see landmarks.ts.
  */
 export function lighthouse(p: Plan): void {
-  const { L } = p;
+  const { L, D } = p;
   const v = p.h(1) % 3;
   const band = v === 1 ? M.red : v === 2 ? hx("#2a2826") : M.white;
-  const big = L >= 16;
+  const wide = L >= 16, deep = D >= 16;
   const { l, d, tall } = lighthouseTower(p);
   const fr = p.D - 2;
-  if (big) {
-    // keeper's cottage
-    p.box({ l0: 8, d0: 1, l1: L - 2, d1: Math.min(fr - 1, 5), h: 2, wall: M.clapboard, roof: hx("#9a3a2c"), kind: "gable", front: (u, r) => (u === 2 && r >= 0 ? C.door : u % 3 === 1 && r === 0 ? pane(p, u, r, 30) : null) });
+  const cottage = (l0: number, d0: number, l1: number, d1: number): void => {
+    p.box({ l0, d0, l1, d1, h: 2, wall: M.clapboard, roof: hx("#9a3a2c"), kind: "gable", front: (u, r) => (u === 2 && r >= 0 ? C.door : u % 3 === 1 && r === 0 ? pane(p, u, r, 30) : null) });
+  };
+  if (wide) {
+    cottage(8, 1, L - 2, Math.min(fr - 1, 5));
     for (let dd = 3; dd <= fr; dd++) p.g(6, dd, C.pathStone);
+  } else if (deep) {
+    cottage(1, 1, L - 2, 6);
+    for (let dd = 7; dd <= fr; dd++) p.g(2, dd, C.pathStone);
+  } else {
+    // a lone light on its rock ledge with the little oil house
+    p.fill(1, 1, L - 2, D - 2, (l2, d2) => {
+      const [X, Y] = p.gx(l2, d2);
+      const h = pixHash(X, Y, 97);
+      return h % 3 === 0 ? C.rockShade : h % 5 === 0 ? shade(C.rock, 0.9) : C.rock;
+    });
+    p.box({ l0: 1, d0: 1, l1: 3, d1: 3, h: 1, wall: M.white, roof: hx("#9a3a2c"), kind: "gable", front: (u) => (u === 1 ? C.door : null) });
   }
   const lamp = p.lit ? EMISSIVE.beaconWhite : hx("#f0e8b0");
   const rows = ["k", "L", "g"];
-  for (let i = 0; i < tall - 3; i++) rows.push(v !== 0 && (i >> 1) % 2 === 0 ? "B" : "W");
+  for (let i = 0; i < tall - 4; i++) rows.push(v !== 0 && (i >> 1) % 2 === 0 ? "B" : "W");
   rows.push("s");
   const pal: Record<string, RGB> = { k: hx("#2a2826"), L: lamp, g: M.red, W: M.white, B: band, s: shade(M.concrete, 0.9) };
   const [x, y] = p.S(l, d);
@@ -240,10 +286,9 @@ export function lighthouse(p: Plan): void {
     const oy = y - rows.length + 1;
     for (let r = 0; r < rows.length; r++) {
       const c = pal[rows[r]!]!;
-      const wide3 = r >= 2;
       if (r === 1) { p.scr(x - 1, oy + r, M.red); p.scr(x + 1, oy + r, M.red); }
       p.scr(x, oy + r, c);
-      if (wide3 && r > 2) { p.scr(x - 1, oy + r, shade(c, 1.05)); p.scr(x + 1, oy + r, shade(c, 0.8)); }
+      if (r > 2) { p.scr(x - 1, oy + r, shade(c, 1.05)); p.scr(x + 1, oy + r, shade(c, 0.8)); }
       if (r === 2) { p.scr(x - 1, oy + r, M.dark); p.scr(x + 1, oy + r, M.dark); }
     }
     p.shadowPx(x + 2, y); p.shadowPx(x + 2, y - 1);
@@ -265,53 +310,67 @@ export function grainElevator(p: Plan): void {
   const deep = D >= 16;
   p.pave(1, deep ? 9 : D - 3, L - 2, fr, "gravel");
   const siloD = deep ? 7 : 4;
-  const n = Math.max(2, Math.floor((L - 10) / 3));
-  const H = deep ? 8 : 5;
-  const silo = (l: number): void => {
-    const [x, y] = p.S(l, siloD);
-    p.later(y, () => {
+  const n = Math.max(3, Math.floor((L - 8) / 3));
+  const H = deep ? 9 : 5;
+  const headAt = n >> 1; // the head house stands mid-row, the drive under it
+  const silo = (l: number, sd = siloD): void => {
+    const [x, y0] = p.S(l, sd);
+    p.later(y0, () => {
+      const y = Math.max(y0, H + 2);
       for (let r = 0; r <= H; r++) {
         for (let i = -1; i <= 1; i++) {
-          let c = i < 0 ? shade(conc, 1.06) : i > 0 ? shade(conc, 0.8) : conc;
-          if (r === H) c = shade(c, 0.9);
+          let c = i < 0 ? shade(conc, 1.1) : i > 0 ? shade(conc, 0.72) : conc;
+          if (r === 0) c = shade(c, 0.85);
           p.scr(x + i, y - r, c);
         }
       }
-      const top = p.winter ? M.snow : shade(conc, 1.14);
-      p.scr(x, y - H - 1, top); p.scr(x - 1, y - H - 1, shade(top, 0.97)); p.scr(x + 1, y - H - 1, shade(top, 0.9));
+      const top = p.winter ? M.snow : shade(conc, 1.16);
+      p.scr(x, y - H - 1, top); p.scr(x - 1, y - H - 1, shade(top, 0.95));
       p.shadowPx(x + 2, y); p.shadowPx(x + 2, y - 1);
     });
   };
-  for (let i = 0; i < n; i++) silo(2 + i * 3);
-  // head house: taller box at the end of the row
-  const hl = 2 + n * 3;
-  const [hxp, hyp] = p.S(hl + 1, siloD);
-  const HH = H + 3;
-  p.later(hyp + 0.5, () => {
-    for (let r = 0; r <= HH; r++) for (let i = -1; i <= 2; i++) {
-      let c = i === 2 ? shade(conc, 0.8) : conc;
-      if (r >= HH - 1) c = shade(conc, 1.12);
-      if (r === HH - 3 && i >= 0 && i <= 1) c = hx("#2a3a5a"); // painted co-op name
-      if (r === 3 && i === 0) c = M.glass;
+  // a lot turned end-on to its street holds a 2-wide silo BATTERY running
+  // back from the head house instead of a single row
+  const turned = L < D && D >= 24;
+  if (turned) {
+    for (let r = 0; r < 4; r++) for (let c = 0; c < 2; c++) silo(3 + c * 3, 4 + r * 3);
+  } else for (let i = 0; i < n; i++) if (i !== headAt) silo(2 + i * 3);
+  // head house: a taller, wider box mid-row with the co-op's name
+  const hl = turned ? 4 : 2 + headAt * 3;
+  const [hxp, hy0] = p.S(hl, turned ? 16 : siloD);
+  const HH = H + 2;
+  const head = shade(conc, 0.9);
+  p.later(hy0 + 0.5, () => {
+    const hyp = Math.max(hy0, HH + 2);
+    for (let r = 0; r <= HH; r++) for (let i = -1; i <= 1; i++) {
+      let c = i === 1 ? shade(head, 0.78) : i === -1 ? shade(head, 1.06) : head;
+      if (r === HH) c = shade(head, 1.18);
+      if ((r === HH - 2 || r === HH - 3) && i <= 0) c = hx("#2a4a7a"); // painted co-op name
+      if (r === 2 && i === 0) c = hx("#2a2622"); // drive-through
+      if (r === 1 && i === 0) c = hx("#2a2622");
+      if (r === 5 && i === 0) c = M.glass;
       p.scr(hxp + i, hyp - r, c);
     }
     // the spout slanting to the track side
     p.scr(hxp - 2, hyp - HH + 3, M.steel); p.scr(hxp - 3, hyp - HH + 4, M.steel);
-    p.shadowPx(hxp + 3, hyp); p.shadowPx(hxp + 3, hyp - 1);
+    p.shadowPx(hxp + 2, hyp); p.shadowPx(hxp + 2, hyp - 1);
   });
+  const lastSilo = turned ? 7 : 2 + (n - 1) * 3;
   // corrugated steel bins with cones
   const bins = deep ? 2 : 1;
   for (let b = 0; b < bins; b++) {
-    const bl = L - 4 - b * 4;
-    if (bl <= hl + 3) break;
+    const bl = L - 3 - b * 4;
+    if (bl <= lastSilo + 2) break;
     p.spr(bl, siloD + (deep ? 3 : 0), [".t.", "ttt", "BbB", "BbB", "BbB"], { t: p.winter ? M.snow : hx("#c8ccd0"), B: hx("#a8adb2"), b: hx("#8a9096") }, 1, 0);
   }
   if (deep) {
     // scale house + a grain truck at the pit
-    p.box({ l0: 2, d0: 11, l1: 4, d1: 12, h: 1, wall: hx("#e8e4d6"), roof: M.rust, front: (u) => (u === 1 ? pane(p, u, 0, 31) : null) });
+    const sd = turned ? fr - 3 : 11;
+    const sl = turned ? L - 5 : 2;
+    p.box({ l0: sl, d0: sd, l1: sl + 2, d1: sd + 1, h: 1, wall: hx("#e8e4d6"), roof: M.rust, front: (u) => (u === 1 ? pane(p, u, 0, 31) : null) });
     const tc = p.h(2) % 2 ? hx("#b8342a") : hx("#2a4f9a");
-    p.carDir(8, 12, 0, "pickup", tc);
-    p.obj(10, 12, hx("#c8a860"));
+    if (!turned) { p.carDir(8, 12, 0, "pickup", tc); p.obj(10, 12, hx("#c8a860")); }
+    else p.carDir(L - 4, fr - 5, 3, "pickup", tc);
   }
 }
 
@@ -351,26 +410,30 @@ export function sawmill(p: Plan): void {
   }
   // lumber stacks (stickered)
   if (deep) {
-    for (const [l0, d0] of [[shedL1 + 2, 10], [shedL1 + 2, 13]] as const) {
+    for (const [l0, d0] of [[shedL1 + 2, 2], [shedL1 + 2, 5]] as const) {
       if (l0 + 3 > L - 2) continue;
       p.box({ l0, d0, l1: Math.min(L - 2, l0 + 4), d1: d0 + 1, h: 1, wall: shade(M.lumber, 0.8), roof: M.lumber, noSnow: false, front: (u) => (u % 2 ? shade(M.lumber, 0.7) : shade(M.lumber, 0.85)) });
     }
   }
   // the wigwam burner
-  const bl = L - 4, bd = deep ? 6 : 4;
-  const glow = p.lit ? EMISSIVE.hazard : hx("#6a4a3a");
+  const bl = L - 4, bd = deep ? fr - 1 : fr;
+  const glow = p.lit ? EMISSIVE.hazard : hx("#3a2a20");
   const rows = deep
-    ? ["..m..", ".mmm.", ".sss.", ".sSs.", "ssSss", "ssSss", "sgSss"]
-    : [".m.", "sss", "sgs"];
-  p.spr(bl, bd, rows, { m: hx("#2a2826"), s: hx("#8a7a6a"), S: hx("#6e6256"), g: glow }, -1, 0);
+    ? ["..m..", ".mmm.", ".sSs.", ".sSr.", "ssSrr", "ssSrr", "sgSrr"]
+    : [".m.", "sSr", "sgr"];
+  p.spr(bl, bd, rows, { m: hx("#2a2826"), s: hx("#a8704a"), S: hx("#8a5a3a"), r: hx("#6e4430"), g: glow }, -1, 0);
   const [x, y] = p.S(bl, bd);
   smoke(p, x, y - rows.length, true);
   // conveyor from the shed to the burner
   const cv = hx("#4a4a4a");
-  for (let l = shedL1 + 1; l < bl - 1; l++) p.obj(l, bd - 2, cv);
+  {
+    const l0 = shedL1 + 1, d0 = sd1, l1 = bl - 2, d1 = bd - 3;
+    const n = Math.max(1, Math.abs(l1 - l0), Math.abs(d1 - d0));
+    for (let k = 0; k <= n; k++) p.obj(l0 + Math.round(((l1 - l0) * k) / n), d0 + Math.round(((d1 - d0) * k) / n), k % 2 ? cv : M.steel);
+  }
   // log truck by hash
   if (deep && p.h(3) % 2 === 0) {
-    p.carDir(L - 5, fr, 1, "pickup", hx("#2a4f9a"));
+    p.carDir(shedL1 + 3, fr, 1, "pickup", hx("#2a4f9a"));
   }
 }
 
@@ -411,10 +474,12 @@ export function cannery(p: Plan, w: World): void {
   const fr = p.D - 2;
   const deep = D >= 16;
   p.pave(1, 1, L - 2, fr, "concrete");
-  const sl1 = Math.min(L - 9, 14);
-  const sd1 = deep ? 8 : D - 3;
+  // a lot turned end-on to its street runs the shed back along the depth
+  const turned = L < D && D >= 24;
+  const sl1 = turned ? L - 2 : Math.min(L - 9, 14);
+  const sd1 = turned ? Math.min(D - 10, 12) : deep ? 8 : D - 3;
   p.box({
-    l0: 1, d0: 1, l1: sl1, d1: sd1, h: 3, wall, roof: hx("#8a9096"), kind: "gable",
+    l0: 1, d0: 1, l1: sl1, d1: sd1, h: 3, wall, roof: hx("#8a9096"), kind: "gable", across: turned,
     front: (u, r, n) => (r === 0 ? letters(u, n, shade(wall, 1.1), hx("#23386a"), 2) : u % 5 === 2 ? hx("#3a3430") : r === 1 && u % 5 === 4 ? pane(p, u, r, 32) : null),
     side: (u, r) => (r === 1 && u % 3 === 1 ? pane(p, u, r, 33) : null),
     lip: (k, n) => letters(k, n, shade(wall, 1.1), hx("#23386a"), 2),
@@ -424,9 +489,10 @@ export function cannery(p: Plan, w: World): void {
     },
   });
   // ice house
-  const il0 = sl1 + 2, il1 = L - 2;
+  const il0 = turned ? 1 : sl1 + 2, il1 = turned ? Math.min(L - 2, 8) : L - 2;
+  const id0 = turned ? sd1 + 2 : 2, id1 = turned ? sd1 + 6 : Math.min(sd1, deep ? 7 : sd1);
   p.box({
-    l0: il0, d0: 2, l1: il1, d1: Math.min(sd1, deep ? 7 : sd1), h: deep ? 4 : 3, wall: M.white, roof: M.tar,
+    l0: il0, d0: id0, l1: il1, d1: id1, h: deep ? 4 : 3, wall: M.white, roof: M.tar,
     front: (u, r, n) => (r === 0 ? letters(u, n, M.white, hx("#2a6ab0"), 2) : u === n >> 1 && r >= 2 ? hx("#6a7a8a") : null),
     lip: () => hx("#2a6ab0"),
   });

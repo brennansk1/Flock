@@ -9,7 +9,7 @@
 import { Terrain, Lot, type World } from "../types.js";
 import { hexToRgb, shade, type RGB } from "../palette.js";
 import { RS, C, TILE_PX, pixHash, type Put } from "./core.js";
-import { drawVehicle, householdVehicle, householdPaint } from "./vehicles.js";
+import { drawVehicle, householdVehicle, householdPaint, vehicleSize } from "./vehicles.js";
 
 const hx = hexToRgb;
 const STRIPE = hx("#bcb8ac");
@@ -43,8 +43,12 @@ export function drawParkingTile(w: World, t: number, tx: number, ty: number, x0:
   for (let k = 0; k < 4; k++) {
     const h = pixHash(t, k, 811);
     if (h % 100 >= occ) continue;
-    const sx = x0 + (k & 1 ? 5 : 2), sy = y0 + (k & 2 ? 4 : 1);
-    drawVehicle(put, householdVehicle(h), sx, sy, k & 2 ? 2 : 3, householdPaint(h >>> 4));
+    // back-to-back rows: row A noses north (tail at y 3), row B south
+    // (tail at y 4); 4-px kinds overhang onto the curb row
+    const kind = householdVehicle(h);
+    const len = vehicleSize(kind, 2).h;
+    const sx = x0 + (k & 1 ? 5 : 2), sy = y0 + (k & 2 ? 4 : 4 - len);
+    drawVehicle(put, kind, sx, sy, k & 2 ? 2 : 3, householdPaint(h >>> 4));
   }
   // a dumpster by the back doors when the lot backs onto storefronts
   const shop = (x: number, y: number): boolean => { const l = lotAt(x, y); return l === Lot.Shop || l === Lot.Diner || l === Lot.Supermarket; };

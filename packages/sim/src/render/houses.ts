@@ -19,7 +19,7 @@
 import { Terrain, type World } from "../types.js";
 import { hexToRgb, shade, type RGB } from "../palette.js";
 import { RS, C, TILE_PX, pixHash, type Put } from "./core.js";
-import { drawVehicle, householdVehicle, householdPaint } from "./vehicles.js";
+import { drawVehicle, householdVehicle, householdPaint, vehicleSize } from "./vehicles.js";
 import { lotFrontage } from "./frontage.js";
 
 const hx = hexToRgb;
@@ -360,8 +360,12 @@ export function drawHouse(
   if (hasFront && hasParkedCar(t)) {
     const kind = householdVehicle(pixHash(t, 14, 401));
     const paint = householdPaint(pixHash(t, 15, 401));
-    const [ax, ay] = toScreen(f, l0, garage === 1 ? 3 : 2);
-    const [bx, by] = toScreen(f, l0 + 1, garage === 1 ? 5 : 4);
+    // nose toward the street at depth 5 (6 in front of a garage); longer
+    // kinds (wagon / pickup / van: 4 px) reach further back up the drive
+    const len = vehicleSize(kind, 0).w;
+    const nose = garage === 1 ? 6 : 5;
+    const [ax, ay] = toScreen(f, l0, nose - len + 1);
+    const [bx, by] = toScreen(f, l0 + 1, nose);
     const dir = f === 0 ? 2 : f === 1 ? 3 : f === 2 ? 0 : 1;
     drawVehicle(put, kind, x0 + Math.min(ax, bx), y0 + Math.min(ay, by), dir, paint);
   }
@@ -402,17 +406,59 @@ export function drawSmoke(put: Put, x: number, y: number, t: number, tick: numbe
  * clothesline, garden plot, C-band satellite dish, doghouse, picnic table.
  * Ground is left to the caller (biome ground); no random speckle.
  */
+/**
+ * Which house owns a backyard tile: the nearest street-facing house whose
+ * lot runs back to it (a house facing S owns the yard tiles north of it,
+ * etc.). Property lines are drawn only between different owners — so a
+ * block reads as a row of deep lots, not a dotted grid. Cached per world.
+ */
+const OWNER = new WeakMap<World, Int32Array>();
+function yardOwner(w: World, t: number): number {
+  let o = OWNER.get(w);
+  if (!o) { o = new Int32Array(w.terrain.length).fill(-2); OWNER.set(w, o); }
+  let v = o[t]!;
+  if (v !== -2) return v;
+  v = -1;
+  const W = w.width, x = t % W, y = (t / W) | 0;
+  let best = 99;
+  // look toward each street: a house at distance k facing away from us
+  const probes: [number, number, Frontage][] = [[0, 1, 0], [0, -1, 1], [1, 0, 2], [-1, 0, 3]];
+  for (const [dx, dy, want] of probes) {
+    for (let k = 1; k <= 3 && k < best; k++) {
+      const xx = x + dx * k, yy = y + dy * k;
+      if (xx < 0 || yy < 0 || xx >= W || yy >= w.height) break;
+      const n = yy * W + xx;
+      if (w.terrain[n] !== Terrain.Citizen) break;
+      if (isHouseTile(w, n)) {
+        if (frontageOf(w, n) === want) { best = k; v = n; }
+        break;
+      }
+      if (w.lot[n] !== 0) break;
+    }
+  }
+  o[t] = v;
+  return v;
+}
+
 export function drawBackyard(w: World, t: number, tx: number, ty: number, x0: number, y0: number, put: Put): void {
   const winter = RS.season === "winter";
   const yardish = (n: number): boolean =>
-    n >= 0 && n < w.terrain.length && w.terrain[n] === Terrain.Citizen && w.lot[n] === 0;
+    n >= 0 && n < w.terrain.length && w.terrain[n] === Terrain.Citizen && w.lot[n] === 0 && !isHouseTile(w, n);
   const fence = hx(w.district[t] === 5 ? "#a8a49a" : "#a8977a"); // chain-link in the trailer fringe
-  // property-line fence (posts + rails, dotted) on the N and W seams;
-  // the neighbour draws its own N/W, so each line is drawn once
-  if (ty > 0 && yardish(t - w.width)) for (let x = 0; x < TILE_PX; x += 2) put(x0 + x, y0, fence);
-  if (tx > 0 && yardish(t - 1)) for (let y = 1; y < TILE_PX; y += 2) put(x0, y0 + y, fence);
-
-  const roll = pixHash(t, 4, 409) % 16;
+  const post = shade(fence, 0.78);
+  // PROPERTY LINES: a solid 1-px fence run on the N / W seam only where the
+  // neighbouring yard belongs to a different house; a 2-px gate gap by hash
+  const me = yardOwner(w, t);
+  const gate = 2 + (pixHash(t, 9, 409) % 4);
+  const hasGate = pixHash(t, 10, 409) % 3 === 0;
+  if (ty > 0 && yardish(t - w.width) && yardOwner(w, t - w.width) !== me) {
+    for (let x = 0; x < TILE_PX; x++) if (!hasGate || x < gate || x > gate + 1) put(x0 + x, y0, x % 4 === 0 ? post : fence);
+  }
+  if (tx > 0 && yardish(t - 1) && yardOwner(w, t - 1) !== me) {
+    for (let y = 0; y < TILE_PX; y++) put(x0, y0 + y, y % 4 === 0 ? post : fence);
+  }
+  // fewer, clearer yard items: half the yards are plain mown lawn
+  const roll = pixHash(t, 4, 409) % 24;
   const ox = x0 + 1 + (pixHash(t, 5, 409) % 2);
   const oy = y0 + 1 + (pixHash(t, 6, 409) % 2);
   const box = (x: number, y: number, ww: number, hh: number, c: RGB): void => {

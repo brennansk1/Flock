@@ -17,3 +17,6 @@ scratch/
 
 # stray output of an old hardcoded Windows path in vehicle_spritesheet.mjs
 C:*
+
+# play-loop telemetry dump
+telemetry.json

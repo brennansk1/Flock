@@ -199,6 +199,9 @@ const CIVIC_NAMES: Record<number, string> = {
   [Lot.Sawmill]: "Sawmill",
   [Lot.Courthouse]: "County Courthouse",
   [Lot.Track]: "Running Track",
+  [Lot.Megachurch]: "The Old Megachurch",
+  [Lot.Fairground]: "County Fairground",
+  [Lot.RadioTower]: "AM Radio Tower",
   [Lot.Lighthouse]: "Lighthouse",
 };
 

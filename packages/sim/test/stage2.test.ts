@@ -75,7 +75,8 @@ test("the plan: a courthouse square holding Town Hall and one HS campus with its
       const w = generateWorld(11, size, size, { townType });
       const th = w.landmark.indexOf(Landmark.TownHall);
       assert.ok(th >= 0 && w.lot[th] === Lot.Courthouse, `${townType}@${size}: Town Hall not on the courthouse`);
-      assert.equal(w.lot.filter((l) => l === Lot.HighSchool).length, 6, `${townType}@${size}: HS isn't one 3×2 building`);
+      const hs = w.lot.filter((l) => l === Lot.HighSchool).length;
+      assert.ok(hs === 8 || hs === 6, `${townType}@${size}: HS is ${hs} tiles, not one 4×2 (alt 3×2) building`);
       assert.ok(w.lot.includes(Lot.Track), `${townType}@${size}: no stadium`);
     }
   }

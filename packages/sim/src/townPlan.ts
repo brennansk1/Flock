@@ -326,7 +326,7 @@ export function platMainStreet(
     }
     return false;
   };
-  const SHOPS = [Lot.Shop, Lot.Shop, Lot.Shop, Lot.Shop, Lot.Diner, Lot.Shop, Lot.Shop, Lot.PostOffice];
+  // storefronts are 1 lot wide, 2 deep (footprints.ts): sales floor + back room
   for (let t = 0; t < w.terrain.length; t++) {
     if (w.terrain[t] !== Terrain.Citizen || w.lot[t] !== 0 || w.landmark[t] !== 0) continue;
     const d = w.district[t]!;
@@ -334,9 +334,21 @@ export function platMainStreet(
     let onMain = false;
     if (core) for (const n of neighbors4(w, t)) if (w.terrain[n] === Terrain.Road && isHighway(n)) onMain = true;
     if (onMain || facesSquare(t)) {
-      w.lot[t] = SHOPS[nextRange(rng, SHOPS.length)]!;
+      w.lot[t] = Lot.Shop;
       w.district[t] = core ? d : D.Downtown;
       w.pop[t] = 4 + nextRange(rng, 3);
+      // the back room: the lot directly behind, away from the street
+      for (const n of neighbors4(w, t)) {
+        if (!isWay(w, n)) continue;
+        const r = t + (t - n);
+        if (r < 0 || r >= w.terrain.length || Math.abs((r % width) - (t % width)) > 1) continue;
+        if (w.terrain[r] === Terrain.Citizen && w.lot[r] === 0 && w.landmark[r] === 0 && !fronts(w, r)) {
+          w.lot[r] = Lot.Shop;
+          w.district[r] = w.district[t]!;
+          w.pop[r] = w.pop[t]!;
+        }
+        break;
+      }
     } else if (core && !fronts(w, t)) {
       w.lot[t] = Lot.Parking; // municipal / rear lot behind the storefronts
       w.pop[t] = 0;
@@ -472,5 +484,292 @@ export function platParking(w: World, rng: RngState): void {
       }
       if (paved) break;
     }
+  }
+}
+
+/** Lots that live out in the open country (may grow over grass/farmland). */
+const RURAL: ReadonlySet<number> = new Set([
+  Lot.Barn, Lot.Silo, Lot.Greenhouse, Lot.Lighthouse, Lot.Cannery, Lot.Sawmill, Lot.WaterTower,
+  Lot.Substation, Lot.GrainElevator, Lot.Depot, Lot.RadioTower, Lot.Fairground, Lot.Megachurch,
+  Lot.GasStation, Lot.Motel, Lot.Diner, Lot.Factory, Lot.Warehouse,
+  Lot.Church, Lot.Chapel, Lot.School, // country churches and schools stand on open ground
+]);
+const OPEN_GROUND: ReadonlySet<number> = new Set([Terrain.Grass, Terrain.Field, Terrain.Orchard, Terrain.Pasture]);
+
+/** Works that stand at the water's edge by trade (exempt from the setback). */
+const WATERSIDE: ReadonlySet<number> = new Set([Lot.Dock, Lot.Depot, Lot.Lighthouse, Lot.Cannery, Lot.Sawmill, Lot.Dam]);
+
+/** Footprint orientations to try, biggest first: w×h, h×w, alt, alt rotated. */
+function shapes(lot: number): [number, number][] {
+  const fp = footprintOf(lot as Lot);
+  const out: [number, number][] = [[fp.w, fp.h], [fp.h, fp.w]];
+  if (fp.alt) out.push([fp.alt.w, fp.alt.h], [fp.alt.h, fp.alt.w]);
+  return out;
+}
+
+/**
+ * FOOTPRINT ENFORCEMENT (Stage 2 scale): every building occupies its real
+ * footprint (footprints.ts). A lot stamped smaller (legacy 1×1 placements,
+ * fallbacks, farm buildings, shore works) grows into adjacent open lots —
+ * town yards/houses for town lots, open ground for rural ones — to the
+ * largest footprint (or its alt) that fits around it and still touches a
+ * street or lane. Growth never takes another building, a landmark, water,
+ * rock or a road.
+ */
+export function enforceFootprints(w: World, relocate = false): void {
+  const { width, height } = w;
+  if (width < 48 || height < 48) return; // micro test grids keep legacy 1-tile lots
+  const seen = new Uint8Array(w.terrain.length);
+  for (let t0 = 0; t0 < w.terrain.length; t0++) {
+    const lot = w.lot[t0]!;
+    if (seen[t0] || lot === 0 || lot === Lot.Parking || lot === Lot.Park || lot === Lot.Dock || lot === Lot.Dam) continue;
+    // the component of this lot
+    const comp: number[] = [];
+    const st = [t0];
+    seen[t0] = 1;
+    while (st.length) {
+      const c = st.pop()!;
+      comp.push(c);
+      for (const n of neighbors4(w, c)) if (!seen[n] && w.lot[n] === lot) { seen[n] = 1; st.push(n); }
+    }
+    const opts = shapes(lot);
+    const minArea = Math.min(...opts.map(([a, b]) => a * b));
+    if (comp.length >= minArea) continue;
+    let x0 = width, y0 = height, x1 = -1, y1 = -1;
+    for (const c of comp) {
+      const x = c % width;
+      const y = (c / width) | 0;
+      x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y);
+    }
+    const rural = RURAL.has(lot);
+    // a bigger building may take yards and houses, a parking lot, or a
+    // couple of storefronts (never another institution, never the square)
+    const YIELDS: ReadonlySet<number> = new Set([0, Lot.Parking, Lot.Shop]);
+    const waterside = WATERSIDE.has(lot);
+    const claim = (t: number): boolean => {
+      if (w.lot[t] === lot) return true;
+      if (w.landmark[t] !== 0) return false;
+      if (!waterside) for (const n of neighbors4(w, t)) if (w.terrain[n] === Terrain.Lake) return false; // setback
+      if (w.terrain[t] === Terrain.Citizen) return YIELDS.has(w.lot[t]!) && (lot !== Lot.Shop || w.lot[t] === 0);
+      return rural && (OPEN_GROUND.has(w.terrain[t]!) || w.terrain[t] === Terrain.Woods) && w.landmark[t] === 0; // rural works clear a few trees
+    };
+    let grown = false;
+    for (const [fw, fh] of opts) {
+      if (fw * fh <= comp.length) break;
+      // every placement of an fw×fh rect that contains the component's bbox
+      for (let ry = y1 - fh + 1; ry <= y0 && !grown; ry++) {
+        for (let rx = x1 - fw + 1; rx <= x0 && !grown; rx++) {
+          if (rx < 1 || ry < 1 || rx + fw >= width || ry + fh >= height) continue;
+          let ok = true;
+          let street = false;
+          for (let dy = 0; dy < fh && ok; dy++)
+            for (let dx = 0; dx < fw && ok; dx++) {
+              const t = (ry + dy) * width + rx + dx;
+              if (!claim(t)) ok = false;
+              else if (fronts(w, t)) street = true;
+            }
+          if (!ok || (!street && !rural)) continue;
+          const pop = w.pop[t0]!;
+          const district = w.district[t0]!;
+          for (let dy = 0; dy < fh; dy++)
+            for (let dx = 0; dx < fw; dx++) {
+              const t = (ry + dy) * width + rx + dx;
+              if (w.lot[t] === lot) continue;
+              w.terrain[t] = Terrain.Citizen;
+              w.lot[t] = lot;
+              w.district[t] = district;
+              w.pop[t] = Math.max(1, pop);
+              seen[t] = 1;
+            }
+          grown = true;
+        }
+      }
+      if (grown) break;
+    }
+    if (!grown && relocate) relocateBuilding(w, lot, comp, claim, rural);
+  }
+}
+
+/** Lots the town can do without a duplicate of (dropped if no site fits). */
+const EXPENDABLE: ReadonlySet<number> = new Set([
+  Lot.GasStation, Lot.Motel, Lot.Warehouse, Lot.Office, Lot.Diner, Lot.Greenhouse, Lot.Silo, Lot.Barn, Lot.Substation,
+]);
+
+/**
+ * A building with no room to reach its footprint moves: the nearest site
+ * (spiral out to 24 tiles) where the full footprint (or alt) fits on
+ * claimable ground and touches a street. Its old tiles revert to yards. A
+ * duplicate of an expendable kind with no site anywhere is dropped.
+ */
+function relocateBuilding(w: World, lot: number, comp: number[], claim: (t: number) => boolean, rural: boolean): void {
+  const { width, height } = w;
+  const cx = comp[0]! % width;
+  const cy = (comp[0]! / width) | 0;
+  const pop = w.pop[comp[0]!]!;
+  const district = w.district[comp[0]!]!;
+  const clear = (): void => {
+    for (const c of comp) {
+      w.lot[c] = 0;
+      w.pop[c] = 2;
+    }
+  };
+  for (const [fw, fh] of shapes(lot)) {
+    for (let r = 1; r <= 24; r++) {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+          const rx = cx + dx;
+          const ry = cy + dy;
+          if (rx < 2 || ry < 2 || rx + fw >= width - 2 || ry + fh >= height - 2) continue;
+          let ok = true;
+          let street = false;
+          for (let yy = ry; yy < ry + fh && ok; yy++)
+            for (let xx = rx; xx < rx + fw && ok; xx++) {
+              const t = yy * width + xx;
+              if (w.lot[t] === lot || !claim(t) || (!rural && w.terrain[t] !== Terrain.Citizen)) ok = false;
+              else if (fronts(w, t)) street = true;
+            }
+          if (!ok || !street) continue;
+          clear();
+          for (let yy = ry; yy < ry + fh; yy++)
+            for (let xx = rx; xx < rx + fw; xx++) {
+              const t = yy * width + xx;
+              w.terrain[t] = Terrain.Citizen;
+              w.lot[t] = lot;
+              w.pop[t] = Math.max(1, pop);
+              w.district[t] = district;
+            }
+          return;
+        }
+      }
+    }
+  }
+  if (EXPENDABLE.has(lot)) {
+    let others = 0;
+    for (let t = 0; t < w.lot.length; t++) if (w.lot[t] === lot) others++;
+    if (others > comp.length) clear();
+  }
+}
+
+/**
+ * LANDMARK COMPOUNDS (Stage 2): the Megachurch, Fairground, Radio Tower and
+ * the town's landmark Water Tower are real multi-tile compounds. The
+ * compound's lot covers its footprint; the Landmark id stays on ONE anchor
+ * tile at its heart (ownership rules are unchanged). Searches outward from
+ * (ax, ay) for a site; returns the anchor tile or -1.
+ */
+export function placeLandmarkCompound(
+  w: World,
+  landmark: number,
+  lot: number,
+  ax: number,
+  ay: number,
+  inTown: boolean,
+  pop: number,
+): number {
+  const { width, height } = w;
+  const ok = (t: number): boolean => {
+    if (w.landmark[t] !== 0 || w.lot[t] !== 0) return false;
+    const tr = w.terrain[t];
+    if (inTown && tr === Terrain.Citizen) return w.district[t] !== D.Downtown && w.pop[t]! < 16;
+    return OPEN_GROUND.has(tr!);
+  };
+  for (const [fw, fh] of shapes(lot)) {
+    for (let r = 0; r < Math.max(width, height) / 3; r++) {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+          const rx = ax + dx - (fw >> 1);
+          const ry = ay + dy - (fh >> 1);
+          if (rx < 2 || ry < 2 || rx + fw >= width - 2 || ry + fh >= height - 2) continue;
+          let good = true;
+          let street = false;
+          let wet = false;
+          for (let yy = ry - 1; yy <= ry + fh && good; yy++)
+            for (let xx = rx - 1; xx <= rx + fw && good; xx++) {
+              const t = yy * width + xx;
+              const inside = xx >= rx && xx < rx + fw && yy >= ry && yy < ry + fh;
+              if (inside) { if (!ok(t)) good = false; }
+              else {
+                if (w.terrain[t] === Terrain.Road || w.terrain[t] === Terrain.Dirt) street = true;
+                if (w.terrain[t] === Terrain.Lake || w.terrain[t] === Terrain.Rock) wet = true;
+              }
+            }
+          if (!good || wet || (inTown && !street)) continue;
+          for (let yy = ry; yy < ry + fh; yy++)
+            for (let xx = rx; xx < rx + fw; xx++) {
+              const t = yy * width + xx;
+              w.terrain[t] = Terrain.Citizen;
+              w.lot[t] = lot;
+              w.pop[t] = pop;
+              if (!inTown || w.district[t] === 0) w.district[t] = inTown ? D.Suburbs : D.Trailer;
+            }
+          const anchor = (ry + (fh >> 1)) * width + rx + (fw >> 1);
+          w.landmark[anchor] = landmark;
+          return anchor;
+        }
+      }
+    }
+  }
+  return -1;
+}
+
+/** Institutions that must have a parking lot directly beside them. */
+const NEEDS_LOT: ReadonlySet<number> = new Set([
+  Lot.Supermarket, Lot.School, Lot.HighSchool, Lot.Sheriff, Lot.Cinema, Lot.FireStation, Lot.Factory,
+  Lot.Church, Lot.Bank, Lot.Diner, Lot.Warehouse, Lot.Library, Lot.Chapel,
+]);
+
+/**
+ * Last word on parking: every institution touches a lot of its own. One
+ * without paves an adjacent open lot (preferring one on a street), so the
+ * lot is where the building's visitors actually park.
+ */
+export function ensureAdjacentParking(w: World): void {
+  const seen = new Uint8Array(w.lot.length);
+  for (let t0 = 0; t0 < w.lot.length; t0++) {
+    const lot = w.lot[t0]!;
+    if (seen[t0] || !NEEDS_LOT.has(lot)) continue;
+    const comp: number[] = [];
+    const st = [t0];
+    seen[t0] = 1;
+    while (st.length) {
+      const c = st.pop()!;
+      comp.push(c);
+      for (const n of neighbors4(w, c)) if (!seen[n] && w.lot[n] === lot) { seen[n] = 1; st.push(n); }
+    }
+    let has = false;
+    let best = -1;
+    let bestStreet = false;
+    for (const c of comp)
+      for (const n of neighbors4(w, c)) {
+        if (w.lot[n] === Lot.Parking) has = true;
+        if (w.terrain[n] === Terrain.Citizen && w.lot[n] === 0 && w.landmark[n] === 0) {
+          const street = fronts(w, n);
+          if (best < 0 || (street && !bestStreet)) { best = n; bestStreet = street; }
+        }
+      }
+    if (has || best < 0 || !bestStreet) continue; // a lot needs a curb cut onto a street
+    w.lot[best] = Lot.Parking;
+    w.pop[best] = 0;
+  }
+}
+
+/** A parking lot no street reaches is just a yard: drop landlocked remnants. */
+export function pruneLandlockedParking(w: World): void {
+  const seen = new Uint8Array(w.lot.length);
+  for (let t0 = 0; t0 < w.lot.length; t0++) {
+    if (seen[t0] || w.lot[t0] !== Lot.Parking) continue;
+    const comp: number[] = [];
+    const st = [t0];
+    seen[t0] = 1;
+    while (st.length) {
+      const c = st.pop()!;
+      comp.push(c);
+      for (const n of neighbors4(w, c)) if (!seen[n] && w.lot[n] === Lot.Parking) { seen[n] = 1; st.push(n); }
+    }
+    // a curb cut onto a paved street (an alley alone isn't access)
+    if (comp.some((c) => neighbors4(w, c).some((n) => w.terrain[n] === Terrain.Road))) continue;
+    for (const c of comp) { w.lot[c] = 0; w.pop[c] = 1; }
   }
 }

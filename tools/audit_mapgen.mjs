@@ -91,6 +91,26 @@ export function auditPlan(w, seed, townType = "farm") {
     const near = hs[0].some((a) => track[0].some((b) => Math.abs((a % w.width) - (b % w.width)) + Math.abs(((a / w.width) | 0) - ((b / w.width) | 0)) <= 2));
     if (!near) bad("CAMPUS", "the stadium is not beside the high school");
   }
+  // every building at its real size: no component smaller than its footprint (or alt)
+  for (const lotId of Object.values(Lot)) {
+    if (!lotId || lotId === Lot.Parking || lotId === Lot.Park || lotId === Lot.Dock || lotId === Lot.Dam) continue;
+    const fp = footprintOf(lotId);
+    const min = Math.min(fp.w * fp.h, fp.alt ? fp.alt.w * fp.alt.h : Infinity);
+    if (min <= 1) continue;
+    for (const c of lotComponents(w, lotId)) if (c.length < min) bad("FOOTPRINT", `lot ${lotId} building of ${c.length} tiles (needs ≥ ${min})`);
+  }
+  // agriculture on cleared land: no field/orchard/pasture wrapped in woods,
+  // farmyards clear of trees, every farmstead working land within 5 tiles
+  const AGT = new Set([Terrain.Field, Terrain.Orchard, Terrain.Pasture]);
+  const around = (t, r, pred) => { const x = t % w.width, y = (t / w.width) | 0; let n = 0, c = 0;
+    for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) { const xx = x + dx, yy = y + dy; if (xx < 0 || yy < 0 || xx >= w.width || yy >= w.height) continue; c++; if (pred(yy * w.width + xx)) n++; } return [n, c]; };
+  for (let t = 0; t < w.terrain.length; t++) {
+    if (AGT.has(w.terrain[t])) { const [n, c] = around(t, 2, (k) => w.terrain[k] === Terrain.Woods); if (n * 1000 > c * 280) bad("AG_IN_WOODS", `farmland at ${t} is wrapped in woods (${n}/${c})`); }
+    if (w.lot[t] === Lot.Barn || w.lot[t] === Lot.Silo || w.lot[t] === Lot.Greenhouse) {
+      if (around(t, 2, (k) => w.terrain[k] === Terrain.Woods)[0] > 0) bad("FARMYARD", `trees in the farmyard at ${t}`);
+      if (around(t, 5, (k) => AGT.has(w.terrain[k]))[0] === 0) bad("FARMSTEAD", `farm building at ${t} works no land`);
+    }
+  }
   // mountain towns sit in a real valley
   if (townType === "mountain") {
     const rock = w.terrain.reduce((a, tr) => a + (tr === Terrain.Rock ? 1 : 0), 0) / w.terrain.length;

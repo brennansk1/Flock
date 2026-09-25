@@ -152,6 +152,10 @@ export const Lot = {
   Courthouse: 36,
   /** Stage 2 high-school campus: cinder running track around the football field. */
   Track: 37,
+  /** Stage 2 landmark compounds: the building footprint around the landmark anchor tile. */
+  Megachurch: 38,
+  Fairground: 39,
+  RadioTower: 40,
 } as const;
 export type Lot = (typeof Lot)[keyof typeof Lot];
 

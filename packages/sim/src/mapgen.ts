@@ -22,6 +22,8 @@ import { Terrain, Biome, Landmark, Lot, type World, type DistrictCoeffs } from "
 import { traceGridRoads } from "./gridRoads.js";
 import { pickTownName, type Street } from "./names.js";
 import { createWorld } from "./sim.js";
+import { tidyAgriculture, ensureFarmsteadsWork } from "./farmPlan.js";
+import { enforceFootprints, placeLandmarkCompound, ensureAdjacentParking, pruneLandlockedParking } from "./townPlan.js";
 import { platCourthouseSquare, placeHighSchoolCampus, platMainStreet, courthouseCentre, fronts, RESIDENTIAL_DISTRICTS } from "./townPlan.js";
 
 /** Deterministic position hash for walk jitter (no rng thread needed). */
@@ -285,6 +287,9 @@ export function generateWorld(seed: number, width: number, height: number, opts:
         if (w.lot[t] === Lot.GrainElevator) w.lot[t] = Lot.Cannery;
       }
     }
+    // FARM PLAN (Stage 2): fields on cleared land, never in the woods;
+    // farmyards cleared; desert towns irrigate with center pivots
+    tidyAgriculture(w, rng, townType === "desert", riverPath);
     // QUARRY SCAR (§11): one gravel pit gouged into deep country, off-road
     for (let attempt = 0; attempt < 40; attempt++) {
       const qx = 8 + nextRange(rng, width - 16);
@@ -326,6 +331,7 @@ export function generateWorld(seed: number, width: number, height: number, opts:
     connectRoadComponents(w); // stitch orphan road islands into the main grid
     pruneRoadStubs(w); // erase whatever still leads nowhere
     pruneAllDeadEnds(w); // …including dirt lanes and orphaned spurs
+    enforceFootprints(w); // every building at its real size (footprints.ts)
     rollLots(w, rng, townType === "desert");
     enforceRoadFrontage(w); // houses FRONT the street; interiors are yards
     infillToFloor(w, rng); // yards become modest homes until the pop floor holds
@@ -336,11 +342,18 @@ export function generateWorld(seed: number, width: number, height: number, opts:
     const floors = popFloors(width, height);
     if (countPopulated(w) >= floors.tiles && countTotalPop(w) >= floors.pop) break;
   }
+  enforceFootprints(w, true); // every building at full size; relocate what can't grow
   enforceZoningBuffer(w);
-  enforceCivicParkingAdjacency(w);
   enforceHydrologicalSetback(w);
+  enforceFootprints(w, true); // the setback may have trimmed one
+  enforceCivicParkingAdjacency(w);
+  ensureAdjacentParking(w); // …and the lot is right beside the building
+  ensureFarmsteadsWork(w); // setbacks can take a farm's last field
   pruneIsolatedRoads(w);
+  pruneLandlockedParking(w); // growth or a pruned road can strand a lot remnant
   enforceRoadFrontage(w); // a pruned road can orphan a house: it becomes a yard
+  // late passes (footprints, setbacks) can dip below the floor: top it up
+  infillToFloor(w, seedRng(seed ^ 0x51ed_f100));
   capPopulation(w);
   return w;
 }
@@ -418,28 +431,15 @@ function enforceZoningBuffer(w: World): void {
           w.district[ind] = Districts.Commercial;
         }
         if (w.lot[ind] === Lot.Factory || w.lot[ind] === Lot.Warehouse) {
+          // Stage 2: the works too close to a school becomes offices as a
+          // whole building (per-tile relocation scattered 1-tile factories)
           const kind = w.lot[ind];
-          let relocated = false;
-          for (let t = 0; t < w.terrain.length && !relocated; t++) {
-            if (w.terrain[t] !== Terrain.Citizen || w.lot[t] !== 0) continue;
-            const tx = t % width;
-            const ty = (t / width) | 0;
-            const farFromAll = sensitiveTiles.every((s) => {
-              const sx = s % width;
-              const sy = (s / width) | 0;
-              return Math.max(Math.abs(tx - sx), Math.abs(ty - sy)) >= 6;
-            });
-            if (farFromAll) {
-              w.lot[t] = kind;
-              w.pop[t] = w.pop[ind] || 4;
-              w.district[t] = Districts.Industrial;
-              w.lot[ind] = 0;
-              w.pop[ind] = 0;
-              relocated = true;
-            }
-          }
-          if (!relocated) {
-            w.lot[ind] = Lot.Office;
+          const st = [ind];
+          while (st.length) {
+            const c = st.pop()!;
+            if (w.lot[c] !== kind) continue;
+            w.lot[c] = Lot.Office;
+            for (const n of [c - 1, c + 1, c - width, c + width]) if (n >= 0 && n < w.lot.length && w.lot[n] === kind) st.push(n);
           }
         }
       }
@@ -550,7 +550,8 @@ function enforceCivicParkingAdjacency(w: World): void {
             const nt = ny * width + nx;
             const tr = w.terrain[nt];
             const nLot = w.lot[nt] ?? 0;
-            if (tr === Terrain.Citizen && !CIVIC_AND_COMMERCIAL_LOTS.includes(nLot) && touchesRoad(nt)) {
+            // Stage 2: only an open lot (or a storefront) gives way — never another building
+            if (tr === Terrain.Citizen && (nLot === 0 || nLot === Lot.Shop) && w.landmark[nt] === 0 && touchesRoad(nt)) {
               w.lot[nt] = Lot.Parking;
               w.pop[nt] = 0;
               carved = true;
@@ -596,7 +597,7 @@ function enforceCivicParkingAdjacency(w: World): void {
       }
 
       // Pass 4: Multi-tile institution: convert one adjacent tile of the cluster to on-site parking if it touches a road
-      if (!carved && tiles.length > 1) {
+      if (!carved && tiles.length > 1 && false) { // Stage 2: never cut the building below its footprint
         for (let i = 0; i < tiles.length && !carved; i++) {
           const t1 = tiles[i]!;
           const x1 = t1 % width;
@@ -1247,18 +1248,18 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
   const square = platCourthouseSquare(w, town);
   const campus = placeHighSchoolCampus(w, rng, town);
   // KEYSTONES first — placed as expansive multi-tile parcels paired with parking lots!
-  keystone(Lot.Supermarket, 2, 2, [D.Commercial, D.Downtown], 14, 1); // 2x2 grocery store + 2x1 parking lot
+  keystone(Lot.Supermarket, 3, 2, [D.Commercial, D.Downtown], 14, 1); // 2x2 grocery store + 2x1 parking lot
   keystone(Lot.Sheriff, 2, 1, [D.Downtown, D.Commercial], 6, 1); // 2x1 police station + 2x1 cruiser parking
-  if (!campus) keystone(Lot.HighSchool, 3, 2, [D.College, D.Suburbs, D.ResHigh], 20, 1, Lot.BallField, 2, 2); // fallback: in-town 3x2 + parking + diamond
-  keystone(Lot.School, 2, 2, [D.College, D.Suburbs, D.ResHigh], 16, 1, Lot.Playground, 1, 2); // 2x2 elementary + 2x1 parking + 1x2 playground
+  if (!campus) keystone(Lot.HighSchool, 4, 2, [D.College, D.Suburbs, D.ResHigh], 20, 1, Lot.BallField, 2, 2); // fallback: in-town 3x2 + parking + diamond
+  keystone(Lot.School, 3, 2, [D.College, D.Suburbs, D.ResHigh], 16, 1, Lot.Playground, 1, 2); // 2x2 elementary + 2x1 parking + 1x2 playground
   keystone(Lot.Church, 2, 2, [D.OldTown, D.Suburbs, D.Downtown], 8, 1, Lot.Cemetery, 2, 1); // 2x2 church + 1x2 parking + 2x1 cemetery
   keystone(Lot.FireStation, 2, 2, [D.Downtown, D.Commercial], 8, 1); // 2x2 firehouse + 2x1 response apron
-  keystone(Lot.GasStation, 2, 1, [D.Commercial, D.Trailer], 4, 0);
+  keystone(Lot.GasStation, 2, 2, [D.Commercial, D.Trailer], 4, 0);
 
-  keystone(Lot.Office, 2, 1, [D.Downtown, D.Commercial], 10, 1);
-  keystone(Lot.Bank, 1, 1, [D.Downtown, D.Commercial], 6, 1);
-  keystone(Lot.PostOffice, 1, 1, [D.Downtown, D.Commercial], 5, 1);
-  keystone(Lot.Diner, 1, 1, [D.Downtown, D.Commercial, D.OldTown], 6, 1);
+  keystone(Lot.Office, 2, 2, [D.Downtown, D.Commercial], 10, 1);
+  keystone(Lot.Bank, 2, 2, [D.Downtown, D.Commercial], 6, 1);
+  keystone(Lot.PostOffice, 2, 2, [D.Downtown, D.Commercial], 5, 1);
+  keystone(Lot.Diner, 2, 1, [D.Downtown, D.Commercial, D.OldTown], 6, 1);
   for (let i = 0; i < 4; i++) stamp(Lot.Shop, 1, 1, D.Downtown, 4 + nextRange(rng, 3));
   // (the town green is now the Courthouse Square — townPlan.ts)
   if (!square) stamp(Lot.Park, 2, 2, D.Downtown, 1, 90);
@@ -1266,8 +1267,8 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
   // Commercial strip: cinema, motel, diner, shops along Main Street
   keystone(Lot.Cinema, 2, 2, [D.Commercial, D.Downtown], 10, 1);
   stampParcel(Lot.Motel, 3, 1, 3, 1, "south", D.Commercial, 8) || stampParcel(Lot.Motel, 2, 1, 2, 1, "south", D.Commercial, 8);
-  stamp(Lot.Diner, 1, 1, D.Commercial, 6);
-  stamp(Lot.Office, 2, 1, D.Commercial, 10);
+  stamp(Lot.Diner, 2, 1, D.Commercial, 6);
+  stamp(Lot.Office, 2, 2, D.Commercial, 10);
   for (let i = 0; i < 6; i++) stamp(Lot.Shop, 1, 1, D.Commercial, 4 + nextRange(rng, 3));
 
   // Industrial quarter: the works — 2x2 factory + warehouses + truck yard
@@ -1275,26 +1276,26 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
   keystone(Lot.Warehouse, 2, 2, [D.Industrial, D.Trailer, D.Commercial], 8, 1);
   stamp(Lot.Warehouse, 2, 1, D.Industrial, 6);
   stamp(Lot.GasStation, 1, 1, D.Industrial, 3);
-  stamp(Lot.Substation, 1, 1, D.Industrial, 1);
+  stamp(Lot.Substation, 2, 2, D.Industrial, 1);
 
   // College quarter
-  keystone(Lot.Library, 1, 1, [D.College, D.Downtown, D.Suburbs], 5, 1);
+  keystone(Lot.Library, 2, 2, [D.College, D.Downtown, D.Suburbs], 5, 1);
   stamp(Lot.Shop, 1, 1, D.College, 4);
   stamp(Lot.BallField, 2, 2, D.College, 1, 70);
 
   // Old Town: chapel + diner + the old churchyard
-  stamp(Lot.Chapel, 1, 1, D.OldTown, 4);
-  stamp(Lot.Diner, 1, 1, D.OldTown, 5);
+  stamp(Lot.Chapel, 1, 2, D.OldTown, 4);
+  stamp(Lot.Diner, 2, 1, D.OldTown, 5);
   stamp(Lot.Cemetery, 2, 2, D.OldTown, 1, 70);
 
   // Suburbs (low-density): corner shops, a second church, parks, playground
   stamp(Lot.Shop, 1, 1, D.Suburbs, 4);
-  stamp(Lot.Church, 1, 2, D.Suburbs, 5);
+  stamp(Lot.Church, 2, 2, D.Suburbs, 5);
   stamp(Lot.Park, 2, 2, D.Suburbs, 1, 80);
-  stamp(Lot.Playground, 1, 1, D.Suburbs, 1, 70);
-  stamp(Lot.Playground, 1, 1, D.ResHigh, 1, 70);
+  stamp(Lot.Playground, 1, 2, D.Suburbs, 1, 70);
+  stamp(Lot.Playground, 1, 2, D.ResHigh, 1, 70);
   stamp(Lot.Park, 1, 1, D.College, 1);
-  stamp(Lot.WaterTower, 1, 1, D.Suburbs, 2);
+  stamp(Lot.WaterTower, 2, 2, D.Suburbs, 2);
 
   // PARSONAGE (§7): every church keeps its house next door — the first
   // orthogonal empty Citizen lot beside a church becomes a full household
@@ -1333,7 +1334,7 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
   // gas stations along the highway, outside town
   let placedGas = 0;
   for (let attempt = 0; attempt < 200 && placedGas < 2; attempt++) {
-    const x = nextRange(rng, width);
+    const x = 3 + nextRange(rng, width - 6);
     const y = town.highwayY + (nextRange(rng, 2) === 0 ? -1 : 2);
     if (y < 0 || y >= w.height) continue;
     const ddx = x - town.cx;
@@ -1653,7 +1654,7 @@ function applyTownArchetype(
     // the river becomes the ESTUARY: if it runs on the sea's side, the coast
     // advances past it so the channel reads as drowned river mouth, not a
     // second waterway cluttering the beach
-    if (riverPath) {
+    if (riverPath && town.shore === 0) {
       let riverExtent = riverPath[0]!;
       for (const cx of riverPath)
         riverExtent = side === 1 ? Math.min(riverExtent, cx) : Math.max(riverExtent, cx);
@@ -3304,10 +3305,18 @@ function placeLandmarks(w: World, town: TownShape): void {
   const court = courthouseCentre(w);
   if (court >= 0) w.landmark[court] = Landmark.TownHall;
   else place(Landmark.TownHall, town.cx, town.cy, true);
-  place(Landmark.Megachurch, town.cx + town.r - 2, town.cy + 3, true);
-  place(Landmark.Fairground, town.cx - town.r + 2, town.cy - 3, true);
-  place(Landmark.RadioTower, Math.floor(w.width * 0.15), Math.floor(w.height * 0.15), false);
-  place(Landmark.WaterTower, Math.floor(w.width * 0.85), Math.floor(w.height * 0.85), false);
+  // Stage 2: landmarks are real compounds at real scale (footprints.ts);
+  // the landmark id sits on the compound's anchor tile
+  const compound = (kind: number, lot: number, x: number, y: number, inTown: boolean, pop: number): void => {
+    // micro test grids (< 48²) keep 1-tile landmarks: a compound would fill the town
+    const a = w.width >= 48 && w.height >= 48 ? placeLandmarkCompound(w, kind, lot, x, y, inTown, pop) : -1;
+    if (a < 0) place(kind, x, y, inTown);
+    else if (!inTown) carveDirtLane(w, a); // country compounds get an access lane
+  };
+  compound(Landmark.Megachurch, Lot.Megachurch, town.cx + town.r - 2, town.cy + 3, true, 5);
+  compound(Landmark.Fairground, Lot.Fairground, town.cx - town.r + 2, town.cy - 3, true, 2);
+  compound(Landmark.RadioTower, Lot.RadioTower, Math.floor(w.width * 0.15), Math.floor(w.height * 0.15), false, 2);
+  compound(Landmark.WaterTower, Lot.WaterTower, Math.floor(w.width * 0.85), Math.floor(w.height * 0.85), false, 1);
 }
 
 function nearestOf(w: World, from: number, terrain: number): number {

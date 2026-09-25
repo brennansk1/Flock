@@ -8,7 +8,7 @@
  * math. Footprints come from footprints.ts (1 tile ≈ 15 m).
  */
 import { nextRange, type RngState } from "./rng.js";
-import { Lot, Terrain, type World } from "./types.js";
+import { Lot, Terrain, TileFlag, type World } from "./types.js";
 import { footprintOf } from "./footprints.js";
 
 /** District ids (mirrors mapgen.Districts; kept local to avoid an import cycle). */
@@ -1049,28 +1049,44 @@ export function ensureSchoolGrounds(w: World): void {
  */
 export function placeTrailerPark(w: World, town: PlanTown): void {
   const { width, height } = w;
-  const W = 7, H = 6; // lane runs down column 3 then loops along the back row
-  for (let r = Math.floor(town.r * 0.7); r < town.r * 2; r++) {
-    for (let a = 0; a < 16; a++) {
-      const x0 = town.cx + Math.round(Math.cos((a / 16) * 6.283) * r) - 3;
-      const y0 = town.cy + Math.round(Math.sin((a / 16) * 6.283) * r * 0.75) - 3;
-      if (x0 < 2 || y0 < 2 || x0 + W >= width - 2 || y0 + H >= height - 2) continue;
-      const ok = openRect(w, x0, y0, W, H, (t) =>
-        ((w.terrain[t] === Terrain.Grass || w.terrain[t] === Terrain.Field) || (w.terrain[t] === Terrain.Citizen && w.lot[t] === 0 && (w.district[t] === D.Trailer || w.district[t] === D.Suburbs))) && w.landmark[t] === 0);
+  const W = 7, H = 6; // local frame: gate above column 3, lane down it, loop along row H-2
+  const claim = (t: number): boolean =>
+    ((w.terrain[t] === Terrain.Grass || w.terrain[t] === Terrain.Field) ||
+      (w.terrain[t] === Terrain.Citizen && w.lot[t] === 0 && (w.district[t] === D.Trailer || w.district[t] === D.Suburbs))) &&
+    w.landmark[t] === 0 && !neighbors4(w, t).some((n) => w.terrain[n] === Terrain.Lake);
+  // orientation o: 0 gate N, 1 gate S, 2 gate W, 3 gate E — maps local (u, v) to a tile
+  const at = (x0: number, y0: number, o: number, u: number, v: number): [number, number] =>
+    o === 0 ? [x0 + u, y0 + v] : o === 1 ? [x0 + u, y0 + H - 1 - v] : o === 2 ? [x0 + v, y0 + u] : [x0 + H - 1 - v, y0 + u];
+  const cands: [number, number, number][] = [];
+  const r0 = Math.floor(town.r * 0.6), r1 = Math.ceil(town.r * 2);
+  for (let y0 = 2; y0 < height - 10; y0++)
+    for (let x0 = 2; x0 < width - 10; x0++) {
+      const d = Math.hypot(x0 + 3 - town.cx, y0 + 3 - town.cy);
+      if (d < r0 || d > r1) continue;
+      cands.push([Math.round(d * 16), x0, y0]);
+    }
+  cands.sort((p, q) => p[0] - q[0] || p[2] - q[2] || p[1] - q[1]);
+  for (const [, x0, y0] of cands)
+    for (let o = 0; o < 4; o++) {
+      let ok = true;
+      for (let v = 0; v < H && ok; v++) for (let u = 0; u < W && ok; u++) {
+        const [x, y] = at(x0, y0, o, u, v);
+        if (x < 2 || y < 2 || x >= width - 2 || y >= height - 2 || !claim(y * width + x)) ok = false;
+      }
       if (!ok) continue;
-      // entrance: a road directly above the lane column
-      const gate = (y0 - 1) * width + x0 + 3;
-      if (w.terrain[gate] !== Terrain.Road) continue;
-      for (let y = y0; y < y0 + H; y++)
-        for (let x = x0; x < x0 + W; x++) {
+      const [gx, gy] = at(x0, y0, o, 3, -1);
+      if (gx < 0 || gy < 0 || gx >= width || gy >= height || w.terrain[gy * width + gx] !== Terrain.Road) continue;
+      for (let v = 0; v < H; v++)
+        for (let u = 0; u < W; u++) {
+          const [x, y] = at(x0, y0, o, u, v);
           const t = y * width + x;
-          const lane = x === x0 + 3 || (y === y0 + H - 2 && x >= x0 + 1 && x <= x0 + 5) || ((x === x0 + 1 || x === x0 + 5) && y >= y0 + 2 && y <= y0 + H - 2);
+          const lane = u === 3 || (v === H - 2 && u >= 1 && u <= 5) || ((u === 1 || u === 5) && v >= 2 && v <= H - 2);
           if (lane) { w.terrain[t] = Terrain.Dirt; w.lot[t] = 0; w.pop[t] = 0; continue; }
           w.terrain[t] = Terrain.Citizen; w.district[t] = D.Trailer; w.lot[t] = 0; w.pop[t] = 3;
+          w.flags[t] = w.flags[t]! | TileFlag.TrailerPark;
         }
       return;
     }
-  }
 }
 
 /**

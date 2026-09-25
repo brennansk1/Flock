@@ -431,7 +431,7 @@ for (const town of TYPES) {
   MG.push({ id: "mg-waterfront", name: "Waterfront: boardwalk, piers, marina, jetty, beaches", placement: "Oceanside: continuous boardwalk and Shore Drive, up to 3 fishing piers (the first a 2-wide marina), the cannery at the root of its own pier, the lighthouse at the end of a stone jetty. Lakeside: sand beaches on the town shore, bridges where the lake cut a road, a marina and a small dock.", images: wf });
   const dm = findIn(["farm", "lakeside", "mountain", "desert"], (w2, tt) => w2.lot[tt] === Lot.Powerhouse);
   if (dm) MG.push({ id: "mg-dam", name: "Dam & powerhouse", placement: "A concrete dam across the river with a crest road bank to bank, a spillway, and a brick powerhouse on the bank with a road out to the network.", images: [{ label: "In situ · seed 42", file: save(crop(dm.town ?? "farm", dm.x, dm.y, 18, 12, { lod: 2 }), "dam") }] });
-  const tp = findCentre("farm", (w2, tt) => w2.district[tt] === D.Trailer && w2.terrain[tt] === Terrain.Citizen && w2.lot[tt] === 0);
+  const tp = findCentre("farm", (w2, tt) => (w2.flags[tt] & 4) !== 0);
   if (tp) MG.push({ id: "mg-trailerpark", name: "Trailer park", placement: "One park on the fringe: a single gate off a road, a gravel loop lane, trailers on both sides.", images: [{ label: "In situ · farm 42", file: save(crop("farm", tp.x, tp.y, 16, 10, { lod: 2 }), "trailerpark") }] });
   const al = findIn(["lakeside", "farm", "mountain", "oceanside"], (w2, tt) => w2.terrain[tt] === Terrain.Dirt && w2.district[tt - 1] !== 0 &&
     ((w2.terrain[tt - 1] === Terrain.Citizen && w2.terrain[tt + 1] === Terrain.Citizen) || (w2.terrain[tt - w2.width] === Terrain.Citizen && w2.terrain[tt + w2.width] === Terrain.Citizen)));

@@ -169,6 +169,8 @@ export const TileFlag = {
   Downline: 1,
   /** Mapgen: this Field tile is part of a desert center-pivot circle (render hint only). */
   Pivot: 2,
+  /** Mapgen: a lot inside the planned trailer park (render hint only: trailers draw here). */
+  TrailerPark: 4,
 } as const;
 
 export interface World {

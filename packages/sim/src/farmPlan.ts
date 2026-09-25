@@ -98,14 +98,14 @@ export function tidyAgriculture(w: World, rng: RngState, desert: boolean, river:
           const t = (y + dy) * width + cx + dx;
           const tr = w.terrain[t];
           if (tr === Terrain.Road || tr === Terrain.Dirt) roadNear = true;
-          if (dx * dx + dy * dy > R * R) continue;
+          if (dx * dx + dy * dy > R * R + R) continue; // r²+r: round, no single-tile nubs
           if (tr !== Terrain.Grass || w.lot[t] !== 0 || w.landmark[t] !== 0) ok = false;
         }
       }
       if (!ok || !roadNear) continue;
       for (let dy = -R; dy <= R; dy++) {
         for (let dx = -R; dx <= R; dx++) {
-          if (dx * dx + dy * dy > R * R) continue;
+          if (dx * dx + dy * dy > R * R + R) continue; // r²+r: round, no single-tile nubs
           const t = (y + dy) * width + cx + dx;
           w.terrain[t] = Terrain.Field;
           w.biome[t] = Biome.Temperate; // the irrigated green
@@ -306,7 +306,7 @@ export function layoutFarmBelt(
     if (!rect(cx - R - 1, cy - R - 1, 2 * R + 3, 2 * R + 3, (t) => farmable(t) || w.terrain[t] === Terrain.Field)) continue;
     for (let dy = -R; dy <= R; dy++)
       for (let dx = -R; dx <= R; dx++) {
-        if (dx * dx + dy * dy > R * R) continue;
+        if (dx * dx + dy * dy > R * R + R) continue; // r²+r: round, no single-tile nubs
         const t = (cy + dy) * width + cx + dx;
         w.terrain[t] = Terrain.Field;
         w.flags[t] = w.flags[t]! | TileFlag.Pivot;

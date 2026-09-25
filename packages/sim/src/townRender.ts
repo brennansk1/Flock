@@ -2092,9 +2092,9 @@ function drawTile(
     castShadow(x0, y0, put);
     drawStorefront(w, t, x0, y0, put); // downtown commercial block
   } else if (pop >= 3) {
-    if (district === 5) {
+    if (district === 5 && (w.flags[t]! & 4) !== 0) { // TileFlag.TrailerPark
       drawVerge(w, t, tx, ty, x0, y0, district, put);
-      drawTrailerHome(x0, y0, t, put, detail); // trailer fringe (§2)
+      drawTrailerHome(x0, y0, t, put, detail); // trailers live in the trailer park only
     } else if (district === 7) {
       drawVerge(w, t, tx, ty, x0, y0, district, put);
       drawIndustrialShed(x0, y0, t, put, detail); // industrial shed

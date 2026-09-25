@@ -148,21 +148,25 @@ const ROOFS: readonly RGB[] = [
   "#8c877e", // weathered grey
   "#a08c6c", // tan shingle
 ].map(hx);
-const ADOBE_WALL: readonly RGB[] = ["#d4ae80", "#c79c6c", "#dfbd92"].map(hx);
+const ADOBE_WALL: readonly RGB[] = ["#d4ae80", "#c79c6c", "#dfbd92", "#d8a890", "#e6dccb", "#c9a878"].map(hx);
+const CLAY_TILE: readonly RGB[] = ["#b5563a", "#a34a32", "#bf6848"].map(hx);
 const ADOBE_ROOF: readonly RGB[] = ["#b98e62", "#a87e55"].map(hx);
 const DRIVE = hx("#b1aa9c");
 const DRIVE_D = hx("#9d9688");
 
-type Style = "ranch" | "split" | "colonial" | "cape" | "foursquare" | "adobe";
+type Style = "ranch" | "split" | "colonial" | "cape" | "foursquare" | "adobe" | "pueblo" | "mission";
+/** the Southwestern styles every desert home is built in (Stage 2b) */
+const isSW = (s: Style): boolean => s === "adobe" || s === "pueblo" || s === "mission";
 
 function styleFor(t: number, district: number, desert: boolean): Style {
   const r = pixHash(t, 34, 401) % 20;
-  if (desert) return r < 14 ? "adobe" : "ranch";
+  if (desert) return r < 9 ? "adobe" : r < 15 ? "pueblo" : "mission";
   switch (district) {
     case 1: return r < 7 ? "ranch" : r < 13 ? "split" : r < 16 ? "colonial" : "cape";
     case 4: return r < 6 ? "colonial" : r < 12 ? "foursquare" : r < 17 ? "cape" : "ranch";
     case 2: return r < 6 ? "foursquare" : r < 12 ? "cape" : r < 17 ? "colonial" : "split";
     case 8: return r < 8 ? "colonial" : r < 14 ? "foursquare" : "split";
+    case 5: return r < 12 ? "ranch" : "cape"; // modest fringe cottages (trailers stay in the park)
     default: return (["ranch", "split", "colonial", "cape", "foursquare"] as const)[r % 5]!;
   }
 }
@@ -187,6 +191,11 @@ function massesFor(style: Style): Mass[] {
     case "colonial": return [{ l0: 2, l1: 6, d0: 0, d1: 5, wall: 2, roof: "gable", tone: 1 }];
     case "cape": return [{ l0: 2, l1: 7, d0: 1, d1: 5, wall: 1, roof: "gable", tone: 1 }];
     case "foursquare": return [{ l0: 3, l1: 7, d0: 0, d1: 5, wall: 2, roof: "front", tone: 1 }];
+    case "pueblo": return [ // stepped: a low front range, a taller block set back
+      { l0: 2, l1: 7, d0: 3, d1: 5, wall: 1, roof: "flat", tone: 1 },
+      { l0: 3, l1: 6, d0: 0, d1: 3, wall: 2, roof: "flat", tone: 0.9 },
+    ];
+    case "mission": return [{ l0: 2, l1: 7, d0: 1, d1: 5, wall: 1, roof: "hip", tone: 1 }]; // stucco + red clay tile
     case "adobe": return [
       { l0: 2, l1: 7, d0: 2, d1: 5, wall: 1, roof: "flat", tone: 1 },
       { l0: 5, l1: 7, d0: 0, d1: 2, wall: 0, roof: "flat", tone: 0.9 },
@@ -217,12 +226,13 @@ export function drawHouse(
   };
 
   // palettes (every district gets the full variety)
-  const siding = style === "adobe"
+  const siding = isSW(style)
     ? ADOBE_WALL[pixHash(t, 2, 401) % ADOBE_WALL.length]!
     : district === 4 && pixHash(t, 9, 401) % 2 === 0
       ? OLD_SIDING[pixHash(t, 2, 401) % OLD_SIDING.length]!
       : SIDING[pixHash(t, 2, 401) % SIDING.length]!;
-  const roofBase = style === "adobe" ? ADOBE_ROOF[pixHash(t, 3, 401) % 2]! : ROOFS[pixHash(t, 3, 401) % ROOFS.length]!;
+  const roofBase = style === "mission" ? CLAY_TILE[pixHash(t, 3, 401) % CLAY_TILE.length]!
+    : isSW(style) ? ADOBE_ROOF[pixHash(t, 3, 401) % ADOBE_ROOF.length]! : ROOFS[pixHash(t, 3, 401) % ROOFS.length]!;
 
   const l0 = driveLane(t);
   const hasFront = fr >= 0;
@@ -288,7 +298,7 @@ export function drawHouse(
     for (let y = wallY; y <= sy1; y++) {
       for (let x = sx0; x <= sx1; x++) {
         let c = x === sx1 ? shade(siding, 0.86) : siding;
-        if (y === wallY && m.wall >= 1 && style !== "adobe") c = shade(c, 0.92); // eave shadow line
+        if (y === wallY && m.wall >= 1 && !isSW(style)) c = shade(c, 0.92); // eave shadow line
         put(x0 + x, y0 + y, c);
       }
       // two windows per wall row (never the door column)
@@ -331,7 +341,7 @@ export function drawHouse(
 
   // ---- chimney (+ winter smoke), TV aerial on most roofs
   const main = masses[0]!;
-  if (style !== "adobe") {
+  if (!isSW(style)) {
     const cl = pixHash(t, 11, 401) & 1 ? main.l0 : main.l1;
     const [cx, cy] = toScreen(f, cl, main.d0 + 1);
     const chim = hx("#7a4a3a");

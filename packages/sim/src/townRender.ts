@@ -1932,7 +1932,8 @@ function drawTile(
   const pop = w.pop[t]!;
   const district = w.district[t]!;
   const lot = w.lot[t]!;
-  const built = lot !== 0 || pop >= 3;
+  // the radio mast stands in the open land: its lot keeps the natural ground
+  const built = lot === Lot.RadioTower ? false : lot !== 0 || pop >= 3;
   let lawnBase = hexToRgb(NEUTRAL_BY_DISTRICT[district % NEUTRAL_BY_DISTRICT.length]!);
   const lawnDistrict = district === 1 || district === 2 || district === 4 || district === 0;
   if (lawnDistrict) {

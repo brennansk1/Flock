@@ -13,6 +13,9 @@ import { C } from "./core.js";
 /** Light sources that ignore the grade (they emit). */
 export const EMISSIVE = {
   beacon: [255, 34, 34] as RGB,
+  /** aviation-beacon bloom: inner ring and outer halo on the "on" frames */
+  beaconGlow: [236, 64, 52] as RGB,
+  beaconHalo: [168, 34, 34] as RGB,
   policeRed: [255, 40, 48] as RGB,
   policeBlue: [48, 96, 255] as RGB,
   hazard: [255, 176, 32] as RGB,

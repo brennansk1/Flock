@@ -111,8 +111,9 @@ export function waterTower(p: Plan): void {
   }
   // tall structure: anchored in SCREEN space (base near the footprint's
   // south edge) so the tank stands upright in every orientation
-  const x = p.SW >> 1, y = p.SH - (big ? 4 : 2);
-  const beacon = ((RS.tick >> 3) & 1) === 0 ? EMISSIVE.beacon : hx("#5a1a1a");
+  const x = p.SW >> 1, y = p.SH - (big ? 3 : 2);
+  const beaconOn = ((RS.tick >> 3) & 1) === 0;
+  const beacon = beaconOn ? EMISSIVE.beacon : hx("#5a1a1a");
   const t = shade(tank, 0.8);
   const leg = hx("#4a4e56");
   const rows = big
@@ -128,10 +129,9 @@ export function waterTower(p: Plan): void {
         "..L.P.L..",
         "..LxPxL..",
         ".L..P..L.",
-        ".LxxPxxL.",
-        "L...P...L",
+        "L.xxPxx.L",
       ]
-    : [".b.", "ccc", "TTt", "NNt", "uuu", "LPL", "L.L"];
+    : [".b.", "ccc", "TTt", "NNt", "uuu", "LPL"];
   const pal = {
     b: beacon, c: cap, C: v === 2 ? M.white : cap, T: tank, t, N: letters(0, 1, tank, tank), u: shade(tank, 0.7),
     L: leg, P: shade(leg, 0.85), x: shade(leg, 1.2),
@@ -146,6 +146,8 @@ export function waterTower(p: Plan): void {
       if (ch === "N") c = i >= 1 && i <= wid - 3 && i % 2 === 1 ? hx("#2a3a5a") : tank;
       p.scr(ox + i, oy + r, c);
     }
+    // the red beacon on the cap blooms on its "on" frames
+    p.beacon(x, oy, beaconOn, p.lit ? 2 : 1);
     // the tank's shadow on the ground to the SE
     for (let i = 0; i < (big ? 5 : 2); i++) p.shadowPx(x + 1 + i, y + 1);
   });

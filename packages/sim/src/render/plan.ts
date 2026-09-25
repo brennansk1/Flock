@@ -30,6 +30,7 @@ import { hexToRgb, shade, type RGB } from "../palette.js";
 import { RS, C, TILE_PX, pixHash, isLitHour, type Put } from "./core.js";
 import { lotFrontage } from "./frontage.js";
 import { drawVehicle, vehicleSize, type VehicleKind } from "./vehicles.js";
+import { EMISSIVE } from "./grade.js";
 
 const hx = hexToRgb;
 
@@ -469,6 +470,32 @@ export class Plan {
     const i = y * this.SW + x;
     this.buf[i] = null;
     this.mask[i] = 0;
+  }
+  /** screen → local frame (inverse of S) */
+  Sinv(x: number, y: number): [number, number] {
+    switch (this.o) {
+      case 1: return [this.L - 1 - x, this.D - 1 - y];
+      case 2: return [this.L - 1 - y, x];
+      case 3: return [y, this.D - 1 - x];
+      default: return [x, y];
+    }
+  }
+  /** a ground px at a screen point */
+  gScr(x: number, y: number, c: RGB | null): void {
+    this.scr(x, y, c, MASK_GROUND);
+  }
+  /**
+   * Red aviation beacon at a screen point: on frames a hot core with a
+   * 1-px glow ring and a 2-px halo cross (all emissive, so the bloom
+   * survives the night grade); off frames a dark lens.
+   */
+  beacon(x: number, y: number, on: boolean, bloom = 2): void {
+    if (!on) { this.scr(x, y, hx("#5a1a1a")); return; }
+    if (bloom >= 2) for (const [dx, dy] of [[-2, 0], [2, 0], [0, -2], [0, 2]] as const) this.scr(x + dx, y + dy, EMISSIVE.beaconHalo);
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      if (dx || dy) this.scr(x + dx, y + dy, dx && dy ? EMISSIVE.beaconHalo : EMISSIVE.beaconGlow);
+    }
+    this.scr(x, y, EMISSIVE.beacon);
   }
   /** a lamp standard (lit at night) */
   lamp(l: number, d: number): void {

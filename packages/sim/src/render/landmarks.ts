@@ -12,7 +12,7 @@ import { C, RS, TILE_PX, pixHash, isLitHour, type Put } from "./core.js";
 import { EMISSIVE } from "./grade.js";
 import { householdPaint, householdVehicle } from "./vehicles.js";
 import { lotFrontage } from "./frontage.js";
-import { M, Plan, type Author } from "./plan.js";
+import { M, Plan, type Author, type Face } from "./plan.js";
 import { pane, letters, occupancy } from "./lots.js";
 import { lighthouseTower } from "./works.js";
 
@@ -21,81 +21,123 @@ const hx = hexToRgb;
 /** Lots whose compound art replaces the landmark icon badge. */
 export const COMPOUND_LOTS = new Set<number>([Lot.Megachurch, Lot.Fairground, Lot.RadioTower, Lot.WaterTower]);
 
-/** nose-in parking rows filling [l0..l1]×[d0..d1] (double-loaded, 3-px stalls) */
-function parkingField(p: Plan, l0: number, d0: number, l1: number, d1: number, occ: number, salt: number): void {
-  p.pave(l0, d0, l1, d1, "asphalt");
-  for (let d = d0 + 1; d + 3 <= d1; d += 9) {
-    for (const [dn, toward] of [[d, false], [d + 7, true]] as const) {
-      if (dn > d1) continue;
-      for (let l = l0 + 1; l + 1 <= l1; l += 3) {
-        for (let k = 0; k < 3; k++) p.g(l - 1, toward ? dn - k : dn + k, M.stripe);
-        const h = p.h(l * 17 + dn, salt);
-        if (h % 100 >= occ) continue;
-        p.carDir(l, toward ? dn - 1 : dn + 1, toward ? 2 : 3, householdVehicle(h), householdPaint(h >>> 4));
-      }
-    }
-  }
-}
-
 // ------------------------------------------------------------ MEGACHURCH
 
 /**
- * The old megachurch: a huge A-frame SANCTUARY gable-end to the street with
- * a tall stained-glass slot over the doors, a flat-roofed FELLOWSHIP HALL
- * with a ribbon of windows joined by a covered walk, a slim campanile BELL
- * TOWER with a gold cross, the back-lit LAWN SIGN, and the big lot.
+ * The megachurch (early-80s evangelical campus), ONE complex: the broad
+ * wide-gable SANCTUARY, gable-end to the street, is the dominant mass, its
+ * front wall carrying a tall lit cross window over the double doors under a
+ * GLASS ENTRY CANOPY; a tall white STEEPLE with a cross stands at the
+ * street corner on the low narthex LINK that joins the lower FELLOWSHIP
+ * HALL (same brick / siding, same roof). A small PARKING APRON with a curb
+ * cut beside the hall, the lawn with its walk, and the back-lit letter-board
+ * MARQUEE ("JESUS SAVES") by the street. Variants: red brick · buff brick ·
+ * white siding; slate / brown / blue-grey roof; needle spire or square
+ * bell-tower cap.
  */
 export function megachurch(p: Plan): void {
   const { L, D } = p;
   const v = p.h(1) % 3;
-  const brick = [hx("#b8906a"), hx("#e2d6bc"), hx("#9a5a44")][v]!;
-  const roof = [hx("#5a4a42"), hx("#3f5a6a"), hx("#6a6a6a")][v]!;
-  const fr = p.D - 2;
-  const sanctW = Math.max(10, Math.min(16, (L * 0.5) | 0));
-  const sl0 = 2, sl1 = sl0 + sanctW - 1;
-  const sd0 = 2, sd1 = Math.min(fr - 6, D - 8);
-  // grounds: lawn in front of the sanctuary, lot beside the hall
+  const wall = [hx("#9a4a36"), hx("#c9a878"), hx("#e8e4d6")][v]!;
+  const roof = [hx("#56585e"), hx("#6a4e3e"), hx("#4a5866")][p.h(2) % 3]!;
+  const spire = p.h(3) % 2 === 0;
+  const fr = D - 2;
+  const small = L < 28;
+  // massing (frontage-local)
+  const sl0 = 5, sl1 = small ? 14 : 18, sd0 = 4, sd1 = D - 9;
+  const hl0 = sl1 + 3, hl1 = L - 3, hd0 = 4, hd1 = sd1 - 4;
+  const mid2 = sl0 + sl1; // 2× sanctuary centre
+  // grounds: lawn before the sanctuary, walk to the street
   p.lawn(1, sd1 + 1, sl1 + 1, fr);
-  const cxl = (sl0 + sl1) >> 1;
-  p.pave(cxl - 1, sd1 + 1, cxl + 2, fr, "concrete");
-  const hl0 = sl1 + 3, hl1 = L - 2;
-  const hd0 = 3, hd1 = Math.min(sd1 - 2, hd0 + 7);
-  if (hl1 - hl0 >= 4) parkingField(p, hl0, hd1 + 2, hl1, fr, Math.min(90, occupancy() + ((RS.tick / 2400) % 7 === 0 ? 40 : 10)), 5);
-  const glass = [hx("#3f5fa8"), hx("#c8342a"), hx("#e8c040"), hx("#3f8a5a")];
-  p.box({
-    l0: sl0, d0: sd0, l1: sl1, d1: sd1, h: 5, wall: brick, roof, kind: "gable", across: true,
-    front: (u, r, n, hh) => {
-      const mid = n >> 1;
-      if (Math.abs(u - mid + 0.5) < 1.2 && r < hh - 2) return p.lit ? glass[(r + u) & 3]! : shade(glass[(r + u) & 3]!, 0.8); // stained-glass slot
-      if ((u === mid - 2 || u === mid + 1) && r >= hh - 2) return hx("#3a2a1e"); // doors
-      if (r === hh - 1 && Math.abs(u - mid + 0.5) < 3) return shade(M.concrete, 1.05); // entry slab
-      return u === 0 || u === n - 1 ? shade(brick, 0.9) : null;
-    },
-    side: (u, r, n, hh) => (u % 3 === 1 && r >= 1 && r < hh - 1 ? pane(p, u, r, 40, glass[u & 3]!) : null),
-    lip: (k, n) => (Math.abs(k - (n >> 1) + 0.5) < 1.2 ? glass[k & 3]! : shade(brick, 0.9)),
-  });
-  // fellowship hall
-  if (hl1 - hl0 >= 4) {
-    p.box({
-      l0: hl0, d0: hd0, l1: hl1, d1: hd1, h: 2, wall: brick, roof: M.tar,
-      front: (u, r, n) => (r === 0 && u % 4 !== 0 ? pane(p, u, r, 41) : u === n >> 1 ? hx("#3a2a1e") : null),
-      side: (u, r) => (r === 0 && u % 3 !== 0 ? pane(p, u, r, 42) : null),
-      lip: (k) => (k % 4 !== 0 ? M.glass : brick),
-      deco: () => { p.top(hl0 + 2, hd0 + 1, M.hvac); p.top(hl1 - 2, hd0 + 2, M.hvac); },
-    });
-    // covered walkway between them
-    for (let l = sl1 + 1; l < hl0; l++) { p.obj(l, hd0 + 3, M.white); p.obj(l, hd0 + 4, shade(M.white, 0.8)); }
+  p.lawn(1, sd0 + 4, sl0 - 1, sd1);
+  p.walk((mid2 >> 1), sd1 + 4, fr);
+  // parking apron with a curb cut beside the hall
+  const ad0 = hd1 + 2, ad1 = hd1 + 7;
+  p.pave(hl0 - 1, ad0, hl1, ad1, "asphalt");
+  p.pave(hl1 - 3, ad1 + 1, hl1, fr, "asphalt");
+  p.lawn(hl0 - 1, ad1 + 1, hl1 - 4, fr);
+  const occ = Math.min(90, occupancy() + (((RS.tick / 2400) | 0) % 7 === 0 ? 40 : 15));
+  for (let l = hl0 + 1; l + 1 <= hl1; l += 3) {
+    for (let k = 0; k < 3; k++) p.g(l - 1, ad0 + k, M.stripe);
+    const h = p.h(l * 17, 5);
+    if (h % 100 < occ) p.carDir(l, ad0 + 1, 3, householdVehicle(h), householdPaint(h >>> 4));
   }
-  // campanile
-  const tl = sl1 + 1, td = sd1;
-  const bell = C.landmarkGold;
-  p.spr(tl, td, [".g.", "ggg", ".g.", "BBB", "BkB", "BbB", "BBB", "BBB", "BBB", "BBB", "BBB", "BBB", "BBB"], {
-    g: bell, B: brick, k: hx("#2a2622"), b: bell,
-  }, 1, 5);
-  // back-lit lawn sign
-  const sl = sl0 + 1;
-  p.spr(sl, fr, ["FFFFFF", "FwkwkF", ".|..|."], { F: brick, w: p.lit ? C.windowLit : M.white, k: hx("#2a2622"), "|": M.steel }, 0, 50);
-  p.tree(sl1 - 1, fr - 1, true, 50);
+  p.lamp(hl1 - 4, ad1);
+  const glassLit = p.lit ? C.windowLit : v === 2 ? hx("#3a4a66") : M.white;
+  const door = hx("#3a2a1e");
+  // SANCTUARY: wide gable, cross window over the doors
+  p.box({
+    l0: sl0, d0: sd0, l1: sl1, d1: sd1, h: small ? 6 : 7, wall, roof, kind: "gable", across: true,
+    front: (u, r, n, hh) => {
+      const c = Math.abs(2 * u - (n - 1));
+      if (u === 0 || u === n - 1) return shade(wall, 0.9);
+      if (c <= 1 && r >= -4 && r <= hh - 3) return glassLit; // the cross
+      if (c <= 5 && r === -2) return glassLit;
+      if (c <= 3 && r >= hh - 2) return (u & 1) ? door : shade(door, 1.3); // double doors
+      if ((u === 2 || u === n - 3) && r >= 1 && r <= hh - 2) return pane(p, u, r, 40, hx("#3f5fa8"));
+      return null;
+    },
+    back: (u, r, n, hh) => (u === n >> 1 && r >= hh - 2 ? door : u % 4 === 2 && r >= 1 && r <= hh - 2 ? pane(p, u, r, 43, hx("#3f5fa8")) : null),
+    side: (u, r, n, hh) => (u % 3 === 1 && u < n - 1 && r >= 1 && r <= hh - 2 ? pane(p, u, r, 44, u % 9 === 4 ? hx("#8a3a4a") : hx("#34508a")) : u === n - 1 ? shade(wall, 0.9) : null),
+    lip: (k, n) => (Math.abs(2 * k - (n - 1)) <= 1 ? glassLit : shade(wall, 0.9)),
+  });
+  // glass entry canopy over the doors
+  p.box({
+    l0: (mid2 >> 1) - 3, d0: sd1 + 1, l1: (mid2 >> 1) + 4, d1: sd1 + 3, h: 1, wall: hx("#34343a"), roof: hx("#9ec0d8"),
+    front: (u, _r, n) => (u === 0 || u === n - 1 ? M.white : null),
+    back: (u, _r, n) => (u === 0 || u === n - 1 ? M.white : null),
+    side: () => M.white,
+    deco: () => { for (let l = (mid2 >> 1) - 3; l <= (mid2 >> 1) + 4; l += 2) p.top(l, sd1 + 1, M.white); },
+  });
+  // narthex link
+  p.box({
+    l0: sl1 + 1, d0: hd0 + 1, l1: hl0 - 1, d1: sd1 - 1, h: 3, wall, roof: M.tar,
+    front: (_u, r) => (r >= 1 ? M.glassBlue : null),
+    lip: () => M.glassBlue,
+  });
+  // FELLOWSHIP HALL: lower, same materials
+  p.box({
+    l0: hl0, d0: hd0, l1: hl1, d1: hd1, h: 3, wall, roof, kind: "gable",
+    front: (u, r, n) => (u === n >> 1 && r >= 1 ? door : r === 1 && u % 3 !== 0 ? pane(p, u, r, 41) : null),
+    side: (u, r) => (r === 1 && u % 3 === 1 ? pane(p, u, r, 42) : null),
+    lip: (k) => (k % 3 !== 0 ? M.glass : wall),
+  });
+  // STEEPLE on the street corner (screen-space, trimmed to fit): stands
+  // forward on the lawn corner; where the frontage leaves too little sky
+  // above that point it steps back along the link
+  let tl = 3, td = sd1 + 2, by = 0;
+  for (const [cl, cd] of [[3, sd1 + 2], [3, sd0 + 4], [sl1 + 2, sd1 + 1]] as const) {
+    const y = p.S(cl, cd)[1];
+    if (y > by) { by = y; tl = cl; td = cd; }
+    if (y - 1 >= 15) break;
+  }
+  const room = by - 1;
+  const rows = room >= 15
+    ? [".c.", "ccc", ".c.", ".s.", ".S.", "sSt", "sSt", "WWV", "WDV", "WDV", "WWV"]
+    : room >= 11 ? [".c.", "ccc", ".c.", "sSt", "WWV", "WDV", "WWV"] : [".c.", "ccc", "sSt", "WDV"];
+  const shaft = Math.max(1, Math.min(5, room - rows.length - 1));
+  for (let i = 0; i < shaft; i++) rows.push(i === 1 ? "WwV" : "WWV");
+  rows.push("BdB");
+  const tw = hx("#f2efe6");
+  p.spr(tl, td, rows, {
+    c: C.landmarkGold, s: shade(roof, 1.2), S: roof, t: shade(roof, 0.75),
+    W: tw, V: shade(tw, 0.74), D: p.lit ? C.windowLit : hx("#2a2622"), w: shade(tw, 0.9),
+    B: shade(wall, 0.9), d: door,
+  }, 1, 6);
+  p.later(by + 6.1, () => { for (let k = 1; k <= 3; k++) p.shadowPx(p.S(tl, td)[0] + 1 + k, by + 1); });
+  // letter-board marquee by the street ("JESUS SAVES" / service times)
+  const bg = p.lit ? C.windowLit : M.white, ink = hx("#3a3634");
+  const msg = [["kkkkk.kkkkk", ".kk.kkk.kk."], ["kkkk.kkkkkk", "kkk.kk.kkk."], ["kkk.kk.kkkk", ".kkkk.kk.k."]][p.h(4) % 3]!;
+  const bw = small ? 7 : 11;
+  const hdr = v === 0 ? M.white : M.brick;
+  p.spr(1, fr - 1, [
+    "F".repeat(bw + 2),
+    "F" + msg[0]!.slice(0, bw).replace(/\./g, "w") + "F",
+    "F" + msg[1]!.slice(0, bw).replace(/\./g, "w") + "F",
+    ".b" + ".".repeat(bw - 2) + "b.",
+  ], { F: hdr, ".": null, k: ink, b: shade(M.brick, 0.8), w: bg }, 0, 50);
+  p.tree(sl1, fr - 1, false, 50);
+  p.tree(L - 3, 2, true, 51);
 }
 
 // ------------------------------------------------------------ FAIRGROUND
@@ -217,65 +259,73 @@ export function fairground(p: Plan): void {
 
 // ------------------------------------------------------------ RADIO TOWER
 
-/** Screen geometry of the mast (for the author and the beacon halo). */
-function mastOf(p: Plan): { l: number; d: number; H: number } {
-  return { l: (p.L >> 1) - 1, d: (p.D >> 1) + 2, H: Math.min(p.D - 4, p.o <= 1 ? p.SH - 5 : p.SH - 5) };
-}
-
 /**
- * AM radio mast: a red-and-white banded lattice mast on a concrete pier,
- * GUY WIRES from three heights to anchors at the lot corners, the concrete
- * transmitter shack with the coax run, a small fence round the base, and
- * the red aviation BEACON on top blinking with a halo (the mid-mast lamp
- * blinks in antiphase).
+ * AM radio mast in the open land: the lot keeps the natural ground (grass /
+ * snow / desert — townRender draws it as open country), with a small
+ * chain-linked GRAVEL PAD (~1 tile) round the base holding the concrete
+ * TRANSMITTER SHACK, the 2-px red/white banded LATTICE MAST on its pier,
+ * four GUY WIRES out to concrete anchor blocks near the lot corners, a dirt
+ * track to the street, and the red aviation BEACON on top blinking with a
+ * bloom (the mid-mast lamp blinks in antiphase). Screen-space so the mast
+ * stays upright in every frontage.
  */
 export function radioTower(p: Plan): void {
-  const { L, D } = p;
-  const { l, d, H } = mastOf(p);
-  // gravel pad + base fence
-  p.pave(l - 2, d - 2, l + 2, d + 1, "gravel");
-  const f = hx("#a8a49a");
-  for (let i = -2; i <= 2; i++) { p.obj(l + i, d - 2, f); p.obj(l + i, d + 1, f); }
-  for (let i = -2; i <= 1; i++) { p.obj(l - 2, d + i, f); p.obj(l + 2, d + i, f); }
-  // transmitter shack + coax
-  const tl0 = l + 4, td0 = d + 1;
-  p.box({ l0: tl0, d0: td0, l1: Math.min(L - 3, tl0 + 3), d1: Math.min(D - 3, td0 + 2), h: 1, wall: M.concrete, roof: shade(M.concrete, 0.9), front: (u) => (u === 1 ? C.door : null) });
-  for (let i = l + 1; i < tl0; i++) p.g(i, d, M.dark);
-  // dirt track to the gate
-  for (let dd = td0 + 3; dd <= D - 2; dd++) p.g(tl0 + 1, dd, shade(M.dirt, 1.02));
-  // anchors at three corners
-  const anchors: [number, number][] = [[2, 2], [L - 3, 2], [2, D - 3]];
-  for (const [al, ad] of anchors) p.obj(al, ad, M.concrete);
-  const [mx, my] = p.S(l, d);
+  const { SW, SH, o } = p;
+  const mx = (SW >> 1) - 1, my = SH - 8;
+  const H = my - 4; // beacon at y = 3 leaves room for its bloom
+  const px0 = mx - 3, px1 = mx + 6, py0 = my - 3, py1 = my + 3;
+  // gravel pad + chain-link fence (gate toward the street)
+  for (let y = py0; y <= py1; y++) for (let x = px0; x <= px1; x++) {
+    const h = pixHash(p.AX + x, p.AY + y, 53);
+    p.gScr(x, y, p.winter && h % 3 !== 0 ? M.snow : h % 4 === 0 ? shade(M.gravel, 1.12) : h % 7 === 0 ? shade(M.gravel, 0.86) : M.gravel);
+  }
+  const f = hx("#a8a49a"), post = hx("#6a6660");
+  const gx = (px0 + px1) >> 1, gy = (py0 + py1) >> 1;
+  const gate = (x: number, y: number): boolean =>
+    (o === 0 && y === py1 && Math.abs(x - gx) <= 1) || (o === 1 && y === py0 && Math.abs(x - gx) <= 1) ||
+    (o === 2 && x === px1 && Math.abs(y - gy) <= 1) || (o === 3 && x === px0 && Math.abs(y - gy) <= 1);
+  for (let x = px0; x <= px1; x++) for (const y of [py0, py1]) if (!gate(x, y)) p.gScr(x, y, (x - px0) % 3 === 0 ? post : f);
+  for (let y = py0; y <= py1; y++) for (const x of [px0, px1]) if (!gate(x, y)) p.gScr(x, y, (y - py0) % 3 === 0 ? post : f);
+  // dirt track from the gate to the street
+  const track = p.winter ? hx("#c8c4bc") : shade(M.dirt, 1.02);
+  if (o === 0) for (let y = py1 + 1; y < SH - 1; y++) { p.gScr(gx, y, track); p.gScr(gx + 1, y, shade(track, 0.94)); }
+  if (o === 1) for (let y = py0 - 1; y >= 1; y--) { p.gScr(gx, y, track); p.gScr(gx + 1, y, shade(track, 0.94)); }
+  if (o === 2) for (let x = px1 + 1; x < SW - 1; x++) { p.gScr(x, gy, track); p.gScr(x, gy + 1, shade(track, 0.94)); }
+  if (o === 3) for (let x = px0 - 1; x >= 1; x--) { p.gScr(x, gy, track); p.gScr(x, gy + 1, shade(track, 0.94)); }
+  // transmitter shack on the pad (screen rect → local box)
+  const [a0, b0] = p.Sinv(mx + 2, my - 1), [a1, b1] = p.Sinv(mx + 5, my + 2);
+  const shackDoor: Face = (u, r, n) => (u === n - 2 && r >= 0 ? C.door : u === 1 && r === 0 ? pane(p, u, r, 45) : null);
+  p.box({
+    l0: Math.min(a0, a1), d0: Math.min(b0, b1), l1: Math.max(a0, a1), d1: Math.max(b0, b1), h: 2,
+    wall: M.concreteLight, roof: shade(M.concrete, 0.86), front: shackDoor, back: shackDoor, side: shackDoor,
+  });
+  // coax run from the mast to the shack
+  p.gScr(mx + 2, my, M.dark);
+  // anchors near the lot corners
+  const anchors: [number, number][] = [[3, 4], [SW - 4, 4], [3, SH - 4], [SW - 4, SH - 4]];
+  for (const [ax, ay] of anchors) { p.scr(ax, ay, M.concreteLight); p.scr(ax + 1, ay, shade(M.concrete, 0.8)); }
   const on = ((RS.tick >> 3) & 1) === 0;
-  p.later(999, () => {
-    // guy wires from three heights
-    const wire = hx("#8a867c");
-    for (const [al, ad] of anchors) {
-      const [axp, ayp] = p.S(al, ad);
-      for (const frac of [0.35, 0.7, 1]) {
-        const hy = my - Math.round(H * frac);
-        const n = Math.max(Math.abs(axp - mx), Math.abs(ayp - hy));
-        for (let s = 1; s < n; s += 1) {
-          if (s % 2) continue; // fine wire: dotted
-          const x = mx + Math.round(((axp - mx) * s) / n), y = hy + Math.round(((ayp - hy) * s) / n);
-          p.scr(x, y, wire);
-        }
-      }
-    }
-    // the mast: banded red / white, 1 px lattice + pier
-    p.scr(mx, my, M.concrete); p.scr(mx + 1, my, shade(M.concrete, 0.8));
+  p.later(my + 0.9, () => {
+    // guy wires: front pair from the top, back pair from ~2/3 height
+    const wire = hx("#9a968c");
+    anchors.forEach(([ax, ay], i) => {
+      const hy = my - (i < 2 ? Math.round(H * 0.66) : H - 1);
+      const n = Math.max(Math.abs(ax - mx), Math.abs(ay - hy));
+      for (let s = 1; s < n; s++) p.scr(mx + (ax > mx ? 1 : 0) + Math.round(((ax - mx) * s) / n), hy + Math.round(((ay - hy) * s) / n), wire);
+    });
+    // the mast: 2-px lattice, banded red / white, on its pier
+    p.scr(mx - 1, my, M.concrete); p.scr(mx, my, M.concrete); p.scr(mx + 1, my, shade(M.concrete, 0.8));
     for (let k = 1; k <= H; k++) {
-      const band = ((k - 1) / 2 | 0) % 2 === 0 ? hx("#d0402f") : M.white;
-      p.scr(mx, my - k, band);
-      if (k % 2 === 0) p.scr(mx + 1, my - k, shade(band, 0.7));
+      const band = (((k - 1) >> 1) & 1) === 0 ? hx("#d0402f") : M.white;
+      p.scr(mx, my - k, k & 1 ? band : shade(band, 0.88));
+      p.scr(mx + 1, my - k, k & 1 ? shade(band, 0.72) : shade(band, 0.8));
     }
-    const top = my - H - 1;
-    p.scr(mx, top, on ? EMISSIVE.beacon : hx("#5a1a1a"));
-    if (on) { p.scr(mx - 1, top, hx("#c83a30")); p.scr(mx + 1, top, hx("#c83a30")); p.scr(mx, top - 1, hx("#c83a30")); }
-    else p.scr(mx, my - (H >> 1), EMISSIVE.beacon);
-    // shadow of the mast on the grass
-    for (let k = 1; k < 5; k++) p.shadowPx(mx + k, my + 1);
+    // beacon on top, mid-mast lamp in antiphase
+    p.beacon(mx, my - H - 1, on);
+    p.scr(mx + 1, my - H - 1, on ? EMISSIVE.beaconGlow : hx("#5a1a1a"));
+    p.beacon(mx + 1, my - (H >> 1), !on, 1);
+    // the mast's shadow on the ground, to the SE
+    for (let k = 1; k < 6; k++) p.shadowPx(mx + 1 + k, my + 1 + (k >> 1));
   });
 }
 

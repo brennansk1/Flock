@@ -82,7 +82,8 @@ test("every plan-kit lot fills its footprint (main + alt) in all four frontages,
         assert.deepEqual(a, b, `${name} ${fw}×${fh} ${side}: deterministic`);
         // the composed art covers most of the footprint (ring + open lawn may stay ground)
         const cover = diffFrac(bg, a);
-        assert.ok(cover > 0.35, `${name} ${fw}×${fh} ${side}: covers only ${(cover * 100).toFixed(0)}% of its footprint`);
+        // the radio mast stands in open land (natural ground): lower floor
+        assert.ok(cover > (name === "RadioTower" ? 0.2 : 0.35), `${name} ${fw}×${fh} ${side}: covers only ${(cover * 100).toFixed(0)}% of its footprint`);
       }
     }
   }
@@ -116,4 +117,22 @@ test("animated set pieces move on the frame clock (ferris wheel, cinema chaser, 
     const b = frame(stage(lot, fw, fh, "S", true), fw, fh, 74).data;
     assert.ok(diffFrac(a, b) > 0, `${name}: frames 0 and 74 should differ`);
   }
+});
+
+test("radio tower: natural ground outside its pad, and a blooming red beacon at night", () => {
+  const lot = Lot.RadioTower;
+  const { w: fw, h: fh } = footprintOf(lot);
+  // ground at the lot's corner px (away from pad / anchors) matches open land
+  const bg = frame(stage(lot, fw, fh, "S", false), fw, fh).data;
+  const a = frame(stage(lot, fw, fh, "S", true), fw, fh).data;
+  const W = fw * 8;
+  for (const [x, y] of [[1, 8], [8, 1], [W - 2, 9], [W - 2, 16]] as const) {
+    const i = (y * W + x) * 4;
+    assert.deepEqual([a[i], a[i + 1], a[i + 2]], [bg[i], bg[i + 1], bg[i + 2]], `open ground at ${x},${y}`);
+  }
+  const s = createSim({ seed: 7, balance, world: stage(lot, fw, fh, "S", true), spawns: [], timerTicks: 0, dominationPermille: 1000 });
+  const night = renderTown(s, { frameTick: 0, lod: 1, view: { x: 3, y: 3, w: fw, h: fh }, season: "summer", timeOfDay: "night" }).data;
+  let hot = 0;
+  for (let i = 0; i < night.length; i += 4) if (night[i]! >= 160 && night[i + 1]! < 80 && night[i + 2]! < 80) hot++;
+  assert.ok(hot >= 9, `beacon + bloom should be >= 9 red px at night, got ${hot}`);
 });

@@ -54,3 +54,18 @@ Source: the user's per-item verdicts in the Stage 2 approval docket (88 recorded
 | Rail (terr-10) | An animated freight train running the line on a schedule. |
 | Parking | Parked cars come and go by time of day (deterministic from frameTick), not static. |
 | Seasons | Night in every season. Smooth season transitions: a `seasonBlend` option cross-fades palettes. |
+
+## Lead review round (before republishing the docket)
+
+Every revised item was re-checked in the studio and in situ. Anything short of the notes was fixed, and a presence lint now guards it.
+
+| Found | Fix |
+|---|---|
+| Chapel missing on 9/15 benchmark towns; playground or ball field missing on 4 (late trimming passes erased them) | `ensureSchoolGrounds` runs last. The audit now requires a chapel, cemetery, substation, school playground and ball field on full-size maps. |
+| Substation mid-town, its pole line over rooftops | `placeSubstation`: open ground at the town edge beside a road, nearest the works. |
+| No center pivots on some farm maps (placed after farmsteads had filled the land) | Pivots are laid first, from their own RNG stream, by a full site scan: 2–3 on farm maps. Drawn as an r²+r disc (round, no nubs). |
+| Trailers scattered through ordinary blocks; the planned park failed on ~half the maps | The park search covers all four gate orientations. `TileFlag.TrailerPark` is a render hint: trailers draw only in the park, and other fringe lots are cottages. Districts are unchanged. |
+| 30% of desert homes were Midwestern ranches | Every desert home is Southwestern: adobe, pueblo or mission, in six stucco tones. |
+| A second cannery inland by the rail on oceanside maps | The oceanside grain elevator becomes a cold-storage warehouse; the only cannery is on its pier. |
+| Water tower legs stood in streaky lawn | The yard under the tank is fenced gravel. |
+| A hemmed-in church could lose its lot | A stand-alone neighbouring storefront becomes the lot next door. |

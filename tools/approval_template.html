@@ -63,14 +63,19 @@ table.pop td,table.pop th{padding:2px 10px;border-bottom:1px solid var(--line);t
 table.pop th:first-child,table.pop td:first-child{text-align:left}
 .tablewrap{overflow-x:auto}
 button:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.prev{margin:10px 0 0;padding:10px 12px;border:1px solid var(--line);border-radius:8px;font-size:14px;line-height:1.45}
+.prev b{font-weight:600}
+.prev .was{color:var(--muted)}
+.prev .fix{margin-top:4px}
+.shots .tag{flex-basis:100%;font:600 11px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:6px 0 -4px}
 @media (max-width:520px){.head h3{font-size:18px}}
 </style>
 
 <div class="wrap">
   <header class="top">
-    <div class="eyebrow">Flock · Stage 2 gate · 1983–86 small-town worldgen</div>
+    <div class="eyebrow">Flock · Stage 2b revision round · 1983–86 small-town worldgen</div>
     <h1>Asset &amp; Map Docket</h1>
-    <p class="lede">Every town asset with its footprint, variants (street on each side, winter, night) and where the generator places it, then every aspect of map generation. Scale: 1 tile ≈ 15 m (one house lot); a city block is 6 tiles road to road. Mark each item Approved, Needs work or Rejected and add a note. Verdicts save for the whole team, and Claude reads them back to plan fixes.</p>
+    <p class="lede">Round two. Every item you marked Needs work, Rejected or left a note on has been revised: each card shows your Stage 2 verdict, what changed, and the Stage 2 images beside the new ones. Items you approved without a note carry over as approved; change any of them if you like. Use the <b>Revised</b> filter to review only what changed. Scale: 1 tile ≈ 15 m (one house lot).</p>
   </header>
   <div class="bar">
     <div class="tally" id="tally"></div>
@@ -82,6 +87,9 @@ button:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outl
 
 <script>
 const ITEMS = /*__ITEMS__*/[];
+const R1 = /*__ROUND1__*/{}; // Stage 2 verdicts: id -> {status, note, changed}
+const COLL = "verdicts_2b";
+const revised = (id) => !!R1[id] && (R1[id].status !== "approved" || !!R1[id].note || !!R1[id].changed);
 const GROUP_ORDER = ["Before → After","1980s Vehicle Fleet","Downtown & Main Street","Residential & School","Industry & Countryside","Hydrology, Terrain & Foliage","Landmarks","Micro-animations","Map Generation"];
 const groups = GROUP_ORDER.filter(g => ITEMS.some(i => i.group === g));
 const verdicts = {}; // id -> {status, note}
@@ -92,7 +100,7 @@ function el(tag, attrs = {}, ...kids){ const e = document.createElement(tag); fo
 
 function renderTally(){
   const t = { approved:0, needs_work:0, rejected:0 };
-  for (const it of ITEMS) { const s = verdicts[it.id]?.status; if (s in t) t[s]++; }
+  for (const it of ITEMS) { const s = statusOf(it.id); if (s in t) t[s]++; }
   const n = ITEMS.length, open = n - t.approved - t.needs_work - t.rejected;
   const box = document.getElementById("tally"); box.textContent = "";
   box.append(el("span",{},el("b",{text:String(t.approved)})," approved"), el("span",{},el("b",{text:String(t.needs_work)})," needs work"), el("span",{},el("b",{text:String(t.rejected)})," rejected"), el("span",{},el("b",{text:String(open)})," open"));
@@ -104,15 +112,15 @@ function renderFilters(){
   const f = document.getElementById("filters"); f.textContent = "";
   for (const g of ["All", ...groups]) { const b = el("button",{type:"button","aria-pressed":String(fGroup===g),text:g}); b.onclick = () => { fGroup = g; renderFilters(); renderList(); }; f.append(b); }
   f.append(el("span",{class:"sep"}));
-  for (const [k,label] of [["all","Any status"],["open","Open"],["needs_work","Needs work"],["rejected","Rejected"],["approved","Approved"]]) { const b = el("button",{type:"button","aria-pressed":String(fStatus===k),text:label}); b.onclick = () => { fStatus = k; renderFilters(); renderList(); }; f.append(b); }
+  for (const [k,label] of [["all","Any status"],["revised","Revised"],["open","Open"],["needs_work","Needs work"],["rejected","Rejected"],["approved","Approved"]]) { const b = el("button",{type:"button","aria-pressed":String(fStatus===k),text:label}); b.onclick = () => { fStatus = k; renderFilters(); renderList(); }; f.append(b); }
 }
-function statusOf(id){ return verdicts[id]?.status || "open"; }
+function statusOf(id){ return verdicts[id]?.status || (R1[id]?.status === "approved" && !revised(id) ? "approved" : "open"); }
 async function save(id, patch, stamp){
   const next = { ...(verdicts[id] || {}), ...patch, at: new Date().toISOString() };
   verdicts[id] = next; renderTally();
   const card = document.querySelector(`article[data-id="${CSS.escape(id)}"]`); if (card) card.dataset.status = next.status || "open";
   if (!db) return;
-  try { await db.collection("verdicts").doc(id).set(next); if (stamp) stamp.textContent = "Saved"; }
+  try { await db.collection(COLL).doc(id).set(next); if (stamp) stamp.textContent = "Saved"; }
   catch (e) { if (stamp) stamp.textContent = e?.code === "invalid_argument" ? "Read-only: you can't save verdicts here" : "Not saved — try again"; if (e?.code === "invalid_argument") { writable = false; renderList(); } }
 }
 function card(it){
@@ -122,6 +130,12 @@ function card(it){
   if (it.scale) head.append(el("span",{class:"scale",text:it.scale}));
   a.append(head);
   if (it.placement) a.append(el("p",{class:"rule",text:it.placement}));
+  if (revised(it.id)) {
+    const r = R1[it.id], word = { approved:"Approved", needs_work:"Needs work", rejected:"Rejected", open:"Open" }[r.status] || r.status;
+    const box = el("div",{class:"prev"}, el("div",{class:"was"}, el("b",{text:`Stage 2: ${word}`}), r.note ? ` — “${r.note}”` : ""));
+    if (r.changed) box.append(el("div",{class:"fix"}, el("b",{text:"What changed: "}), r.changed));
+    a.append(box);
+  }
   if (it.table) {
     const tw = el("div",{class:"tablewrap"}); const tb = el("table",{class:"pop"});
     tb.append(el("tr",{},el("th",{text:"map"}),el("th",{text:"town type"}),el("th",{text:"residents (avg)"}),el("th",{text:"populated tiles"})));
@@ -130,7 +144,8 @@ function card(it){
   }
   if (it.images?.length) {
     const shots = el("div",{class:"shots"});
-    for (const im of it.images) { const img = el("img",{src:im.file,alt:`${it.name} — ${im.label}`,loading:"lazy"}); const fig = el("figure",{},el("div",{class:"well"},img),el("figcaption",{text:im.label}));
+    const all = it.before?.length ? [{ tag: "Stage 2 (before)" }, ...it.before, { tag: "Stage 2b (now)" }, ...it.images] : it.images;
+    for (const im of all) { if (im.tag) { shots.append(el("div",{class:"tag",text:im.tag})); continue; } const img = el("img",{src:im.file,alt:`${it.name} — ${im.label}`,loading:"lazy"}); const fig = el("figure",{},el("div",{class:"well"},img),el("figcaption",{text:im.label}));
       img.onload = () => { if (img.naturalWidth > 560) { fig.classList.add("wide"); img.style.width = "100%"; } else img.style.width = (img.naturalWidth*2)+"px"; };
       shots.append(fig); }
     a.append(shots);
@@ -148,7 +163,7 @@ function renderList(){
   const list = document.getElementById("list"); list.textContent = "";
   for (const g of groups) {
     if (fGroup !== "All" && fGroup !== g) continue;
-    const its = ITEMS.filter(i => i.group === g && (fStatus === "all" || statusOf(i.id) === fStatus));
+    const its = ITEMS.filter(i => i.group === g && (fStatus === "all" || (fStatus === "revised" ? revised(i.id) : statusOf(i.id) === fStatus)));
     if (!its.length) continue;
     const s = el("section",{class:"group"}, el("h2",{}, g, el("small",{text:`${its.length} item${its.length===1?"":"s"}`})));
     for (const it of its) s.append(card(it));
@@ -162,7 +177,7 @@ renderTally(); renderFilters(); renderList();
   if (!db) { banner.hidden = false; banner.textContent = "Verdicts can't be saved in this view. Open the page on claude.ai, signed in, to approve items."; renderList(); return; }
   try { const user = await window.claude.use("user"); const can = user ? await user.can("data.write") : null; if (can === false) { writable = false; banner.hidden = false; banner.textContent = "You can view this docket; only people with Contributor access or above can record verdicts."; } } catch {}
   renderList();
-  db.collection("verdicts").onSnapshot((snap) => {
+  db.collection(COLL).onSnapshot((snap) => {
     for (const d of snap.docs) { const v = d.data(); if (v) verdicts[d.id] = { status: v.status, note: v.note }; }
     renderTally();
     // refresh cards in place without clobbering a note being typed

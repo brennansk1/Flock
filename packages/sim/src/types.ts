@@ -156,6 +156,10 @@ export const Lot = {
   Megachurch: 38,
   Fairground: 39,
   RadioTower: 40,
+  /** Stage 2b: stone breakwater segment out into the sea (the lighthouse stands at its end). */
+  Jetty: 41,
+  /** Stage 2b: the dam's powerhouse on the bank. */
+  Powerhouse: 42,
 } as const;
 export type Lot = (typeof Lot)[keyof typeof Lot];
 

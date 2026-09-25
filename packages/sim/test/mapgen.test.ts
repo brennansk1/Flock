@@ -269,8 +269,10 @@ test("every parking lot touches a road, and civic anchors park on their frontage
   for (const seed of SEEDS) {
     const w = generateWorld(seed, 96, 96);
     const width = 96;
-    const road = (t: number): boolean => t >= 0 && t < w.terrain.length && w.terrain[t] === Terrain.Road;
-    // every connected parking component must have at least one tile on a road
+    // Stage 2b: a works' truck yard or an institution's lot may be reached
+    // off its gravel lane (Dirt) — still never landlocked
+    const road = (t: number): boolean => t >= 0 && t < w.terrain.length && (w.terrain[t] === Terrain.Road || w.terrain[t] === Terrain.Dirt);
+    // every connected parking component must have at least one tile on a road or lane
     const seen = new Set<number>();
     for (let t = 0; t < w.lot.length; t++) {
       if (w.lot[t] !== Lot.Parking || seen.has(t)) continue;

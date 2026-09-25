@@ -77,10 +77,12 @@ export interface SquareInfo {
  */
 export function platCourthouseSquare(w: World, town: PlanTown): SquareInfo | null {
   const { width } = w;
-  const seen = new Uint8Array(w.terrain.length);
   let best: SquareInfo | null = null;
   let bestScore = Infinity;
-  const reach = Math.max(8, ((town.r * 6) / 10) | 0);
+  // strict first (street on all 4 sides); sparse towns relax to 3, then 2
+  for (let minSides = 4; minSides >= 2 && !best; minSides--) {
+  const seen = new Uint8Array(w.terrain.length);
+  const reach = Math.max(8, town.r + 4); // the whole town; the score still prefers the crossing
   for (let y = Math.max(1, town.highwayY - reach); y <= Math.min(w.height - 2, town.highwayY + reach); y++) {
     for (let x = Math.max(1, town.highwayX - reach); x <= Math.min(width - 2, town.highwayX + reach); x++) {
       const t = y * width + x;
@@ -100,15 +102,13 @@ export function platCourthouseSquare(w: World, town: PlanTown): SquareInfo | nul
       const bw = x1 - x0 + 1;
       const bh = y1 - y0 + 1;
       // a true rectangular city block, big enough for the courthouse + lawn
-      if (!free || blk.length !== bw * bh || bw < 3 || bh < 3 || bw > 7 || bh > 7) continue;
-      let ringed = true; // a real square is bounded by street on every side
-      for (let xx = x0; xx <= x1 && ringed; xx++) {
-        if (!isWay(w, (y0 - 1) * width + xx) || !isWay(w, (y1 + 1) * width + xx)) ringed = false;
-      }
-      for (let yy = y0; yy <= y1 && ringed; yy++) {
-        if (!isWay(w, yy * width + x0 - 1) || !isWay(w, yy * width + x1 + 1)) ringed = false;
-      }
-      if (!ringed) continue;
+      if (!free || blk.length !== bw * bh || bw < 3 || bh < 3 || bw > 9 || bh > 9) continue; // desert blocks run wider
+      // a real square is bounded by street on every side (relaxed for sparse towns)
+      let n = 0, s2 = 0, e = 0, wv = 0;
+      for (let xx = x0; xx <= x1; xx++) { if (isWay(w, (y0 - 1) * width + xx)) n++; if (isWay(w, (y1 + 1) * width + xx)) s2++; }
+      for (let yy = y0; yy <= y1; yy++) { if (isWay(w, yy * width + x0 - 1)) wv++; if (isWay(w, yy * width + x1 + 1)) e++; }
+      const sides = (n === bw ? 1 : 0) + (s2 === bw ? 1 : 0) + (wv === bh ? 1 : 0) + (e === bh ? 1 : 0);
+      if (sides < minSides) continue;
       const mx = (x0 + x1) >> 1;
       const my = (y0 + y1) >> 1;
       const dx = mx - town.highwayX;
@@ -121,6 +121,8 @@ export function platCourthouseSquare(w: World, town: PlanTown): SquareInfo | nul
       }
     }
   }
+  }
+
   if (!best) return null;
   const bw = best.x1 - best.x0 + 1;
   const bh = best.y1 - best.y0 + 1;
@@ -276,7 +278,7 @@ export function placeHighSchoolCampus(w: World, rng: RngState, town: PlanTown): 
   for (let a = 0; a < span; a++) {
     for (let b = 1; b <= hs.h; b++) {
       if (a < hs.w) put(a, b, Lot.HighSchool, 6);
-      else if (a < hs.w + pk.w && b === 1) put(a, b, Lot.Parking, 0);
+      else if (a < hs.w + pk.w) put(a, b, Lot.Parking, 0); // student + bus lot, full depth
       else put(a, b, Lot.Park, 1);
     }
   }
@@ -493,11 +495,12 @@ const RURAL: ReadonlySet<number> = new Set([
   Lot.Substation, Lot.GrainElevator, Lot.Depot, Lot.RadioTower, Lot.Fairground, Lot.Megachurch,
   Lot.GasStation, Lot.Motel, Lot.Diner, Lot.Factory, Lot.Warehouse,
   Lot.Church, Lot.Chapel, Lot.School, // country churches and schools stand on open ground
+  Lot.Powerhouse, Lot.Cemetery, Lot.BallField,
 ]);
 const OPEN_GROUND: ReadonlySet<number> = new Set([Terrain.Grass, Terrain.Field, Terrain.Orchard, Terrain.Pasture]);
 
 /** Works that stand at the water's edge by trade (exempt from the setback). */
-const WATERSIDE: ReadonlySet<number> = new Set([Lot.Dock, Lot.Depot, Lot.Lighthouse, Lot.Cannery, Lot.Sawmill, Lot.Dam]);
+const WATERSIDE: ReadonlySet<number> = new Set([Lot.Dock, Lot.Depot, Lot.Lighthouse, Lot.Cannery, Lot.Sawmill, Lot.Dam, Lot.Jetty, Lot.Powerhouse]);
 
 /** Footprint orientations to try, biggest first: w×h, h×w, alt, alt rotated. */
 function shapes(lot: number): [number, number][] {
@@ -522,7 +525,7 @@ export function enforceFootprints(w: World, relocate = false): void {
   const seen = new Uint8Array(w.terrain.length);
   for (let t0 = 0; t0 < w.terrain.length; t0++) {
     const lot = w.lot[t0]!;
-    if (seen[t0] || lot === 0 || lot === Lot.Parking || lot === Lot.Park || lot === Lot.Dock || lot === Lot.Dam) continue;
+    if (seen[t0] || lot === 0 || lot === Lot.Parking || lot === Lot.Park || lot === Lot.Dock || lot === Lot.Dam || lot === Lot.Jetty || lot === Lot.Lighthouse) continue;
     // the component of this lot
     const comp: number[] = [];
     const st = [t0];
@@ -674,7 +677,9 @@ export function placeLandmarkCompound(
     if (inTown && tr === Terrain.Citizen) return w.district[t] !== D.Downtown && w.pop[t]! < 16;
     return OPEN_GROUND.has(tr!);
   };
-  for (const [fw, fh] of shapes(lot)) {
+  // the fairground faces its street front-on (N or S), never side-on
+  const forms = lot === Lot.Fairground ? shapes(lot).filter((_, i) => i % 2 === 0) : shapes(lot);
+  for (const [fw, fh] of forms) {
     for (let r = 0; r < Math.max(width, height) / 3; r++) {
       for (let dy = -r; dy <= r; dy++) {
         for (let dx = -r; dx <= r; dx++) {
@@ -691,7 +696,8 @@ export function placeLandmarkCompound(
               const inside = xx >= rx && xx < rx + fw && yy >= ry && yy < ry + fh;
               if (inside) { if (!ok(t)) good = false; }
               else {
-                if (w.terrain[t] === Terrain.Road || w.terrain[t] === Terrain.Dirt) street = true;
+                const nsRow = yy === ry - 1 || yy === ry + fh;
+                if ((w.terrain[t] === Terrain.Road || w.terrain[t] === Terrain.Dirt) && (lot !== Lot.Fairground || nsRow)) street = true;
                 if (w.terrain[t] === Terrain.Lake || w.terrain[t] === Terrain.Rock) wet = true;
               }
             }
@@ -744,16 +750,42 @@ export function ensureAdjacentParking(w: World): void {
     for (const c of comp)
       for (const n of neighbors4(w, c)) {
         if (w.lot[n] === Lot.Parking) has = true;
-        if (w.terrain[n] === Terrain.Citizen && w.lot[n] === 0 && w.landmark[n] === 0) {
+        const openGround = (w.terrain[n] === Terrain.Grass || w.terrain[n] === Terrain.Field) && w.landmark[n] === 0;
+        if ((w.terrain[n] === Terrain.Citizen && w.lot[n] === 0 && w.landmark[n] === 0) || openGround) {
           const street = fronts(w, n);
           if (best < 0 || (street && !bestStreet)) { best = n; bestStreet = street; }
         }
       }
+    if (!has && (best < 0 || !bestStreet)) {
+      // last resort: a neighbourhood park / playground tile on a street gives
+      // way to the building's lot (never the courthouse lawn)
+      for (const c of comp)
+        for (const n of neighbors4(w, c))
+          if ((w.lot[n] === Lot.Park || w.lot[n] === Lot.Playground) && fronts(w, n) &&
+            !neighbors4(w, n).some((m) => w.lot[m] === Lot.Courthouse) && best < 0) { best = n; bestStreet = true; }
+    }
+    if (!has && (best < 0 || !bestStreet)) {
+      // a 2-tile lot: one tile against the building, one reaching the curb
+      for (const c of comp) {
+        for (const n of neighbors4(w, c)) {
+          if (!(w.terrain[n] === Terrain.Citizen && w.lot[n] === 0 && w.landmark[n] === 0)) continue;
+          const m = neighbors4(w, n).find((k) => w.terrain[k] === Terrain.Citizen && w.lot[k] === 0 && w.landmark[k] === 0 && fronts(w, k));
+          if (m === undefined) continue;
+          w.lot[m] = Lot.Parking; w.pop[m] = 0;
+          best = n; bestStreet = true;
+          break;
+        }
+        if (bestStreet) break;
+      }
+    }
     if (has || best < 0 || !bestStreet) continue; // a lot needs a curb cut onto a street
+    if (w.terrain[best] !== Terrain.Citizen) { w.terrain[best] = Terrain.Citizen; w.district[best] = w.district[comp[0]!]!; }
     w.lot[best] = Lot.Parking;
     w.pop[best] = 0;
   }
 }
+
+const WORKS: ReadonlySet<number> = new Set([Lot.Factory, Lot.Warehouse, Lot.Sawmill, Lot.GrainElevator, Lot.Cannery]);
 
 /** A parking lot no street reaches is just a yard: drop landlocked remnants. */
 export function pruneLandlockedParking(w: World): void {
@@ -768,8 +800,277 @@ export function pruneLandlockedParking(w: World): void {
       comp.push(c);
       for (const n of neighbors4(w, c)) if (!seen[n] && w.lot[n] === Lot.Parking) { seen[n] = 1; st.push(n); }
     }
-    // a curb cut onto a paved street (an alley alone isn't access)
+    // a curb cut onto a paved street (an alley alone isn't access) — except a
+    // works' truck yard, which is reached off its lane
     if (comp.some((c) => neighbors4(w, c).some((n) => w.terrain[n] === Terrain.Road))) continue;
+    const works = comp.some((c) => neighbors4(w, c).some((n) => WORKS.has(w.lot[n]!) || NEEDS_LOT.has(w.lot[n]!)));
+    if (works && comp.some((c) => neighbors4(w, c).some((n) => w.terrain[n] === Terrain.Dirt))) continue;
     for (const c of comp) { w.lot[c] = 0; w.pop[c] = 1; }
   }
+}
+
+// =====================================================================
+// Stage 2b — placement from the approval docket
+// =====================================================================
+
+/** All open (lot-0, non-landmark) town tiles of a w×h rect, or false. */
+function openRect(w: World, x0: number, y0: number, fw: number, fh: number, allow: (t: number) => boolean): boolean {
+  if (x0 < 1 || y0 < 1 || x0 + fw >= w.width - 1 || y0 + fh >= w.height - 1) return false;
+  for (let y = y0; y < y0 + fh; y++) for (let x = x0; x < x0 + fw; x++) if (!allow(y * w.width + x)) return false;
+  return true;
+}
+function stampRect(w: World, x0: number, y0: number, fw: number, fh: number, lot: number, district: number, pop: number): void {
+  for (let y = y0; y < y0 + fh; y++)
+    for (let x = x0; x < x0 + fw; x++) {
+      const t = y * w.width + x;
+      w.terrain[t] = Terrain.Citizen;
+      w.lot[t] = lot;
+      w.district[t] = district;
+      w.pop[t] = pop;
+    }
+}
+const openTown = (w: World) => (t: number): boolean =>
+  w.terrain[t] === Terrain.Citizen && w.lot[t] === 0 && w.landmark[t] === 0;
+
+/**
+ * PARKS where towns put them: one neighbourhood park per residential
+ * quarter on a street CORNER (2×2 fronting two streets), nearest the
+ * quarter's middle, plus a small park beside the elementary school.
+ */
+export function placeParks(w: World): void {
+  const { width } = w;
+  for (const d of [D.OldTown, D.Suburbs, D.College, D.ResHigh]) {
+    let sx = 0, sy = 0, n = 0;
+    for (let t = 0; t < w.terrain.length; t++) if (w.terrain[t] === Terrain.Citizen && w.district[t] === d) { sx += t % width; sy += (t / width) | 0; n++; }
+    if (n < 12) continue;
+    const mx = sx / n, my = sy / n;
+    let best = -1, bestD = Infinity;
+    for (let t = 0; t < w.terrain.length; t++) {
+      if (w.district[t] !== d) continue;
+      const x = t % width, y = (t / width) | 0;
+      if (!openRect(w, x, y, 2, 2, openTown(w))) continue;
+      let bySchool = false;
+      for (let yy = y - 1; yy <= y + 2; yy++) for (let xx = x - 1; xx <= x + 2; xx++) {
+        const l = w.lot[yy * width + xx];
+        if (l === Lot.School || l === Lot.HighSchool || l === Lot.Church || l === Lot.Supermarket) bySchool = true;
+      }
+      if (bySchool) continue; // leave the institutions' frontage for their lots
+      // a corner: street on two perpendicular sides of the 2×2
+      const ns = isWay(w, (y - 1) * width + x) || isWay(w, (y + 2) * width + x);
+      const ew = isWay(w, y * width + x - 1) || isWay(w, y * width + x + 2);
+      if (!ns || !ew) continue;
+      const dd = (x - mx) ** 2 + (y - my) ** 2;
+      if (dd < bestD) { bestD = dd; best = t; }
+    }
+    if (best >= 0) stampRect(w, best % width, (best / width) | 0, 2, 2, Lot.Park, d, 1);
+  }
+  // the schoolyard park: a 1×2 beside the elementary school (unless it
+  // already has its playground) — never on the side its parking needs
+  for (let t = 0; t < w.terrain.length; t++) {
+    if (w.lot[t] !== Lot.School) continue;
+    if (w.lot.some((l, k) => l === Lot.Playground && neighbors4(w, k).some((n) => w.lot[n] === Lot.School))) return;
+    for (const n of neighbors4(w, t)) {
+      const x = n % width, y = (n / width) | 0;
+      for (const [fw, fh] of [[1, 2], [2, 1]] as const) {
+        if (openRect(w, x, y, fw, fh, openTown(w)) && fronts(w, n)) { stampRect(w, x, y, fw, fh, Lot.Playground, w.district[t]!, 1); return; }
+      }
+    }
+  }
+}
+
+/** The ball field goes beside a school (never loose in a quarter). */
+export function placeBallField(w: World): void {
+  const { width } = w;
+  for (let t = 0; t < w.terrain.length; t++) {
+    if (w.lot[t] !== Lot.School && w.lot[t] !== Lot.HighSchool) continue;
+    for (const n of neighbors4(w, t)) {
+      const x0 = n % width, y0 = (n / width) | 0;
+      for (const [dx, dy] of [[0, 0], [-1, 0], [0, -1], [-1, -1]] as const) {
+        const x = x0 + dx, y = y0 + dy;
+        if (!openRect(w, x, y, 2, 2, (k) => openTown(w)(k) || (w.terrain[k] === Terrain.Grass && w.landmark[k] === 0))) continue;
+        stampRect(w, x, y, 2, 2, Lot.BallField, D.College, 1);
+        return;
+      }
+    }
+  }
+}
+
+/**
+ * The CEMETERY sits on the edge of town (4×3, alt 3×3) on open ground
+ * beside a road, gated — not inside a block.
+ */
+export function placeCemetery(w: World, town: PlanTown): void {
+  const { width, height } = w;
+  const near = (t: number): boolean => {
+    const x = t % width, y = (t / width) | 0;
+    for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) {
+      const n = (y + dy) * width + x + dx;
+      if (n >= 0 && n < w.terrain.length && w.terrain[n] === Terrain.Citizen && w.district[n] !== 0 && w.district[n] !== D.Trailer) return true;
+    }
+    return false;
+  };
+  let best: [number, number, number, number] | null = null;
+  let bestD = Infinity;
+  for (const [fw, fh] of [[4, 3], [3, 4], [3, 3]] as const) {
+    for (let y = 2; y < height - fh - 2; y++)
+      for (let x = 2; x < width - fw - 2; x++) {
+        if (!openRect(w, x, y, fw, fh, (t) => (w.terrain[t] === Terrain.Grass || w.terrain[t] === Terrain.Field) && w.landmark[t] === 0)) continue;
+        let road = false, edge = false, wet = false;
+        for (let yy = y - 1; yy <= y + fh; yy++) for (let xx = x - 1; xx <= x + fw; xx++) {
+          const t = yy * width + xx;
+          if (w.terrain[t] === Terrain.Road) road = true;
+          if (w.terrain[t] === Terrain.Lake) wet = true;
+          if (near(t)) edge = true;
+        }
+        if (!road || !edge || wet) continue;
+        const d = (x - town.cx) ** 2 + (y - town.cy) ** 2;
+        if (d < bestD) { bestD = d; best = [x, y, fw, fh]; }
+      }
+    if (best) break;
+  }
+  if (best) stampRect(w, best[0], best[1], best[2], best[3], Lot.Cemetery, D.OldTown, 1);
+}
+
+/**
+ * TRAILER PARK: one proper park on the town fringe — a gravel loop lane off
+ * a road with trailers on both sides of it (not a scatter of singles).
+ */
+export function placeTrailerPark(w: World, town: PlanTown): void {
+  const { width, height } = w;
+  const W = 7, H = 6; // lane runs down column 3 then loops along the back row
+  for (let r = Math.floor(town.r * 0.7); r < town.r * 2; r++) {
+    for (let a = 0; a < 16; a++) {
+      const x0 = town.cx + Math.round(Math.cos((a / 16) * 6.283) * r) - 3;
+      const y0 = town.cy + Math.round(Math.sin((a / 16) * 6.283) * r * 0.75) - 3;
+      if (x0 < 2 || y0 < 2 || x0 + W >= width - 2 || y0 + H >= height - 2) continue;
+      const ok = openRect(w, x0, y0, W, H, (t) =>
+        ((w.terrain[t] === Terrain.Grass || w.terrain[t] === Terrain.Field) || (w.terrain[t] === Terrain.Citizen && w.lot[t] === 0 && (w.district[t] === D.Trailer || w.district[t] === D.Suburbs))) && w.landmark[t] === 0);
+      if (!ok) continue;
+      // entrance: a road directly above the lane column
+      const gate = (y0 - 1) * width + x0 + 3;
+      if (w.terrain[gate] !== Terrain.Road) continue;
+      for (let y = y0; y < y0 + H; y++)
+        for (let x = x0; x < x0 + W; x++) {
+          const t = y * width + x;
+          const lane = x === x0 + 3 || (y === y0 + H - 2 && x >= x0 + 1 && x <= x0 + 5) || ((x === x0 + 1 || x === x0 + 5) && y >= y0 + 2 && y <= y0 + H - 2);
+          if (lane) { w.terrain[t] = Terrain.Dirt; w.lot[t] = 0; w.pop[t] = 0; continue; }
+          w.terrain[t] = Terrain.Citizen; w.district[t] = D.Trailer; w.lot[t] = 0; w.pop[t] = 3;
+        }
+      return;
+    }
+  }
+}
+
+/**
+ * MID-BLOCK ALLEYS: a residential block deep enough to leave a hole of
+ * backyards gets a gravel alley through its middle (the Midwest plat), so
+ * every interior lot is a backyard off the alley — no empty middle.
+ */
+export function platAlleys(w: World): void {
+  const { width } = w;
+  const seen = new Uint8Array(w.terrain.length);
+  for (let t0 = 0; t0 < w.terrain.length; t0++) {
+    if (seen[t0] || w.terrain[t0] !== Terrain.Citizen) continue;
+    const blk = blockOf(w, t0, seen);
+    if (blk.length > 64) continue;
+    let x0 = width, y0 = w.height, x1 = -1, y1 = -1;
+    for (const b of blk) { const x = b % width, y = (b / width) | 0; x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+    const bw = x1 - x0 + 1, bh = y1 - y0 + 1;
+    if (blk.length !== bw * bh || bw < 5 || bh < 5) continue;
+    if (!blk.every((b) => RESIDENTIAL_DISTRICTS.has(w.district[b]!) && w.lot[b] === 0 && w.landmark[b] === 0)) continue;
+    // alley along the long axis, through the middle, exiting on both ends
+    if (bw >= bh) { const y = y0 + (bh >> 1); for (let x = x0; x <= x1; x++) { const t = y * width + x; w.terrain[t] = Terrain.Dirt; w.pop[t] = 0; } }
+    else { const x = x0 + (bw >> 1); for (let y = y0; y <= y1; y++) { const t = y * width + x; w.terrain[t] = Terrain.Dirt; w.pop[t] = 0; } }
+  }
+}
+
+/** A lot of `fw×fh` Parking beside a compound (the megachurch's huge lot). */
+export function parkBeside(w: World, lot: number, fw: number, fh: number): void {
+  const { width } = w;
+  let x0 = width, y0 = w.height, x1 = -1, y1 = -1;
+  for (let t = 0; t < w.lot.length; t++) if (w.lot[t] === lot) { const x = t % width, y = (t / width) | 0; x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+  if (x1 < 0) return;
+  const open = (t: number): boolean => (openTown(w)(t) || w.terrain[t] === Terrain.Grass || w.terrain[t] === Terrain.Field) && w.landmark[t] === 0;
+  for (const [px, py, pw, ph] of [[x1 + 1, y0, fh, fw], [x0 - fh, y0, fh, fw], [x0, y1 + 1, fw, fh], [x0, y0 - fh, fw, fh]] as const) {
+    if (!openRect(w, px, py, pw, ph, open)) continue;
+    let street = false;
+    for (let y = py; y < py + ph; y++) for (let x = px; x < px + pw; x++) if (fronts(w, y * width + x)) street = true;
+    if (!street) continue;
+    stampRect(w, px, py, pw, ph, Lot.Parking, D.Suburbs, 0);
+    return;
+  }
+}
+
+/**
+ * A pier (Dock) or stone jetty (Jetty) running straight out from a shore
+ * root over open water. The root stays land (a Citizen bait shop / pier
+ * head, so the shore stays connected); deck segments are lots on Lake
+ * tiles (jetty segments are walkable Path). `wide` doubles the deck (a
+ * marina with slips). Returns the last deck tile, or -1 if the water
+ * isn't open for the full length.
+ */
+export function buildPier(
+  w: World, rootX: number, rootY: number, dx: number, dy: number, len: number, kind: number, wide = false,
+): number {
+  const { width, height } = w;
+  const at = (k: number, side: number): number => {
+    const x = rootX + dx * k + (dy !== 0 ? side : 0);
+    const y = rootY + dy * k + (dx !== 0 ? side : 0);
+    return x < 1 || y < 1 || x >= width - 1 || y >= height - 1 ? -1 : y * width + x;
+  };
+  for (let k = 1; k <= len; k++) for (const sd of wide ? [0, 1] : [0]) {
+    const t = at(k, sd);
+    if (t < 0 || w.terrain[t] !== Terrain.Lake || w.lot[t] !== 0) return -1;
+  }
+  const root = at(0, 0);
+  if (root < 0 || w.terrain[root] === Terrain.Lake || w.terrain[root] === Terrain.Road || w.terrain[root] === Terrain.Rail) return -1;
+  if (w.lot[root] === 0 && w.landmark[root] === 0) {
+    w.terrain[root] = Terrain.Citizen;
+    w.district[root] = w.district[root] || D.Trailer;
+    w.lot[root] = Lot.Dock;
+    w.pop[root] = 2;
+  }
+  let last = -1;
+  for (let k = 1; k <= len; k++) for (const sd of wide ? [0, 1] : [0]) {
+    const t = at(k, sd);
+    w.lot[t] = kind;
+    w.pop[t] = 0;
+    if (kind === Lot.Jetty) w.terrain[t] = Terrain.Path;
+    last = t;
+  }
+  return last;
+}
+
+/**
+ * After buildings grow/relocate, their satellites must still sit with
+ * them: a playground or ball field no longer beside a school (or park)
+ * reverts to a yard; a pasture with no barn within 4 tiles becomes crops.
+ */
+export function tidySatellites(w: World): void {
+  const { width } = w;
+  const near = (t: number, r: number, pred: (k: number) => boolean): boolean => {
+    const x = t % width, y = (t / width) | 0;
+    for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+      const k = (y + dy) * width + x + dx;
+      if (k >= 0 && k < w.lot.length && pred(k)) return true;
+    }
+    return false;
+  };
+  const comps = (pred: (t: number) => boolean): number[][] => {
+    const seen = new Uint8Array(w.lot.length), out: number[][] = [];
+    for (let t = 0; t < w.lot.length; t++) {
+      if (seen[t] || !pred(t)) continue;
+      const st = [t], c: number[] = []; seen[t] = 1;
+      while (st.length) { const k = st.pop()!; c.push(k); for (const n of neighbors4(w, k)) if (!seen[n] && pred(n)) { seen[n] = 1; st.push(n); } }
+      out.push(c);
+    }
+    return out;
+  };
+  const school = (k: number): boolean => w.lot[k] === Lot.School || w.lot[k] === Lot.HighSchool || w.lot[k] === Lot.Track;
+  for (const c of comps((t) => w.lot[t] === Lot.Playground))
+    if (!c.some((t) => near(t, 1, (k) => school(k) || w.lot[k] === Lot.Park))) for (const t of c) { w.lot[t] = 0; w.pop[t] = 1; }
+  for (const c of comps((t) => w.lot[t] === Lot.BallField))
+    if (!c.some((t) => near(t, 1, school))) for (const t of c) { w.lot[t] = 0; w.pop[t] = 1; }
+  for (const c of comps((t) => w.terrain[t] === Terrain.Pasture))
+    if (!c.some((t) => near(t, 4, (k) => w.lot[k] === Lot.Barn))) for (const t of c) w.terrain[t] = Terrain.Field;
 }

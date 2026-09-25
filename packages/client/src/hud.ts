@@ -202,6 +202,8 @@ const CIVIC_NAMES: Record<number, string> = {
   [Lot.Megachurch]: "The Old Megachurch",
   [Lot.Fairground]: "County Fairground",
   [Lot.RadioTower]: "AM Radio Tower",
+  [Lot.Jetty]: "Stone Jetty",
+  [Lot.Powerhouse]: "Dam Powerhouse",
   [Lot.Lighthouse]: "Lighthouse",
 };
 

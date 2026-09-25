@@ -160,7 +160,7 @@ test("water stays clean: no residents on water; only the dam may sit on a lake",
         if (w.terrain[t] !== Terrain.Lake) continue;
         assert.equal(w.pop[t], 0, `${townType} seed ${seed}: residents living on water at t=${t}`);
         assert.ok(
-          w.lot[t] === 0 || w.lot[t] === Lot.Dam,
+          w.lot[t] === 0 || w.lot[t] === Lot.Dam || w.lot[t] === Lot.Dock || w.lot[t] === Lot.Jetty, // Stage 2b: piers + breakwaters stand in the water
           `${townType} seed ${seed}: lot ${w.lot[t]} stranded on water at t=${t}`,
         );
       }

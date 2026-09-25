@@ -59,7 +59,7 @@ export function auditPlan(w, seed, townType = "farm") {
   for (let t = 0; t < w.terrain.length; t++) {
     const tr = w.terrain[t];
     // nothing is built on water or rock
-    const wet = w.lot[t] === Lot.Dam || w.lot[t] === Lot.Dock; // weirs and piers stand in the water by design
+    const wet = w.lot[t] === Lot.Dam || w.lot[t] === Lot.Dock || w.lot[t] === Lot.Jetty; // weirs and piers stand in the water by design
     if ((tr === Terrain.Rock || (tr === Terrain.Lake && !wet)) && (w.lot[t] !== 0 || w.pop[t] !== 0))
       bad("NO_BUILD_ON_WATER_ROCK", `lot ${w.lot[t]} / pop ${w.pop[t]} on terrain ${tr} at ${t}`);
     if (tr !== Terrain.Citizen || w.lot[t] !== 0) continue;
@@ -111,6 +111,22 @@ export function auditPlan(w, seed, townType = "farm") {
       if (around(t, 5, (k) => AGT.has(w.terrain[k]))[0] === 0) bad("FARMSTEAD", `farm building at ${t} works no land`);
     }
   }
+  // Stage 2b placement notes from the approval docket
+  const within = (comp, r, pred) => comp.some((t) => around(t, r, pred)[0] > 0);
+  for (const c of lotComponents(w, Lot.BallField))
+    if (!within(c, 1, (k) => w.lot[k] === Lot.School || w.lot[k] === Lot.HighSchool || w.lot[k] === Lot.Track)) bad("BALLFIELD", `ball field at ${c[0]} is not beside a school`);
+  for (const c of lotComponents(w, Lot.Playground))
+    if (!within(c, 1, (k) => w.lot[k] === Lot.School || w.lot[k] === Lot.Park)) bad("PLAYGROUND", `playground at ${c[0]} is not beside a school or park`);
+  for (const c of lotComponents(w, Lot.Cemetery))
+    if (!within(c, 2, (k) => w.terrain[k] === Terrain.Grass || w.terrain[k] === Terrain.Field || w.terrain[k] === Terrain.Woods || w.terrain[k] === Terrain.Pasture)) bad("CEMETERY", `cemetery at ${c[0]} is inside town, not on its edge`);
+  const agComps = (tr) => { const seen = new Uint8Array(w.terrain.length), out = [];
+    for (let t = 0; t < w.terrain.length; t++) { if (seen[t] || w.terrain[t] !== tr) continue; const st = [t], c = []; seen[t] = 1;
+      while (st.length) { const k = st.pop(); c.push(k); for (const n of [k - 1, k + 1, k - w.width, k + w.width]) if (n >= 0 && n < w.terrain.length && !seen[n] && w.terrain[n] === tr) { seen[n] = 1; st.push(n); } }
+      out.push(c); } return out; };
+  for (const c of agComps(Terrain.Pasture))
+    if (!within(c, 4, (k) => w.lot[k] === Lot.Barn)) bad("PASTURE_BARN", `pasture at ${c[0]} has no barn to go into`);
+  for (const c of agComps(Terrain.Orchard))
+    if (!within(c, 2, (k) => w.terrain[k] === Terrain.Road || w.terrain[k] === Terrain.Dirt)) bad("ORCHARD_PATH", `orchard at ${c[0]} has no lane`);
   // mountain towns sit in a real valley
   if (townType === "mountain") {
     const rock = w.terrain.reduce((a, tr) => a + (tr === Terrain.Rock ? 1 : 0), 0) / w.terrain.length;
@@ -195,7 +211,9 @@ export function auditWorld(w, seed, townType = "farm") {
     lot === Lot.Dam ||
     lot === Lot.Lighthouse ||
     lot === Lot.Cannery ||
-    lot === Lot.Sawmill;
+    lot === Lot.Sawmill ||
+    lot === Lot.Powerhouse || // the dam's powerhouse stands at the abutment
+    lot === Lot.Jetty; // breakwater stones stand in the sea
 
   for (let t = 0; t < w.terrain.length; t++) {
     const lot = w.lot[t];

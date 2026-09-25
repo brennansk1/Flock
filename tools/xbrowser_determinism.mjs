@@ -54,7 +54,10 @@ for (const name of wanted) {
     failed = true;
     continue;
   }
-  const browser = await engine.launch();
+  // XBROWSER_CHROMIUM: use a preinstalled Chromium binary (cloud sandboxes
+  // ship one at /opt/pw-browsers and forbid \`playwright install\`)
+  const exe = name === "chromium" ? process.env.XBROWSER_CHROMIUM : undefined;
+  const browser = await engine.launch(exe ? { executablePath: exe } : {});
   try {
     const page = await browser.newPage();
     await page.addScriptTag({ path: `${here}xbrowser/dist/probe.iife.js` });

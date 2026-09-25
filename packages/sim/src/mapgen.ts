@@ -23,7 +23,7 @@ import { traceGridRoads } from "./gridRoads.js";
 import { pickTownName, type Street } from "./names.js";
 import { createWorld } from "./sim.js";
 import { tidyAgriculture, ensureFarmsteadsWork, layoutFarmBelt, type BeltStyle } from "./farmPlan.js";
-import { buildPier, enforceFootprints, placeLandmarkCompound, ensureAdjacentParking, pruneLandlockedParking, tidySatellites, placeParks, placeBallField, placeCemetery, placeTrailerPark, platAlleys, parkBeside } from "./townPlan.js";
+import { buildPier, enforceFootprints, placeLandmarkCompound, ensureAdjacentParking, pruneLandlockedParking, tidySatellites, placeParks, placeBallField, placeCemetery, placeSubstation, placeTrailerPark, platAlleys, parkBeside } from "./townPlan.js";
 import { platCourthouseSquare, placeHighSchoolCampus, platMainStreet, courthouseCentre, fronts, RESIDENTIAL_DISTRICTS } from "./townPlan.js";
 
 /** Deterministic position hash for walk jitter (no rng thread needed). */
@@ -1261,7 +1261,7 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
   keystone(Lot.Warehouse, 2, 2, [D.Industrial, D.Trailer, D.Commercial], 8, 1);
   stamp(Lot.Warehouse, 2, 1, D.Industrial, 6);
   stamp(Lot.GasStation, 1, 1, D.Industrial, 3);
-  stamp(Lot.Substation, 2, 2, D.Industrial, 1);
+  if (!placeSubstation(w, town)) stamp(Lot.Substation, 2, 2, D.Industrial, 1);
 
   // College quarter
   keystone(Lot.Library, 2, 2, [D.College, D.Downtown, D.Suburbs], 5, 1);

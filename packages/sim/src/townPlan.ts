@@ -932,6 +932,41 @@ export function placeCemetery(w: World, town: PlanTown): void {
 }
 
 /**
+ * SUBSTATION: utilities sit where the transmission line comes in — on open
+ * ground at the edge of town beside a road, as close to the works as
+ * possible, so the pole line runs out over fields instead of rooftops.
+ * Returns false when no edge site exists (caller falls back to in-town).
+ */
+export function placeSubstation(w: World, town: PlanTown): boolean {
+  const { width, height } = w;
+  let ix = 0, iy = 0, ni = 0;
+  for (let t = 0; t < w.district.length; t++)
+    if (w.district[t] === D.Industrial && w.terrain[t] === Terrain.Citizen) { ix += t % width; iy += (t / width) | 0; ni++; }
+  const ax = ni ? (ix / ni) | 0 : town.cx, ay = ni ? (iy / ni) | 0 : town.cy;
+  let best: [number, number] | null = null, bestD = Infinity;
+  for (let y = 2; y < height - 4; y++)
+    for (let x = 2; x < width - 4; x++) {
+      if (!openRect(w, x, y, 2, 2, (t) => (w.terrain[t] === Terrain.Grass || w.terrain[t] === Terrain.Field) && w.landmark[t] === 0 && w.lot[t] === 0)) continue;
+      let road = false, town1 = false, wet = false;
+      for (let yy = y - 1; yy <= y + 2; yy++) for (let xx = x - 1; xx <= x + 2; xx++) {
+        const t = yy * width + xx;
+        if (w.terrain[t] === Terrain.Road) road = true;
+        if (w.terrain[t] === Terrain.Lake) wet = true;
+      }
+      for (let yy = y - 3; yy <= y + 4 && !town1; yy++) for (let xx = x - 3; xx <= x + 4; xx++) {
+        const t = yy * width + xx;
+        if (t >= 0 && t < w.terrain.length && w.terrain[t] === Terrain.Citizen && w.district[t] !== 0) { town1 = true; break; }
+      }
+      if (!road || !town1 || wet) continue;
+      const d = (x - ax) ** 2 + (y - ay) ** 2;
+      if (d < bestD) { bestD = d; best = [x, y]; }
+    }
+  if (!best) return false;
+  stampRect(w, best[0], best[1], 2, 2, Lot.Substation, D.Industrial, 1);
+  return true;
+}
+
+/**
  * TRAILER PARK: one proper park on the town fringe — a gravel loop lane off
  * a road with trailers on both sides of it (not a scatter of singles).
  */

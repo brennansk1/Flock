@@ -113,6 +113,7 @@ function crop(town, cx, cy, vw = 14, vh = 9, opts = {}) {
   return frameImg(renderTown(sim, { frameTick: opts.tick ?? 300, lod: opts.lod ?? 3, view, season: opts.season ?? "summer", timeOfDay: opts.time ?? "day" }));
 }
 /** centre of the matching component nearest the courthouse (the typical example, not a fringe outlier) */
+function findIn(towns, pred) { for (const town of towns) { const c = findCentre(town, pred); if (c) return { ...c, town }; } return null; }
 function findCentre(town, pred, seed = 42) {
   const { w } = world(town, seed);
   const court = w.lot.indexOf(Lot.Courthouse);
@@ -145,43 +146,44 @@ const LOTS = [
   ["Downtown & Main Street", "Courthouse", D.Downtown, 5, "farm", "Centre of the Courthouse Square: the street-ringed block nearest the Main St × county-route crossing; the rest of the block is lawn. Carries the Town Hall landmark."],
   ["Downtown & Main Street", "Shop", D.Downtown, 5, "farm", "Every open lot facing Main St through Downtown/Commercial, and every lot facing the square across its street — a continuous party-wall run. 10 trades by hash."],
   ["Downtown & Main Street", "Diner", D.Downtown, 5, "farm", "Main St / Commercial strip / Old Town corner; part of the storefront run."],
-  ["Downtown & Main Street", "Bank", D.Downtown, 5, "farm", "Downtown or Commercial, street frontage, paired parking."],
-  ["Downtown & Main Street", "PostOffice", D.Downtown, 5, "farm", "Downtown or Commercial frontage (also drawn into the Main St run)."],
+  ["Downtown & Main Street", "Bank", D.Downtown, 5, "farm", "Downtown or Commercial, street frontage, paired parking. Neoclassical: granite columns, pediment, clock."],
+  ["Downtown & Main Street", "PostOffice", D.Downtown, 5, "farm", "Downtown or Commercial frontage (also drawn into the Main St run). USPS blue trim and sign, flag."],
   ["Downtown & Main Street", "Office", D.Downtown, 5, "farm", "Downtown/Commercial frontage, paired parking."],
-  ["Downtown & Main Street", "Cinema", D.Commercial, 6, "farm", "Commercial strip or Downtown, street frontage, paired lot."],
-  ["Downtown & Main Street", "Supermarket", D.Commercial, 6, "farm", "Highway strip toward the town entrance (Commercial), customer lot in front."],
+  ["Downtown & Main Street", "Cinema", D.Commercial, 6, "farm", "Commercial strip or Downtown, street frontage, paired lot. At night the marquee, chaser bulbs and blade sign light up for the late show."],
+  ["Downtown & Main Street", "Supermarket", D.Commercial, 6, "farm", "Highway strip toward the town entrance (Commercial), customer lot in front. Green 1980s grocery sign band."],
   ["Downtown & Main Street", "GasStation", D.Commercial, 3, "farm", "Highway strip / trailer fringe, on the road."],
   ["Downtown & Main Street", "Motel", D.Commercial, 4, "farm", "Highway strip, strip of rooms with its lot."],
-  ["Downtown & Main Street", "Sheriff", D.Downtown, 5, "farm", "Downtown/Commercial, cruiser apron beside it."],
+  ["Downtown & Main Street", "Sheriff", D.Downtown, 5, "farm", "Downtown/Commercial, 3×2 station with a fenced lot of 2–3 black-and-white cruisers, bubble lights flashing."],
   ["Downtown & Main Street", "FireStation", D.Downtown, 5, "farm", "Downtown/Commercial, apron onto the street."],
   ["Downtown & Main Street", "Parking", D.Downtown, 0, "farm", "Rear lots behind every storefront row (with a driveway to a side street), paved interiors of commercial blocks, customer lots beside strip businesses and civic anchors, apartment lots."],
-  ["Residential & School", "HighSchool", D.College, 6, "farm", "Edge-of-town campus, touching town, ≥6 tiles from industry: school + bus lot on the street, stadium behind."],
+  ["Residential & School", "HighSchool", D.College, 6, "farm", "Edge-of-town campus, touching town, ≥6 tiles from industry: school + bus lot on the street, a 2×2 student lot beside it, stadium behind."],
   ["Residential & School", "Track", D.College, 1, "farm", "Behind the high school on its campus (football field, cinder track, bleachers, chain-link)."],
   ["Residential & School", "School", D.Suburbs, 6, "farm", "Residential quarter (College/Suburbs/ResHigh), with playground and lot; ≥6 tiles from industry."],
-  ["Residential & School", "Playground", D.Suburbs, 1, "farm", "Beside the elementary school and in suburban blocks."],
+  ["Residential & School", "Playground", D.Suburbs, 1, "farm", "Right beside the elementary school (linted); neighbourhood parks carry their own."],
   ["Residential & School", "Library", D.College, 4, "farm", "School quarter or downtown."],
-  ["Residential & School", "Church", D.OldTown, 5, "farm", "Old Town / Suburbs / Downtown with churchyard + lot; ≥6 tiles from industry."],
-  ["Residential & School", "Chapel", D.OldTown, 4, "farm", "Old Town."],
-  ["Residential & School", "Cemetery", D.OldTown, 1, "farm", "Beside the church / Old Town. (Art is Stage 3.)"],
-  ["Residential & School", "Park", D.Suburbs, 1, "farm", "Pocket parks in the quarters; the square's lawn; campus filler."],
-  ["Residential & School", "BallField", D.College, 1, "farm", "Little-league diamond in the school quarter."],
+  ["Residential & School", "Church", D.OldTown, 5, "farm", "Old Town / Suburbs / Downtown with churchyard + lot; ≥6 tiles from industry. Drawn correctly from every side (steeple, nave, entry)."],
+  ["Residential & School", "Chapel", D.OldTown, 4, "farm", "Old Town. 2×2 white clapboard chapel: steep gable, steeple, round-headed windows."],
+  ["Residential & School", "Cemetery", D.OldTown, 1, "farm", "4×3 at the edge of town on a road, never by water; gated, gravel drives, rows of headstones, cedars."],
+  ["Residential & School", "Park", D.Suburbs, 1, "farm", "The square's lawn, one neighbourhood park per quarter on a corner lot facing streets, never on an interior scrap or an institution's frontage."],
+  ["Residential & School", "BallField", D.College, 1, "farm", "Little-league diamond beside a school (linted)."],
   ["Industry & Countryside", "Factory", D.Industrial, 5, "farm", "Industrial quarter on the works side along the rail; ≥6 tiles from schools/churches."],
-  ["Industry & Countryside", "Warehouse", D.Industrial, 4, "farm", "Industrial quarter by the rail and highway end."],
+  ["Industry & Countryside", "Warehouse", D.Industrial, 4, "farm", "Industrial quarter by the rail and highway end, with its own truck lot."],
   ["Industry & Countryside", "GrainElevator", D.Industrial, 3, "farm", "On the rail siding (farm towns)."],
   ["Industry & Countryside", "Depot", D.Industrial, 3, "farm", "Beside the main line."],
-  ["Industry & Countryside", "Substation", D.Industrial, 1, "farm", "Industrial quarter."],
-  ["Industry & Countryside", "Sawmill", D.Industrial, 3, "mountain", "Mountain towns: on the rail at a woods edge, with log yard."],
-  ["Industry & Countryside", "Cannery", D.Trailer, 3, "oceanside", "Oceanside: on the shore south of the pier."],
-  ["Industry & Countryside", "Lighthouse", D.Trailer, 1, "oceanside", "Oceanside: on the shore / boardwalk north of the pier."],
-  ["Industry & Countryside", "Dock", D.Trailer, 1, "lakeside", "Lake and river shores near a road; oceanside fish docks."],
-  ["Industry & Countryside", "Dam", D.Trailer, 1, "farm", "Weir across the river upstream (millpond)."],
-  ["Industry & Countryside", "Barn", D.Trailer, 2, "farm", "Farmsteads along rural roads."],
-  ["Industry & Countryside", "Silo", D.Trailer, 2, "farm", "Farmsteads."],
+  ["Industry & Countryside", "Substation", D.Industrial, 1, "farm", "Open ground at the edge of town beside a road, nearest the works; its transmission pole line runs out over open land."],
+  ["Industry & Countryside", "Sawmill", D.Industrial, 3, "mountain", "Mountain towns: 2–3 on the rail and at woods edges, with log decks."],
+  ["Industry & Countryside", "Cannery", D.Trailer, 3, "oceanside", "Oceanside: on the shore at the root of its own 5-tile working pier."],
+  ["Industry & Countryside", "Lighthouse", D.Trailer, 1, "oceanside", "Oceanside: at the seaward end of a stone jetty 3+ tiles out into the sea (Cape Cod style); night beam sweeps."],
+  ["Industry & Countryside", "Dock", D.Trailer, 1, "lakeside", "Two sizes: a small single pier and a big 2-wide marina with slips and boats, on lake and ocean shores."],
+  ["Industry & Countryside", "Dam", D.Trailer, 1, "farm", "Concrete dam across the river: crest road bank to bank, spillway, a brick powerhouse on the bank with its access road."],
+  ["Industry & Countryside", "Powerhouse", D.Trailer, 2, "farm", "Beside the dam on the riverbank, with a road lane out to the network."],
+  ["Industry & Countryside", "Barn", D.Trailer, 2, "farm", "Farmsteads fronting section roads: house, barn(s), silo, windbreak; pasture beside the barn, fields behind."],
+  ["Industry & Countryside", "Silo", D.Trailer, 2, "farm", "Farmsteads: a tall stave silo (1×2) beside the barn."],
   ["Industry & Countryside", "Greenhouse", D.Trailer, 2, "farm", "Farmsteads."],
-  ["Industry & Countryside", "WaterTower", D.Suburbs, 1, "farm", "Suburbs (the town tank) and the landmark tank out in the country, each on a fenced 2×2 lot."],
-  ["Landmarks", "Megachurch", D.Suburbs, 5, "farm", "Town edge (east): the old megachurch compound; the Megachurch landmark sits on its centre tile (own it for Revelation)."],
-  ["Landmarks", "Fairground", D.Suburbs, 2, "farm", "Town edge (west): county fairground compound; landmark on its centre tile."],
-  ["Landmarks", "RadioTower", D.Trailer, 2, "farm", "Out in the country with a dirt lane: AM mast + guy wires + transmitter shack; landmark on its centre tile."],
+  ["Industry & Countryside", "WaterTower", D.Suburbs, 1, "farm", "Suburbs (the town tank) and the landmark tank out in the country: a classic bowl-and-legs tower rising over the back of its 2×3 lot."],
+  ["Landmarks", "Megachurch", D.Suburbs, 5, "farm", "Town edge: a 6×4 1980s Missouri-style megachurch (dome auditorium, glass atrium, spire) with a huge striped lot beside it that fills on Sunday morning; landmark on its centre tile (own it for Revelation)."],
+  ["Landmarks", "Fairground", D.Suburbs, 2, "farm", "Town edge: county fairground compound fronting a street on its N or S side only; landmark on its centre tile."],
+  ["Landmarks", "RadioTower", D.Trailer, 2, "farm", "Out in the country: a tall red/white AM mast (3×4) with guy wires and transmitter shack; its lane runs around the compound, never through it; landmark on its centre tile."],
 ];
 const LMK = { Megachurch: Landmark.Megachurch, Fairground: Landmark.Fairground, RadioTower: Landmark.RadioTower };
 for (const [group, name, district, pop, town, rule] of LOTS) {
@@ -205,8 +207,8 @@ const HOUSES = [
   ["Houses · Old Town", D.OldTown, Biome.Temperate, "Pre-war grid around downtown (inside ~62% of the town radius)."],
   ["Apartments · ResHigh", D.ResHigh, Biome.Temperate, "One ring of walk-up flats hugging downtown; parking out back."],
   ["Houses · School quarter", D.College, Biome.Temperate, "The College lobe of the suburbs, around the schools."],
-  ["Trailers · fringe", D.Trailer, Biome.Temperate, "Far fringe on the works side / along the highway; one trailer court."],
-  ["Adobe · desert town", D.Suburbs, Biome.Desert, "Desert towns: homes on sand; a third of the frontage stays vacant."],
+  ["Trailers · fringe", D.Trailer, Biome.Temperate, "One trailer park on the fringe: a single gate off a road, a gravel loop lane, trailers on both sides."],
+  ["Adobe · desert town", D.Suburbs, Biome.Desert, "Desert towns: every home is adobe/stucco (flat roofs, vigas, several variants); a third of the frontage stays vacant."],
 ];
 for (const [name, district, biome, rule] of HOUSES) {
   const row = (w, x0, y0) => { for (let i = 0; i < 8; i++) { const t = y0 * N + x0 + i; w.terrain[t] = Terrain.Citizen; w.district[t] = district; w.pop[t] = district === D.ResHigh ? 11 : 4 + (i % 3); } };
@@ -268,14 +270,14 @@ for (const [name, district, biome, rule] of HOUSES) {
 
 // terrain / nature assets
 const TERRAIN = [
-  ["Woods", Terrain.Woods, [Biome.Temperate, Biome.Forest, Biome.Autumn], "Organic stands in open country; forest skirts on mountain slopes; never through planted fields."],
-  ["Rock (ridges & mesas)", Terrain.Rock, [Biome.Temperate, Biome.Desert], "Mountain: two ridge bands walling the valley; desert: 2–4 mesas. Never on roads, rail, water, town or landmarks."],
+  ["Woods", Terrain.Woods, [Biome.Temperate, Biome.Forest, Biome.Autumn], "Organic stands in open country; forest skirts on mountain slopes; never through planted fields. Seasonal canopy: summer greens, autumn reds/golds, bare snowy winter, spring blossom."],
+  ["Rock (ridges & mesas)", Terrain.Rock, [Biome.Temperate, Biome.Desert], "Mountain: two ridge bands walling the valley (≥8% rock, ragged scree edge, slope-shaded relief); desert: 4–6 mesas plus a buttes range. Never on roads, rail, water, town or landmarks."],
   ["Lake / pond", Terrain.Lake, [Biome.Temperate, Biome.Desert], "Lakes drained to the river; lakeside town wraps its lake; 1-tile setback for farms and buildings."],
-  ["Field", Terrain.Field, [Biome.Temperate], "Farm belt parcels (compressed 6×6) around farmsteads."],
-  ["Orchard", Terrain.Orchard, [Biome.Temperate], "Farm belt. (Art is Stage 3.)"],
-  ["Pasture", Terrain.Pasture, [Biome.Temperate], "Farm belt, with grazing cows."],
-  ["Dirt lane", Terrain.Dirt, [Biome.Temperate], "Access lanes to farms, landmarks, docks; trailer court."],
-  ["Rail", Terrain.Rail, [Biome.Temperate], "Main line through town + siding into the works."],
+  ["Field", Terrain.Field, [Biome.Temperate], "Farm belt: 6×5 parcels behind farmsteads on the section roads; center-pivot circles on some farm/lakeside maps; never in woods (linted)."],
+  ["Orchard", Terrain.Orchard, [Biome.Temperate], "Whole farm-belt parcels with a margin, never overlapping, with a lane to a road (linted)."],
+  ["Pasture", Terrain.Pasture, [Biome.Temperate], "Every pasture adjoins its farmstead's barn (linted); grazing cows."],
+  ["Dirt lane", Terrain.Dirt, [Biome.Temperate], "Section roads every 22 tiles out in the county; farm lanes to every field block; landmark and dock lanes; trailer-park loop; mid-block alleys."],
+  ["Rail", Terrain.Rail, [Biome.Temperate], "Main line through town + siding into the works; a scheduled freight train runs it and flashes the crossing lights."],
 ];
 for (const [name, tr, biomes, rule] of TERRAIN) {
   const place = (w, x0, y0) => { for (let y = 0; y < 3; y++) for (let x = 0; x < 5; x++) w.terrain[(y0 + y) * N + x0 + x] = tr; };
@@ -358,10 +360,10 @@ for (const town of TYPES) {
   const cells = [11, 42, 77].map((s) => [`${town} · seed ${s}`, ov(town, s)]);
   const desc = {
     farm: "Classic county-seat grid anchored on the Courthouse Square and the grain-elevator siding, in a sea of fields and farmsteads.",
-    lakeside: "The lake is laid before any building and overlaps the town's long side; blocks it covers become water, the highway crosses as a causeway; docks and shore cabins.",
-    desert: "Wider, sparser blocks; the town sits on sand (adobe) with only the irrigated core green; 2–4 red mesas in open country.",
-    mountain: "Long, narrow valley town; two rock ridge bands (forest skirt → 10–18 tiles of rock → timber high country); roads and rivers cut passes and gorges.",
-    oceanside: "Town shifted inland; the surf runs just past its sea-side edge: sand, boardwalk, Shore Drive; pier off Main St; lighthouse and cannery on the shore.",
+    lakeside: "The lake overlaps the town's long side; roads it cuts are rejoined by bridges; sand beaches on the town shore; a marina and a small dock; farmland ≥3 tiles back from the water.",
+    desert: "Wider, sparser blocks of adobe on sand with an irrigated core; 4–6 red mesas and a buttes range; zoned sand tones (dunes, caliche, red soil).",
+    mountain: "Long, narrow valley town; two rock ridge bands with a graded forest skirt and ragged scree, slope-shaded; thin valley-floor farming; 2–3 sawmills.",
+    oceanside: "A fishing town: continuous boardwalk and Shore Drive, a marina and fishing piers, the cannery on its own pier, a lighthouse at the end of a stone jetty; only a few truck farms.",
   }[town];
   MG.push({ id: `mg-type-${town}`, name: `Town type · ${town}`, placement: desc, images: [{ label: "Seeds 11 / 42 / 77 · 96² · summer day", file: await grid(cells, `type_${town}`) }] });
 }
@@ -377,7 +379,7 @@ for (const town of TYPES) {
     images: [{ label: "In situ · farm 42 · summer day", file: save(crop("farm", c % 96, (c / 96) | 0, 32, 16, { lod: 2 }), "square") },
       { label: "Same · dusk", file: save(crop("farm", c % 96, (c / 96) | 0, 32, 16, { lod: 2, time: "dusk" }), "square_dusk") }] });
   const r = findCentre("farm", (w2, t) => w2.district[t] === D.Suburbs && w2.terrain[t] === Terrain.Citizen && w2.lot[t] === 0);
-  MG.push({ id: "mg-residential", name: "Residential blocks (frontage grammar)", placement: "Perimeter blocks: every street-facing lot a house facing its street with driveway + curb cut; interiors are backyards; frontage gaps ≤12% (desert ≤50%) — linted.", images: [{ label: "In situ · farm 42 suburbs", file: save(crop("farm", r.x, r.y, 24, 14, { lod: 2 }), "resid") }] });
+  MG.push({ id: "mg-residential", name: "Residential blocks (frontage grammar)", placement: "Perimeter blocks: every street-facing lot a house facing its street with driveway + curb cut; interiors are backyards, deep blocks get a mid-block alley; frontage gaps ≤12% (desert ≤50%) — linted.", images: [{ label: "In situ · farm 42 suburbs", file: save(crop("farm", r.x, r.y, 24, 14, { lod: 2 }), "resid") }] });
   const t = findCentre("farm", (w2, tt) => w2.lot[tt] === Lot.Track);
   MG.push({ id: "mg-campus", name: "High-school campus", placement: "Edge of town, touching town, ≤½ of its site taken from fringe yards, ≥6 tiles from industry. School 3×2 + bus lot 2×1 on the street; stadium 6×4 behind; lawn only inside the fence.", images: [{ label: "In situ · farm 42", file: save(crop("farm", t.x, t.y, 20, 12, { lod: 2 }), "campus") }, { label: "Same · winter", file: save(crop("farm", t.x, t.y, 20, 12, { lod: 2, season: "winter" }), "campus_w") }] });
   const g = findCentre("farm", (w2, tt) => w2.lot[tt] === Lot.GrainElevator);
@@ -385,7 +387,7 @@ for (const town of TYPES) {
   const p = findCentre("farm", (w2, tt) => w2.lot[tt] === Lot.Parking && w2.district[tt] === D.Commercial);
   if (p) MG.push({ id: "mg-parking", name: "Parking plan", placement: "Rear lots behind storefront rows (with driveways), paved commercial-block interiors, customer lots on the strip, apartment lots, civic anchor lots. Farm 42: 139 parking tiles.", images: [{ label: "In situ · highway strip (farm 42)", file: save(crop("farm", p.x, p.y, 24, 12, { lod: 2 }), "parking_strip") }] });
   const f = findCentre("farm", (w2, tt) => w2.terrain[tt] === Terrain.Field);
-  MG.push({ id: "mg-farms", name: "Farms & countryside", placement: "4–6 farmsteads on rural roads (house, barn, silo, shelterbelt) + the farm belt of compressed 6×6 parcels; woods first, fields wrap around them; quarry scar in deep country.", images: [{ label: "In situ · farm 42", file: save(crop("farm", f.x, f.y, 28, 16, { lod: 2 }), "farms") }] });
+  MG.push({ id: "mg-farms", name: "Farms & countryside", placement: "Section roads every 22 tiles; 12–16 farmsteads fronting them with fields behind and lanes to every block; pivots on some maps; a fringe ring spaces farms from town on some maps; farming thins on mountain and oceanside maps.", images: [{ label: "In situ · farm 42", file: save(crop("farm", f.x, f.y, 28, 16, { lod: 2 }), "farms") }] });
 }
 {
   const cells = [["spring · day", ov("farm", 42, "spring")], ["summer · day", ov("farm", 42, "summer")], ["fall · day", ov("farm", 42, "fall")], ["winter · day", ov("farm", 42, "winter")],
@@ -401,19 +403,46 @@ for (const town of TYPES) {
   MG.push({ id: "mg-balance", name: "Population & pacing across town types", placement: "Population floor per map size, ceiling at floor +12% so every town type plays at one pace. 30-match bot telemetry on the new maps: every cult wins (Radiant 11, Circle 8, Dawn 6, Visitors 5), matches 12–16 min, the 5:00 leader wins 30% (was 67%).", table: rows, images: [] });
 }
 {
-  // AGRICULTURE placement aspects
+  // AGRICULTURE placement aspects (Stage 2b farm belt)
   const fs = findCentre("farm", (w2, tt) => w2.lot[tt] === Lot.Barn);
+  const pv = findIn(["farm", "lakeside"], (w2, tt) => (w2.flags[tt] & 2) !== 0);
+  const dp = findCentre("desert", (w2, tt) => (w2.flags[tt] & 2) !== 0);
   const mv = findCentre("mountain", (w2, tt) => w2.lot[tt] === Lot.Barn || w2.lot[tt] === Lot.Silo);
-  const dp = findCentre("desert", (w2, tt) => w2.terrain[tt] === Terrain.Field);
   const edge = findCentre("farm", (w2, tt) => w2.terrain[tt] === Terrain.Field && (w2.terrain[tt - 3] === Terrain.Woods || w2.terrain[tt + 3] === Terrain.Woods));
   const imgs = [];
-  if (fs) imgs.push({ label: "Farmstead on its road with its fields (farm 42)", file: save(crop("farm", fs.x, fs.y, 22, 12, { lod: 2 }), "ag_farmstead") });
+  if (fs) imgs.push({ label: "Farmstead on its section road: house, barns, silo, windbreak, pasture, fields behind (farm 42)", file: save(crop("farm", fs.x, fs.y, 24, 14, { lod: 2 }), "ag_farmstead") });
+  if (pv) imgs.push({ label: "Center-pivot circles (farm/lakeside 42)", file: save(crop(pv.town ?? "farm", pv.x, pv.y, 22, 14, { lod: 2 }), "ag_pivot_farm") });
   if (edge) imgs.push({ label: "Where farmland meets woods (farm 42)", file: save(crop("farm", edge.x, edge.y, 22, 12, { lod: 2 }), "ag_edge") });
   if (mv) imgs.push({ label: "Valley-floor farm (mountain 42)", file: save(crop("mountain", mv.x, mv.y, 22, 12, { lod: 2 }), "ag_mountain") });
-  if (dp) imgs.push({ label: "Center-pivot irrigation (desert 42)", file: save(crop("desert", dp.x, dp.y, 18, 12, { lod: 2 }), "ag_pivot") });
-  MG.push({ id: "mg-agriculture", name: "Agriculture placement", placement: "Fields, orchards and pastures only on cleared open land — a parcel wrapped in woods reverts to meadow (linted: no farmland with >28% woods around it); farmsteads (house, barn, silo, greenhouse) stand in cleared yards on rural roads and always work land within 5 tiles (else a pasture is planted beside them, or the farm goes); mountain farms stay on the valley floor; desert towns irrigate with center-pivot circles by the river.", images: imgs });
+  if (dp) imgs.push({ label: "Irrigated pivots by the river (desert 42)", file: save(crop("desert", dp.x, dp.y, 18, 12, { lod: 2 }), "ag_pivot") });
+  MG.push({ id: "mg-agriculture", name: "Agriculture placement", placement: "The county the way it surrounded a 1980s town: a gravel section-road grid every 22 tiles; farmsteads front those roads (house, barn(s), tall silo, windbreak) with the pasture beside the barn and 6×5 fields and orchards behind, reached by farm lanes; center-pivot circles on some farm and lakeside maps; on some maps a fringe ring of acreages and woodlots spaces farmland from town. Never in woods (0% linted), set back from lakes. Farming thins on mountain and oceanside maps; desert irrigates by the river.", images: imgs });
+}
+{
+  // WATERFRONT, DAM, TRAILER PARK, ALLEYS, CEMETERY, SUBSTATION (Stage 2b)
+  const lh = findCentre("oceanside", (w2, tt) => w2.lot[tt] === Lot.Jetty);
+  const cn = findCentre("oceanside", (w2, tt) => w2.lot[tt] === Lot.Cannery);
+  const mr = findCentre("lakeside", (w2, tt) => w2.lot[tt] === Lot.Dock && w2.terrain[tt] === Terrain.Lake);
+  const bch = findCentre("lakeside", (w2, tt) => w2.biome[tt] === Biome.Ocean && w2.terrain[tt] !== Terrain.Lake);
+  const wf = [];
+  if (lh) wf.push({ label: "Lighthouse jetty · day (oceanside 42)", file: save(crop("oceanside", lh.x, lh.y, 20, 12, { lod: 2 }), "wf_jetty") }, { label: "Same · night (beam)", file: save(crop("oceanside", lh.x, lh.y, 20, 12, { lod: 2, time: "night" }), "wf_jetty_n") });
+  if (cn) wf.push({ label: "Cannery on its pier, boardwalk (oceanside 42)", file: save(crop("oceanside", cn.x, cn.y, 20, 12, { lod: 2 }), "wf_cannery") });
+  if (mr) wf.push({ label: "Lake marina + small dock (lakeside 42)", file: save(crop("lakeside", mr.x, mr.y, 20, 12, { lod: 2 }), "wf_marina") });
+  if (bch) wf.push({ label: "Town beach (lakeside 42)", file: save(crop("lakeside", bch.x, bch.y, 20, 12, { lod: 2 }), "wf_beach") });
+  MG.push({ id: "mg-waterfront", name: "Waterfront: boardwalk, piers, marina, jetty, beaches", placement: "Oceanside: continuous boardwalk and Shore Drive, up to 3 fishing piers (the first a 2-wide marina), the cannery at the root of its own pier, the lighthouse at the end of a stone jetty. Lakeside: sand beaches on the town shore, bridges where the lake cut a road, a marina and a small dock.", images: wf });
+  const dm = findIn(["farm", "lakeside", "mountain", "desert"], (w2, tt) => w2.lot[tt] === Lot.Powerhouse);
+  if (dm) MG.push({ id: "mg-dam", name: "Dam & powerhouse", placement: "A concrete dam across the river with a crest road bank to bank, a spillway, and a brick powerhouse on the bank with a road out to the network.", images: [{ label: "In situ · seed 42", file: save(crop(dm.town ?? "farm", dm.x, dm.y, 18, 12, { lod: 2 }), "dam") }] });
+  const tp = findCentre("farm", (w2, tt) => w2.district[tt] === D.Trailer && w2.terrain[tt] === Terrain.Citizen && w2.lot[tt] === 0);
+  if (tp) MG.push({ id: "mg-trailerpark", name: "Trailer park", placement: "One park on the fringe: a single gate off a road, a gravel loop lane, trailers on both sides.", images: [{ label: "In situ · farm 42", file: save(crop("farm", tp.x, tp.y, 16, 10, { lod: 2 }), "trailerpark") }] });
+  const al = findCentre("farm", (w2, tt) => w2.terrain[tt] === Terrain.Dirt && w2.terrain[tt - 1] === Terrain.Citizen && w2.terrain[tt + 1] === Terrain.Citizen && w2.district[tt - 1] !== 0);
+  if (al) MG.push({ id: "mg-alleys", name: "Mid-block alleys", placement: "Deep all-residential blocks (5×5+) get a gravel alley down the middle; the lots behind the houses become backyards and garages off it, so no block has an empty hole.", images: [{ label: "In situ · farm 42", file: save(crop("farm", al.x, al.y, 18, 10, { lod: 2 }), "alleys") }] });
+  const ce = findCentre("farm", (w2, tt) => w2.lot[tt] === Lot.Cemetery);
+  const ss = findCentre("farm", (w2, tt) => w2.lot[tt] === Lot.Substation);
+  const pk = [];
+  if (ce) pk.push({ label: "Cemetery at the town edge (farm 42)", file: save(crop("farm", ce.x, ce.y, 18, 10, { lod: 2 }), "edge_cemetery") });
+  if (ss) pk.push({ label: "Substation at the town edge with its pole line (farm 42)", file: save(crop("farm", ss.x, ss.y, 20, 14, { lod: 2 }), "edge_substation") });
+  MG.push({ id: "mg-edge", name: "Edge-of-town uses: cemetery, substation", placement: "The cemetery (4×3, gated) and the substation sit on open ground at the edge of town beside a road; the substation is nearest the works and its pole line runs out over fields.", images: pk });
 }
 for (const m of MG) items.push({ group: "Map Generation", footprint: "", scale: "", ...m });
 
-writeFileSync(`${OUT}/manifest.json`, JSON.stringify({ generated: "Stage 2", items }, null, 1));
+writeFileSync(`${OUT}/manifest.json`, JSON.stringify({ generated: "Stage 2b", items }, null, 1));
 console.log(`\n${items.length} items → ${OUT}/manifest.json`);

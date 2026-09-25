@@ -10,9 +10,9 @@ import assert from "node:assert/strict";
 import { playGolden } from "./golden_helpers.ts";
 
 const GOLDEN: Record<number, string[]> = {
-   11: ["e89639bc27b92377","067acba3d37b9e8b","e07dc1805a625fd2","1688:1:1:rapture:ed411db02a92e441"],
-   42: ["ce70f77c697440fb","266b057d0aac9c9e","2ab4999cea997880","1981:1:1:revelation:93803f9a9627ef6b"],
-   77: ["b5638b7bf9e7fb39","8e82ae2939926435","7fc8d5a9a104a612","6ddd53b7c7c52caf","2019:1:1:revelation:5a303f306c468174"],
+  11: ["e89639bc27b92377","067acba3d37b9e8b","e07dc1805a625fd2","1688:1:1:rapture:ed411db02a92e441"],
+  42: ["2b5b84ccd40c6ff4","c869133bdf14a639","eeb50a55a349eefb","d20134f3d8e00683","7503e06280aa8162","2701:1:1:revelation:04348b44afcee96d"],
+  77: ["6829a0d567580d37","495a8cfaa999cc2d","67a7aa6a0b47b942","1c6609a788b1d87c","71cdafde4be142db","1395a5a81701a0c4","3001:0:0::1395a5a81701a0c4"],
 };
 
 for (const seed of Object.keys(GOLDEN).map(Number)) {

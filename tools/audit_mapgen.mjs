@@ -117,6 +117,14 @@ export function auditPlan(w, seed, townType = "farm") {
     if (!within(c, 1, (k) => w.lot[k] === Lot.School || w.lot[k] === Lot.HighSchool || w.lot[k] === Lot.Track)) bad("BALLFIELD", `ball field at ${c[0]} is not beside a school`);
   for (const c of lotComponents(w, Lot.Playground))
     if (!within(c, 1, (k) => w.lot[k] === Lot.School || w.lot[k] === Lot.Park)) bad("PLAYGROUND", `playground at ${c[0]} is not beside a school or park`);
+  // PRESENCE (Stage 2b): a full-size town keeps its school grounds, chapel,
+  // cemetery and substation — a late trimming pass may never erase them
+  if (w.width >= 96) {
+    for (const [lot, rule] of [[Lot.Chapel, "CHAPEL"], [Lot.Cemetery, "CEMETERY"], [Lot.Substation, "SUBSTATION"]])
+      if (!w.lot.includes(lot)) bad(rule, `town has no ${rule.toLowerCase()}`);
+    if (w.lot.includes(Lot.School) && !lotComponents(w, Lot.Playground).some((c) => within(c, 1, (k) => w.lot[k] === Lot.School))) bad("PLAYGROUND", "the elementary school has no playground beside it");
+    if (!lotComponents(w, Lot.BallField).length) bad("BALLFIELD", "town has no ball field");
+  }
   for (const c of lotComponents(w, Lot.Cemetery))
     if (!within(c, 2, (k) => w.terrain[k] === Terrain.Grass || w.terrain[k] === Terrain.Field || w.terrain[k] === Terrain.Woods || w.terrain[k] === Terrain.Pasture)) bad("CEMETERY", `cemetery at ${c[0]} is inside town, not on its edge`);
   const agComps = (tr) => { const seen = new Uint8Array(w.terrain.length), out = [];

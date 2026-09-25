@@ -23,7 +23,7 @@ import { traceGridRoads } from "./gridRoads.js";
 import { pickTownName, type Street } from "./names.js";
 import { createWorld } from "./sim.js";
 import { tidyAgriculture, ensureFarmsteadsWork, layoutFarmBelt, type BeltStyle } from "./farmPlan.js";
-import { buildPier, enforceFootprints, placeLandmarkCompound, ensureAdjacentParking, pruneLandlockedParking, tidySatellites, placeParks, placeBallField, placeCemetery, placeSubstation, placeTrailerPark, platAlleys, parkBeside } from "./townPlan.js";
+import { buildPier, enforceFootprints, placeLandmarkCompound, ensureAdjacentParking, pruneLandlockedParking, tidySatellites, placeParks, placeBallField, placeCemetery, placeSubstation, ensureSchoolGrounds, placeTrailerPark, platAlleys, parkBeside } from "./townPlan.js";
 import { platCourthouseSquare, placeHighSchoolCampus, platMainStreet, courthouseCentre, fronts, RESIDENTIAL_DISTRICTS } from "./townPlan.js";
 
 /** Deterministic position hash for walk jitter (no rng thread needed). */
@@ -331,6 +331,8 @@ export function generateWorld(seed: number, width: number, height: number, opts:
   ensureAdjacentParking(w); // …and the lot is right beside the building
   ensureFarmsteadsWork(w); // setbacks can take a farm's last field
   tidySatellites(w); // playgrounds / ball fields stay with their school, pastures with a barn
+  ensureSchoolGrounds(w); // …and every school keeps its playground and ball field; the town its chapel
+  ensureAdjacentParking(w); // a chapel placed just now gets its lot too
   pruneIsolatedRoads(w);
   pruneLandlockedParking(w); // growth or a pruned road can strand a lot remnant
   enforceRoadFrontage(w); // a pruned road can orphan a house: it becomes a yard

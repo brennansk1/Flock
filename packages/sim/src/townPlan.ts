@@ -967,6 +967,67 @@ export function placeSubstation(w: World, town: PlanTown): boolean {
 }
 
 /**
+ * SCHOOL GROUNDS & CHAPEL guarantee (last word after every trimming pass):
+ * the elementary school keeps a playground beside it, some school keeps a
+ * ball field beside it, and the town keeps its chapel. School grounds may
+ * take the neighbouring houses (the way districts bought out lots);
+ * the chapel takes a street corner in Old Town / Suburbs clear of industry.
+ */
+export function ensureSchoolGrounds(w: World): void {
+  const { width } = w;
+  const isSchool = (k: number): boolean => w.lot[k] === Lot.School || w.lot[k] === Lot.HighSchool;
+  const takeable = (k: number): boolean =>
+    w.landmark[k] === 0 && ((w.terrain[k] === Terrain.Citizen && w.lot[k] === 0) || w.terrain[k] === Terrain.Grass) &&
+    !neighbors4(w, k).some((n) => w.terrain[n] === Terrain.Lake);
+  const adjoins = (lot: number, pred: (k: number) => boolean): boolean => {
+    for (let k = 0; k < w.lot.length; k++) if (w.lot[k] === lot && neighbors4(w, k).some(pred)) return true;
+    return false;
+  };
+  const place = (lot: number, shapes: readonly (readonly [number, number])[], host: (k: number) => boolean, district: number, extra: (k: number) => boolean = () => false): void => {
+    for (let t = 0; t < w.lot.length; t++) {
+      if (!host(t)) continue;
+      for (const n of neighbors4(w, t)) {
+        const x0 = n % width, y0 = (n / width) | 0;
+        for (const [fw, fh] of shapes)
+          for (let oy = 0; oy < fh; oy++) for (let ox = 0; ox < fw; ox++) {
+            const x = x0 - ox, y = y0 - oy;
+            if (x < 2 || y < 2 || x + fw >= width - 2 || y + fh >= w.height - 2) continue;
+            if (!openRect(w, x, y, fw, fh, (k) => takeable(k) || extra(k))) continue;
+            stampRect(w, x, y, fw, fh, lot, district, 1);
+            return;
+          }
+      }
+    }
+  };
+  if (w.lot.includes(Lot.School) && !adjoins(Lot.Playground, (k) => w.lot[k] === Lot.School))
+    place(Lot.Playground, [[1, 2], [2, 1]], (k) => w.lot[k] === Lot.School, D.Suburbs);
+  const campus = (k: number): boolean => isSchool(k) || w.lot[k] === Lot.Track;
+  if (!adjoins(Lot.BallField, campus)) place(Lot.BallField, [[2, 2]], campus, D.College, (k) => w.lot[k] === Lot.Park && w.landmark[k] === 0);
+  if (!w.lot.includes(Lot.Chapel)) {
+    const clearOfWorks = (x: number, y: number): boolean => {
+      for (let dy = -7; dy <= 8; dy++) for (let dx = -7; dx <= 8; dx++) {
+        const k = (y + dy) * width + x + dx;
+        if (k < 0 || k >= w.lot.length) continue;
+        if (w.district[k] === D.Industrial || w.lot[k] === Lot.Factory || w.lot[k] === Lot.Warehouse) return false;
+      }
+      return true;
+    };
+    for (const want of [D.OldTown, D.Suburbs, D.College]) {
+      for (let t = 0; t < w.lot.length; t++) {
+        const x = t % width, y = (t / width) | 0;
+        if (w.district[t] !== want || x < 2 || y < 2 || x + 2 >= width - 2 || y + 2 >= w.height - 2) continue;
+        if (!openRect(w, x, y, 2, 2, (k) => w.terrain[k] === Terrain.Citizen && w.lot[k] === 0 && w.landmark[k] === 0)) continue;
+        let streets = 0;
+        for (const k of [t, t + 1, t + width, t + width + 1]) if (fronts(w, k)) streets++;
+        if (streets < 2 || !clearOfWorks(x, y)) continue;
+        stampRect(w, x, y, 2, 2, Lot.Chapel, want, 4);
+        return;
+      }
+    }
+  }
+}
+
+/**
  * TRAILER PARK: one proper park on the town fringe — a gravel loop lane off
  * a road with trailers on both sides of it (not a scatter of singles).
  */

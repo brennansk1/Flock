@@ -112,18 +112,26 @@ function crop(town, cx, cy, vw = 14, vh = 9, opts = {}) {
   const view = { x: Math.max(0, Math.min(w.width - vw, cx - (vw >> 1))), y: Math.max(0, Math.min(w.height - vh, cy - (vh >> 1))), w: vw, h: vh };
   return frameImg(renderTown(sim, { frameTick: opts.tick ?? 300, lod: opts.lod ?? 3, view, season: opts.season ?? "summer", timeOfDay: opts.time ?? "day" }));
 }
-/** centre of the first component of tiles matching pred */
+/** centre of the matching component nearest the courthouse (the typical example, not a fringe outlier) */
 function findCentre(town, pred, seed = 42) {
   const { w } = world(town, seed);
-  const t0 = w.lot.findIndex((_, t) => pred(w, t));
-  if (t0 < 0) return null;
-  let sx = 0, sy = 0, n = 0;
-  const seen = new Set([t0]), st = [t0];
-  while (st.length) {
-    const t = st.pop(); sx += t % w.width; sy += (t / w.width) | 0; n++;
-    for (const nb of [t - 1, t + 1, t - w.width, t + w.width]) if (nb >= 0 && nb < w.lot.length && !seen.has(nb) && pred(w, nb)) { seen.add(nb); st.push(nb); }
+  const court = w.lot.indexOf(Lot.Courthouse);
+  const cx = court >= 0 ? court % w.width : w.width >> 1, cy = court >= 0 ? (court / w.width) | 0 : w.height >> 1;
+  const seen = new Uint8Array(w.lot.length);
+  let best = null;
+  for (let t0 = 0; t0 < w.lot.length; t0++) {
+    if (seen[t0] || !pred(w, t0)) continue;
+    let sx = 0, sy = 0, n = 0;
+    const st = [t0]; seen[t0] = 1;
+    while (st.length) {
+      const t = st.pop(); sx += t % w.width; sy += (t / w.width) | 0; n++;
+      for (const nb of [t - 1, t + 1, t - w.width, t + w.width]) if (nb >= 0 && nb < w.lot.length && !seen[nb] && pred(w, nb)) { seen[nb] = 1; st.push(nb); }
+    }
+    const c = { x: Math.round(sx / n), y: Math.round(sy / n), n };
+    const d = (c.x - cx) ** 2 + (c.y - cy) ** 2;
+    if (!best || d < best.d) best = { ...c, d };
   }
-  return { x: Math.round(sx / n), y: Math.round(sy / n), n };
+  return best;
 }
 
 // ---------------------------------------------------------------- manifest
@@ -170,12 +178,17 @@ const LOTS = [
   ["Industry & Countryside", "Barn", D.Trailer, 2, "farm", "Farmsteads along rural roads."],
   ["Industry & Countryside", "Silo", D.Trailer, 2, "farm", "Farmsteads."],
   ["Industry & Countryside", "Greenhouse", D.Trailer, 2, "farm", "Farmsteads."],
-  ["Industry & Countryside", "WaterTower", D.Suburbs, 1, "farm", "Suburbs (town tank)."],
+  ["Industry & Countryside", "WaterTower", D.Suburbs, 1, "farm", "Suburbs (the town tank) and the landmark tank out in the country, each on a fenced 2×2 lot."],
+  ["Landmarks", "Megachurch", D.Suburbs, 5, "farm", "Town edge (east): the old megachurch compound; the Megachurch landmark sits on its centre tile (own it for Revelation)."],
+  ["Landmarks", "Fairground", D.Suburbs, 2, "farm", "Town edge (west): county fairground compound; landmark on its centre tile."],
+  ["Landmarks", "RadioTower", D.Trailer, 2, "farm", "Out in the country with a dirt lane: AM mast + guy wires + transmitter shack; landmark on its centre tile."],
 ];
+const LMK = { Megachurch: Landmark.Megachurch, Fairground: Landmark.Fairground, RadioTower: Landmark.RadioTower };
 for (const [group, name, district, pop, town, rule] of LOTS) {
   const lot = Lot[name], fp = footprintOf(lot);
   const fw = fp.w, fh = fp.h;
-  const place = stampLot(lot, district, pop)(fw, fh);
+  const base = stampLot(lot, district, pop)(fw, fh);
+  const place = LMK[name] ? (w, x0, y0) => { base(w, x0, y0); w.landmark[(y0 + (fh >> 1)) * N + x0 + (fw >> 1)] = LMK[name]; } : base;
   const parts = FACING.map((side) => studio({ place, fw, fh, side }));
   const images = [{ label: "Studio · street on S / N / E / W", file: save(hcat(parts), `${name}_facing`) }];
   const alt = [studio({ place, fw, fh, side: "S", season: "winter" }), studio({ place, fw, fh, side: "S", time: "night" })];
@@ -317,16 +330,6 @@ for (const [name, tr, biomes, rule] of TERRAIN) {
     if (f) add("Micro-animations", `anim-${name}`, name, { footprint: "animation", scale: `${n} frames, ${dt} ticks apart`, placement: rule, images: [{ label: `In situ · frames t0…t${n - 1}`, file: f }] });
   }
 }
-// landmarks (icon badges — Stage 3 world sprites)
-for (const name of ["Megachurch", "RadioTower", "Fairground", "WaterTower"]) {
-  const lm = Landmark[name];
-  const place = (w, x0, y0) => { const t = y0 * N + x0; w.terrain[t] = Terrain.Citizen; w.landmark[t] = lm; w.pop[t] = 4; w.district[t] = D.Downtown; };
-  const c = findCentre("farm", (w, t) => w.landmark[t] === lm);
-  const images = [{ label: "Studio", file: save(studio({ place, fw: 1, fh: 1, side: "S" }), `lmk_${name}`) }];
-  if (c) images.push({ label: "In situ · farm seed 42", file: save(crop("farm", c.x, c.y, 12, 8), `lmk_${name}_situ`) });
-  add("Landmarks", `lmk-${name}`, name, { footprint: "1×1 badge", scale: "icon (world sprite planned for Stage 3)", placement: name === "Megachurch" ? "Town edge (east)." : name === "Fairground" ? "Town edge (west)." : "Out in the country with a dirt lane.", images });
-}
-
 // ---------------------------------------------------------------- map generation aspects
 import { chromium } from "playwright";
 async function shotHTML(html, stem, width = 1600) {
@@ -396,6 +399,19 @@ for (const town of TYPES) {
     rows.push({ size, town, pop: Math.round(pop / 3), tiles: Math.round(tiles / 3) });
   }
   MG.push({ id: "mg-balance", name: "Population & pacing across town types", placement: "Population floor per map size, ceiling at floor +12% so every town type plays at one pace. 30-match bot telemetry on the new maps: every cult wins (Radiant 11, Circle 8, Dawn 6, Visitors 5), matches 12–16 min, the 5:00 leader wins 30% (was 67%).", table: rows, images: [] });
+}
+{
+  // AGRICULTURE placement aspects
+  const fs = findCentre("farm", (w2, tt) => w2.lot[tt] === Lot.Barn);
+  const mv = findCentre("mountain", (w2, tt) => w2.lot[tt] === Lot.Barn || w2.lot[tt] === Lot.Silo);
+  const dp = findCentre("desert", (w2, tt) => w2.terrain[tt] === Terrain.Field);
+  const edge = findCentre("farm", (w2, tt) => w2.terrain[tt] === Terrain.Field && (w2.terrain[tt - 3] === Terrain.Woods || w2.terrain[tt + 3] === Terrain.Woods));
+  const imgs = [];
+  if (fs) imgs.push({ label: "Farmstead on its road with its fields (farm 42)", file: save(crop("farm", fs.x, fs.y, 22, 12, { lod: 2 }), "ag_farmstead") });
+  if (edge) imgs.push({ label: "Where farmland meets woods (farm 42)", file: save(crop("farm", edge.x, edge.y, 22, 12, { lod: 2 }), "ag_edge") });
+  if (mv) imgs.push({ label: "Valley-floor farm (mountain 42)", file: save(crop("mountain", mv.x, mv.y, 22, 12, { lod: 2 }), "ag_mountain") });
+  if (dp) imgs.push({ label: "Center-pivot irrigation (desert 42)", file: save(crop("desert", dp.x, dp.y, 18, 12, { lod: 2 }), "ag_pivot") });
+  MG.push({ id: "mg-agriculture", name: "Agriculture placement", placement: "Fields, orchards and pastures only on cleared open land — a parcel wrapped in woods reverts to meadow (linted: no farmland with >28% woods around it); farmsteads (house, barn, silo, greenhouse) stand in cleared yards on rural roads and always work land within 5 tiles (else a pasture is planted beside them, or the farm goes); mountain farms stay on the valley floor; desert towns irrigate with center-pivot circles by the river.", images: imgs });
 }
 for (const m of MG) items.push({ group: "Map Generation", footprint: "", scale: "", ...m });
 

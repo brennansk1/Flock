@@ -1,0 +1,170 @@
+<title>Flock Stage 2 Docket</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Narrow:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  --bg:#EDF0EC; --surface:#FFFFFF; --ink:#1B2220; --muted:#5B6662; --line:#D2D8D3; --well:#181512;
+  --accent:#1F6F6B; --accent-ink:#FFFFFF; --ok:#2E7D32; --warn:#A86200; --bad:#B3261E; --chip:#E3E8E4;
+  --display:"Archivo Narrow","Arial Narrow",system-ui,sans-serif; --body:"IBM Plex Sans",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#111513; --surface:#1A201D; --ink:#E5EAE6; --muted:#98A39E; --line:#2B3430; --accent:#5DB7AF; --accent-ink:#0B1413;
+  --ok:#6CC070; --warn:#E3A33A; --bad:#EF7A6F; --chip:#232B28; color-scheme:dark;}}
+:root[data-theme="dark"]{
+  --bg:#111513; --surface:#1A201D; --ink:#E5EAE6; --muted:#98A39E; --line:#2B3430; --accent:#5DB7AF; --accent-ink:#0B1413;
+  --ok:#6CC070; --warn:#E3A33A; --bad:#EF7A6F; --chip:#232B28; color-scheme:dark;}
+body{background:var(--bg);color:var(--ink);font:15px/1.5 var(--body);padding-inline:16px;padding-block:0 48px}
+.wrap{max-width:1180px;margin:0 auto}
+header.top{padding-block:28px 12px;display:grid;gap:10px}
+.eyebrow{font:500 12px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+h1{font:700 clamp(30px,5vw,44px)/1.05 var(--display);letter-spacing:.01em;margin:0;text-wrap:balance}
+.lede{max-width:68ch;color:var(--muted);margin:0}
+.bar{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);border-bottom:1px solid var(--line);padding-block:10px;display:grid;gap:8px}
+.tally{display:flex;flex-wrap:wrap;gap:14px;align-items:center;font:500 13px var(--mono);font-variant-numeric:tabular-nums}
+.tally b{font-weight:600}
+.meter{flex:1 1 220px;height:8px;border-radius:4px;background:var(--chip);display:flex;overflow:hidden;min-width:160px}
+.meter i{display:block;height:100%}
+.filters{display:flex;flex-wrap:wrap;gap:6px}
+.filters button{font:500 13px var(--body);border:1px solid var(--line);background:var(--surface);color:var(--ink);border-radius:999px;padding:4px 12px;cursor:pointer}
+.filters button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.filters .sep{width:1px;background:var(--line);margin-inline:4px}
+.note-banner{border:1px solid var(--warn);color:var(--ink);background:var(--surface);border-radius:8px;padding:8px 12px;font-size:14px}
+section.group{display:grid;gap:14px;padding-top:22px}
+section.group>h2{font:700 24px var(--display);margin:0;display:flex;gap:10px;align-items:baseline}
+section.group>h2 small{font:500 13px var(--mono);color:var(--muted)}
+article.item{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:grid;gap:10px}
+article.item[data-status="approved"]{border-left:4px solid var(--ok)}
+article.item[data-status="needs_work"]{border-left:4px solid var(--warn)}
+article.item[data-status="rejected"]{border-left:4px solid var(--bad)}
+.head{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:baseline}
+.head h3{font:700 20px var(--display);margin:0}
+.chip{font:500 12px var(--mono);background:var(--chip);border-radius:4px;padding:1px 7px;color:var(--ink)}
+.scale{color:var(--muted);font-size:13px}
+.rule{margin:0;max-width:90ch}
+.shots{display:flex;gap:12px;overflow-x:auto;padding-bottom:4px}
+figure{margin:0;flex:0 0 auto;display:grid;gap:4px}
+figure .well{background:var(--well);border-radius:6px;padding:6px;display:grid;place-items:center}
+figure img{image-rendering:pixelated;display:block;max-width:none}
+figcaption{font:400 12px var(--mono);color:var(--muted);max-width:60ch}
+.verdict{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{font:600 13px var(--body);background:var(--surface);color:var(--ink);border:0;border-right:1px solid var(--line);padding:6px 12px;cursor:pointer}
+.seg button:last-child{border-right:0}
+.seg button[aria-pressed="true"][data-v="approved"]{background:var(--ok);color:#fff}
+.seg button[aria-pressed="true"][data-v="needs_work"]{background:var(--warn);color:#fff}
+.seg button[aria-pressed="true"][data-v="rejected"]{background:var(--bad);color:#fff}
+.seg button:disabled{opacity:.5;cursor:not-allowed}
+textarea{flex:1 1 280px;min-height:36px;font:14px var(--body);color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:6px 10px;resize:vertical}
+.saved{font:400 12px var(--mono);color:var(--muted);align-self:center}
+table.pop{border-collapse:collapse;font:13px var(--mono);font-variant-numeric:tabular-nums}
+table.pop td,table.pop th{padding:2px 10px;border-bottom:1px solid var(--line);text-align:right}
+table.pop th:first-child,table.pop td:first-child{text-align:left}
+.tablewrap{overflow-x:auto}
+button:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media (max-width:520px){.head h3{font-size:18px}}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="eyebrow">Flock · Stage 2 gate · 1983–86 small-town worldgen</div>
+    <h1>Asset &amp; Map Docket</h1>
+    <p class="lede">Every town asset with its footprint, variants (street on each side, winter, night) and where the generator places it, then every aspect of map generation. Scale: 1 tile ≈ 15 m (one house lot); a city block is 6 tiles road to road. Mark each item Approved, Needs work or Rejected and add a note. Verdicts save for the whole team, and Claude reads them back to plan fixes.</p>
+  </header>
+  <div class="bar">
+    <div class="tally" id="tally"></div>
+    <div class="filters" id="filters"></div>
+  </div>
+  <div id="banner" hidden class="note-banner" style="margin-top:12px"></div>
+  <main id="list"></main>
+</div>
+
+<script>
+const ITEMS = /*__ITEMS__*/[];
+const GROUP_ORDER = ["1980s Vehicle Fleet","Downtown & Main Street","Residential & School","Industry & Countryside","Hydrology, Terrain & Foliage","Landmarks","Micro-animations","Map Generation"];
+const groups = GROUP_ORDER.filter(g => ITEMS.some(i => i.group === g));
+const verdicts = {}; // id -> {status, note}
+let db = null, writable = true, fGroup = "All", fStatus = "all";
+const STATUS = [["approved","Approve"],["needs_work","Needs work"],["rejected","Reject"]];
+
+function el(tag, attrs = {}, ...kids){ const e = document.createElement(tag); for (const [k,v] of Object.entries(attrs)) { if (k === "text") e.textContent = v; else e.setAttribute(k, v); } for (const k of kids) if (k) e.append(k); return e; }
+
+function renderTally(){
+  const t = { approved:0, needs_work:0, rejected:0 };
+  for (const it of ITEMS) { const s = verdicts[it.id]?.status; if (s in t) t[s]++; }
+  const n = ITEMS.length, open = n - t.approved - t.needs_work - t.rejected;
+  const box = document.getElementById("tally"); box.textContent = "";
+  box.append(el("span",{},el("b",{text:String(t.approved)})," approved"), el("span",{},el("b",{text:String(t.needs_work)})," needs work"), el("span",{},el("b",{text:String(t.rejected)})," rejected"), el("span",{},el("b",{text:String(open)})," open"));
+  const m = el("div",{class:"meter",role:"img","aria-label":`${t.approved} of ${n} approved`});
+  for (const [k,c] of [["approved","var(--ok)"],["needs_work","var(--warn)"],["rejected","var(--bad)"]]) { const i = el("i"); i.style.width = (100*t[k]/n)+"%"; i.style.background = c; m.append(i); }
+  box.append(m);
+}
+function renderFilters(){
+  const f = document.getElementById("filters"); f.textContent = "";
+  for (const g of ["All", ...groups]) { const b = el("button",{type:"button","aria-pressed":String(fGroup===g),text:g}); b.onclick = () => { fGroup = g; renderFilters(); renderList(); }; f.append(b); }
+  f.append(el("span",{class:"sep"}));
+  for (const [k,label] of [["all","Any status"],["open","Open"],["needs_work","Needs work"],["rejected","Rejected"],["approved","Approved"]]) { const b = el("button",{type:"button","aria-pressed":String(fStatus===k),text:label}); b.onclick = () => { fStatus = k; renderFilters(); renderList(); }; f.append(b); }
+}
+function statusOf(id){ return verdicts[id]?.status || "open"; }
+async function save(id, patch, stamp){
+  const next = { ...(verdicts[id] || {}), ...patch, at: new Date().toISOString() };
+  verdicts[id] = next; renderTally();
+  const card = document.querySelector(`article[data-id="${CSS.escape(id)}"]`); if (card) card.dataset.status = next.status || "open";
+  if (!db) return;
+  try { await db.collection("verdicts").doc(id).set(next); if (stamp) stamp.textContent = "Saved"; }
+  catch (e) { if (stamp) stamp.textContent = e?.code === "invalid_argument" ? "Read-only: you can't save verdicts here" : "Not saved — try again"; if (e?.code === "invalid_argument") { writable = false; renderList(); } }
+}
+function card(it){
+  const a = el("article",{class:"item","data-id":it.id,"data-status":statusOf(it.id)});
+  const head = el("div",{class:"head"}, el("h3",{text:it.name}));
+  if (it.footprint) head.append(el("span",{class:"chip",text:it.footprint}));
+  if (it.scale) head.append(el("span",{class:"scale",text:it.scale}));
+  a.append(head);
+  if (it.placement) a.append(el("p",{class:"rule",text:it.placement}));
+  if (it.table) {
+    const tw = el("div",{class:"tablewrap"}); const tb = el("table",{class:"pop"});
+    tb.append(el("tr",{},el("th",{text:"map"}),el("th",{text:"town type"}),el("th",{text:"residents (avg)"}),el("th",{text:"populated tiles"})));
+    for (const r of it.table) tb.append(el("tr",{},el("td",{text:`${r.size}²`}),el("td",{text:r.town}),el("td",{text:String(r.pop)}),el("td",{text:String(r.tiles)})));
+    tw.append(tb); a.append(tw);
+  }
+  if (it.images?.length) {
+    const shots = el("div",{class:"shots"});
+    for (const im of it.images) { const img = el("img",{src:im.file,alt:`${it.name} — ${im.label}`,loading:"lazy"}); img.onload = () => { const z = img.naturalWidth > 900 ? 1 : 2; img.style.width = (img.naturalWidth*z)+"px"; }; shots.append(el("figure",{},el("div",{class:"well"},img),el("figcaption",{text:im.label}))); }
+    a.append(shots);
+  }
+  const v = el("div",{class:"verdict"}); const seg = el("div",{class:"seg",role:"group","aria-label":`Verdict for ${it.name}`});
+  const stamp = el("span",{class:"saved"});
+  for (const [k,label] of STATUS) { const b = el("button",{type:"button","data-v":k,"aria-pressed":String(statusOf(it.id)===k),text:label}); if (!db || !writable) b.disabled = true;
+    b.onclick = () => { const cur = statusOf(it.id); const nv = cur === k ? "open" : k; for (const x of seg.children) x.setAttribute("aria-pressed", String(x.dataset.v === nv)); stamp.textContent = "Saving…"; save(it.id, { status: nv }, stamp); }; seg.append(b); }
+  const ta = el("textarea",{id:`note-${it.id}`,rows:"1",placeholder:"What should change? (optional)","aria-label":`Note for ${it.name}`}); ta.value = verdicts[it.id]?.note || ""; if (!db || !writable) ta.disabled = true;
+  ta.addEventListener("change", () => { stamp.textContent = "Saving…"; save(it.id, { note: ta.value, status: statusOf(it.id) }, stamp); });
+  v.append(seg, ta, stamp); a.append(v);
+  return a;
+}
+function renderList(){
+  const list = document.getElementById("list"); list.textContent = "";
+  for (const g of groups) {
+    if (fGroup !== "All" && fGroup !== g) continue;
+    const its = ITEMS.filter(i => i.group === g && (fStatus === "all" || statusOf(i.id) === fStatus));
+    if (!its.length) continue;
+    const s = el("section",{class:"group"}, el("h2",{}, g, el("small",{text:`${its.length} item${its.length===1?"":"s"}`})));
+    for (const it of its) s.append(card(it));
+    list.append(s);
+  }
+}
+renderTally(); renderFilters(); renderList();
+(async () => {
+  try { db = window.claude ? await window.claude.use("db") : null; } catch { db = null; }
+  const banner = document.getElementById("banner");
+  if (!db) { banner.hidden = false; banner.textContent = "Verdicts can't be saved in this view. Open the page on claude.ai, signed in, to approve items."; renderList(); return; }
+  try { const user = await window.claude.use("user"); const can = user ? await user.can("data.write") : null; if (can === false) { writable = false; banner.hidden = false; banner.textContent = "You can view this docket; only people with Contributor access or above can record verdicts."; } } catch {}
+  renderList();
+  db.collection("verdicts").onSnapshot((snap) => {
+    for (const d of snap.docs) { const v = d.data(); if (v) verdicts[d.id] = { status: v.status, note: v.note }; }
+    renderTally();
+    // refresh cards in place without clobbering a note being typed
+    for (const it of ITEMS) { const c = document.querySelector(`article[data-id="${CSS.escape(it.id)}"]`); if (!c) continue; c.dataset.status = statusOf(it.id);
+      for (const b of c.querySelectorAll(".seg button")) b.setAttribute("aria-pressed", String(b.dataset.v === statusOf(it.id)));
+      const ta = c.querySelector("textarea"); if (ta && document.activeElement !== ta) ta.value = verdicts[it.id]?.note || ""; }
+  }, () => { banner.hidden = false; banner.textContent = "Lost the connection to saved verdicts. Reload to try again."; });
+})();
+</script>

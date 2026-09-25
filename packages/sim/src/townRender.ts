@@ -49,6 +49,7 @@ import { drawStorefront } from "./render/storefront.js";
 import { drawAmbientTraffic } from "./render/traffic.js";
 import { lotFrontage, roadClass } from "./render/frontage.js";
 import { drawParkingTile, diagonalStall } from "./render/parking.js";
+import { edgeBlend, wildGround, wildMask } from "./render/ground.js";
 import { composeFacade } from "./render/compose.js";
 import { drawWater, pointBarAt, bleedWater } from "./render/water.js";
 import { drawHouse, drawBackyard, drawApartment, frontageOf, isHouseTile, curbCutAt, homeCarSpot } from "./render/houses.js";
@@ -560,13 +561,13 @@ function renderTownFrame(sim: SimState, opts: RenderOpts): RenderedFrame {
     C.scrub = hexToRgb("#cfd6da"); // dry stalks poking through
     C.bush = hexToRgb("#5c5a4a");
     C.canopy = hexToRgb("#5c4c38"); // bare wood branches
-    C.canopyLight = hexToRgb("#ffffff"); // snowy caps
+    C.canopyLight = hexToRgb("#f2f6f8"); // snowy caps
     C.canopyDark = hexToRgb("#46392a"); // bare shadow branches
     C.willowL = hexToRgb("#7a6c5a"); // bare winter willows
     C.willowD = hexToRgb("#54483b");
     C.waterDeep = hexToRgb("#aed5e8"); // frozen ice water sheet
     C.waterRipple = hexToRgb("#cbeefc");
-    C.waterGlint = hexToRgb("#ffffff");
+    C.waterGlint = hexToRgb("#f4f8fa");
   }
 
   // Adjust window colors for night view
@@ -1344,7 +1345,7 @@ function drawTile(
             const h = pixHash(gx, gy, 65);
             let c: RGB;
             if (nearWater) {
-              c = h % 3 === 0 ? hexToRgb("#61b53e") : hexToRgb("#4c962b"); // oasis grass
+              c = RS.season === "winter" ? (h % 3 === 0 ? C.sandDark : C.sandBg) : h % 3 === 0 ? hexToRgb("#61b53e") : hexToRgb("#4c962b"); // oasis grass
             } else {
               c = h % (RS.season === "winter" ? 6 : 3) === 0 ? C.sandDark : C.sandBg;
               if (valueNoise(gx, gy, 30, 66) > 0.68) c = shade(C.sandBg, 1.05); // dune crest
@@ -1731,7 +1732,7 @@ function drawTile(
         cropA = hexToRgb("#baa57c"); // tan stubble
         cropB = hexToRgb("#6d5338"); // tilled soil
       } else if (RS.season === "winter") {
-        cropA = hexToRgb("#ffffff"); // snow cover
+        cropA = hexToRgb("#f4f7f9"); // snow cover (off-white: pure white is a light source)
         cropB = hexToRgb("#dce5ec");
       }
 
@@ -1963,6 +1964,7 @@ function drawTile(
     }
   }
   const desertY = w.biome[t] === 1;
+  if (RS.season === "winter" && district === 5) lawnBase = hexToRgb("#d6dce0"); // trailer lots under packed snow
 
   for (let py = 0; py < TILE_PX; py++) {
     for (let px = 0; px < TILE_PX; px++) {
@@ -1973,7 +1975,11 @@ function drawTile(
         c = (gx + gy) % 3 === 0 ? shade(C.scorched, 1.2) : C.scorched;
       } else {
         if (built) {
-          if (lawnDistrict) {
+          if (lawnDistrict && desertY) {
+            // desert yard: no irrigated turf — packed caliche + gravel, a
+            // rare saltbush; the green lives only by the house (drawHouse)
+            c = pixHash(gx, gy, 33) % 4 === 0 ? C.sandDark : pixHash(gx, gy, 35) % 29 === 0 ? hexToRgb("#8a9a6a") : shade(C.sandBg, 0.96);
+          } else if (lawnDistrict) {
             // mown lawn: alternating mowing stripes, the proper green
             c = ((gx >> 1) + (gy >> 1)) % 2 === 0 ? lawnBase : shade(lawnBase, 1.07);
             if (pixHash(gx, gy, 33) % 41 === 0) c = shade(lawnBase, 0.93); // clover
@@ -1981,16 +1987,15 @@ function drawTile(
             // hard ground: concrete/pavers/gravel speckle
             c = pixHash(gx, gy, 33) % 9 === 0 ? shade(lawnBase, 0.92) : lawnBase;
           }
-        } else {
-          // open yard: biome ground
-          if (desertY) {
-            c = pixHash(gx, gy, 65) % 3 === 0 ? C.sandDark : C.sandBg;
-          } else {
-            const cell = valueNoise(gx, gy, 9, 13) > 0.55 ? 0 : 1;
-            c = cell === 0 ? C.meadowLight : C.meadow;
-            if (w.biome[t] === 2) c = cell === 0 ? C.forestFloor : shade(C.forestFloor, 0.92);
-            if (pixHash(gx, gy, 5) % 31 === 0) c = C.scrub;
+          // the lot's edge facing open country blends into the land
+          if (lawnDistrict) {
+            const eb = edgeBlend(w, t, tx, ty, px, py);
+            if (eb) c = eb;
           }
+        } else {
+          // open yard: the land's own ground (identical to the Grass tiles,
+          // so fringe yards never seam against the country)
+          c = wildGround(w, t, gx, gy);
         }
         if (owner !== NEUTRAL) {
           const cult = hexToRgb(playerColor(owner));
@@ -2900,8 +2905,15 @@ export function drawLotBuilding(
         let c = ((gx >> 1) + (gy >> 1)) % 2 === 0 ? turf : shade(turf, 1.07);
         // walks: along the tile seams that continue the park (a walk grid)
         if ((px === 7 && pE && ty % 2 === 0) || (py === 7 && pS && tx % 2 === 0)) c = walkC;
-        // the outer hedge-line where the park meets the sidewalk
-        if ((py === 0 && !pN) || (py === 7 && !pS) || (px === 0 && !pW) || (px === 7 && !pE)) c = shade(turf, 0.8);
+        // the kerb/hedge line where the park meets a street or lot; toward
+        // open country the mown turf gives way to the land instead
+        const eb = edgeBlend(w, t, tx, ty, px, py);
+        if (eb) c = eb;
+        else if ((py === 0 && !pN) || (py === 7 && !pS) || (px === 0 && !pW) || (px === 7 && !pE)) {
+          const wm = wildMask(w)[t]!;
+          const wildSide = (py === 0 && wm & 1) || (py === 7 && wm & 2) || (px === 0 && wm & 4) || (px === 7 && wm & 8);
+          if (!wildSide) c = shade(turf, 0.8);
+        }
         put(gx, gy, c);
       }
     }

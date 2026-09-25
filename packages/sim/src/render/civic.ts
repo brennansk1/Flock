@@ -15,6 +15,7 @@ import { hexToRgb, shade, type RGB } from "../palette.js";
 import { RS, C, TILE_PX, pixHash, isLitHour, type Put } from "./core.js";
 import { lotFrontage } from "./frontage.js";
 import { composeFacade } from "./compose.js";
+import { edgeBlend } from "./ground.js";
 
 const hx = hexToRgb;
 
@@ -161,9 +162,11 @@ const CINDER_D = hx("#8e4632");
 
 /** Pixel of the stadium in (u along the long axis, v across) space. */
 function trackPixel(u: number, v: number, U: number, V: number, gx: number, gy: number, homeSide: boolean): RGB | null {
-  // bleacher band on the home side, below the oval
-  const standsH = V >= 30 ? 5 : 4;
-  const ovalV = V - standsH;
+  // bleacher band on the home side, below the oval, then a parking apron
+  // along the street edge when the footprint is deep enough
+  const standsH = 4;
+  const apronH = V >= 30 ? 2 : 0;
+  const ovalV = V - standsH - apronH;
   const r = (ovalV - 2) / 2; // outer radius
   const cyv = 1 + r; // oval centre (v)
   const cu0 = 1 + r, cu1 = U - 2 - r; // straightaway ends (u)
@@ -194,6 +197,17 @@ function trackPixel(u: number, v: number, U: number, V: number, gx: number, gy: 
     // goalposts just behind each end line
     if (Math.abs(v - cyv + 0.5) < 1 && (u === fl0 - 1 || u === fl1 + 1)) return hx("#f2d23b");
     return winter ? hx("#e4ebef") : hx("#58963e");
+  }
+  // CHAIN-LINK FENCE ringing the oval
+  if (dist <= r + 1.4 && v < ovalV) return (Math.round(u + v) & 1) === 0 ? hx("#9aa0a6") : hx("#6a7076");
+  // PARKING APRON along the street edge: striped stalls, a few cars
+  if (apronH > 0 && v >= V - apronH) {
+    const k = v - (V - apronH);
+    const stall = Math.floor(u / 3);
+    if (u % 3 === 0) return hx("#bcb8ac");
+    const car = pixHash(stall, 7, 341) % 3 === 0;
+    if (car) return k === 0 ? hx(["#9a3a2c", "#40597e", "#b0955e", "#e4ded0"][pixHash(stall, 9, 341) % 4]!) : hx("#2a3550");
+    return pixHash(gx, gy, 343) % 9 === 0 ? shade(C.asphalt, 1.1) : C.asphalt;
   }
   // HOME STANDS: aluminium bleacher rows + the press box on top
   const sv = v - ovalV;
@@ -226,13 +240,17 @@ export function drawTrack(w: World, ax: number, ay: number, fw: number, fh: numb
       const u = horiz ? lx : ly;
       let v = horiz ? ly : lx;
       if (flipV) v = V - 1 - v;
-      const c = trackPixel(u, v, U, V, gx, gy, true) ?? lawnColor(gx, gy);
+      // outside the fence the lot is plain campus ground that blends into
+      // any open country beside it
+      const tt = (gy >> 3) * w.width + (gx >> 3);
+      const c = trackPixel(u, v, U, V, gx, gy, true) ?? edgeBlend(w, tt, gx >> 3, gy >> 3, gx & 7, gy & 7) ?? lawnColor(gx, gy);
       put(gx, gy, c);
     }
   }
   // stadium light towers at the four corners of the oval (lamps glow at dusk)
   const lamp = isLitHour() ? hx("#fff6c8") : hx("#d8d8d0");
-  const corners: Array<[number, number]> = [[2, 1], [U - 3, 1], [2, V - 6], [U - 3, V - 6]];
+  const ovalBottom = V - 4 - (V >= 30 ? 2 : 0);
+  const corners: Array<[number, number]> = [[1, 1], [U - 2, 1], [1, ovalBottom - 1], [U - 2, ovalBottom - 1]];
   for (const [cu, cv] of corners) {
     const vv = flipV ? V - 1 - cv : cv;
     const lx = horiz ? cu : vv, ly = horiz ? vv : cu;

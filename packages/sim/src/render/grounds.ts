@@ -278,7 +278,8 @@ function pivotsOf(w: World): { tile: Int32Array; list: Pivot[] } {
   if (desert) {
     const seen = new Uint8Array(w.terrain.length);
     for (let t0 = 0; t0 < w.terrain.length; t0++) {
-      if (seen[t0] || w.terrain[t0] !== Terrain.Field || w.biome[t0] === Biome.Desert) continue;
+      // only fields mapgen marked as center pivots (TileFlag.Pivot = 2)
+      if (seen[t0] || w.terrain[t0] !== Terrain.Field || (w.flags[t0]! & 2) === 0) continue;
       const comp: number[] = [];
       const st = [t0];
       seen[t0] = 1;
@@ -291,7 +292,7 @@ function pivotsOf(w: World): { tile: Int32Array; list: Pivot[] } {
         for (const n of [t - 1, t + 1, t - w.width, t + w.width]) {
           if (n < 0 || n >= w.terrain.length || seen[n]) continue;
           if (Math.abs((n % w.width) - x) > 1) continue;
-          if (w.terrain[n] !== Terrain.Field || w.biome[n] === Biome.Desert) continue;
+          if (w.terrain[n] !== Terrain.Field || (w.flags[n]! & 2) === 0) continue;
           seen[n] = 1;
           st.push(n);
         }

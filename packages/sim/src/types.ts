@@ -163,6 +163,8 @@ export type Lot = (typeof Lot)[keyof typeof Lot];
 export const TileFlag = {
   /** Prosperity Circle Downline: creep-flipped, pays 2× tithe forever (§11.3) */
   Downline: 1,
+  /** Mapgen: this Field tile is part of a desert center-pivot circle (render hint only). */
+  Pivot: 2,
 } as const;
 
 export interface World {

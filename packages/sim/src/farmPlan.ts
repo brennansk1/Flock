@@ -11,7 +11,7 @@
  * Pure function of (world, rng); integer math.
  */
 import { nextRange, type RngState } from "./rng.js";
-import { Lot, Terrain, Biome, type World } from "./types.js";
+import { Lot, Terrain, Biome, TileFlag, type World } from "./types.js";
 
 const AG: ReadonlySet<number> = new Set([Terrain.Field, Terrain.Orchard, Terrain.Pasture]);
 const FARM_LOTS: ReadonlySet<number> = new Set([Lot.Barn, Lot.Silo, Lot.Greenhouse]);
@@ -83,17 +83,18 @@ export function tidyAgriculture(w: World, rng: RngState, desert: boolean, river:
   if (desert && river && river.length) {
     let placed = 0;
     const want = 2 + nextRange(rng, 2);
-    for (let attempt = 0; attempt < 80 && placed < want; attempt++) {
+    for (let attempt = 0; attempt < 400 && placed < want; attempt++) {
       const y = 6 + nextRange(rng, height - 12);
       const rx = river[Math.min(river.length - 1, y)]!;
       const side = nextRange(rng, 2) === 0 ? -1 : 1;
-      const cx = rx + side * (6 + nextRange(rng, 4));
+      const cx = rx + side * (5 + nextRange(rng, 9));
       const R = 3 + nextRange(rng, 2);
       if (cx - R < 1 || cx + R >= width - 1 || y - R < 1 || y + R >= height - 1) continue;
       let ok = true;
       let roadNear = false;
-      for (let dy = -R - 1; dy <= R + 1 && ok; dy++) {
-        for (let dx = -R - 1; dx <= R + 1 && ok; dx++) {
+      for (let dy = -R - 4; dy <= R + 4 && ok; dy++) {
+        for (let dx = -R - 4; dx <= R + 4 && ok; dx++) {
+          if (cx + dx < 0 || y + dy < 0 || cx + dx >= width || y + dy >= height) continue;
           const t = (y + dy) * width + cx + dx;
           const tr = w.terrain[t];
           if (tr === Terrain.Road || tr === Terrain.Dirt) roadNear = true;
@@ -108,6 +109,7 @@ export function tidyAgriculture(w: World, rng: RngState, desert: boolean, river:
           const t = (y + dy) * width + cx + dx;
           w.terrain[t] = Terrain.Field;
           w.biome[t] = Biome.Temperate; // the irrigated green
+          w.flags[t] = w.flags[t]! | TileFlag.Pivot;
         }
       }
       placed++;

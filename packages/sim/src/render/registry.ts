@@ -5,17 +5,21 @@
  */
 import { Lot } from "../types.js";
 import type { Author } from "./plan.js";
-import { bank, postOffice, office, library, chapel, cinema, diner, supermarket, gasStation } from "./lots.js";
+import { bank, sheriff, postOffice, office, library, cinema, diner, supermarket, gasStation } from "./lots.js";
+import { church, chapel } from "./faith.js";
+import { powerhouse } from "./waterworks.js";
 import { highSchool, school, playground, cemetery } from "./campus.js";
-import { substation, waterTower, barn, greenhouse, lighthouse, grainElevator, sawmill, cannery } from "./works.js";
+import { substation, waterTower, silo, barn, greenhouse, lighthouse, grainElevator, sawmill, cannery } from "./works.js";
 import { megachurch, fairground, radioTower } from "./landmarks.js";
 
 export const PLANNED: Partial<Record<number, Author>> = {
   [Lot.Bank]: bank,
+  [Lot.Sheriff]: sheriff,
   [Lot.PostOffice]: postOffice,
   [Lot.Office]: office,
   [Lot.Library]: library,
   [Lot.Chapel]: chapel,
+  [Lot.Church]: church,
   [Lot.Cinema]: cinema,
   [Lot.Diner]: diner,
   [Lot.Supermarket]: supermarket,
@@ -26,9 +30,11 @@ export const PLANNED: Partial<Record<number, Author>> = {
   [Lot.Cemetery]: cemetery,
   [Lot.Substation]: substation,
   [Lot.WaterTower]: waterTower,
+  [Lot.Silo]: silo,
   [Lot.Barn]: barn,
   [Lot.Greenhouse]: greenhouse,
   [Lot.Lighthouse]: lighthouse,
+  [Lot.Powerhouse]: powerhouse,
   [Lot.GrainElevator]: grainElevator,
   [Lot.Sawmill]: sawmill,
   [Lot.Cannery]: cannery,

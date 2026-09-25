@@ -28,8 +28,16 @@ export const EMISSIVE = {
   /** police light-bar bloom: dimmer halos around the flashing bar */
   policeRedGlow: [170, 36, 48] as RGB,
   policeBlueGlow: [40, 70, 190] as RGB,
+  /** cinema marquee: the back-lit letter board, the warm light pool it
+   * throws on the sidewalk, and the lit one-sheets in the poster cases */
+  marqueeBoard: [255, 244, 214] as RGB,
+  marqueePool: [178, 138, 84] as RGB,
+  marqueePoolHi: [214, 170, 104] as RGB,
+  posterA: [236, 110, 72] as RGB,
+  posterB: [96, 168, 232] as RGB,
+  posterC: [240, 214, 96] as RGB,
   /** cult members' white beacon heads glow through the night grade */
-  beaconWhite: [255, 255, 255] as RGB,
+  beaconWhite: [255, 254, 250] as RGB, // not pure #fff: clamped snow highlights must still take the night grade
 };
 
 const pack = (c: RGB): number => (c[0] << 16) | (c[1] << 8) | c[2];

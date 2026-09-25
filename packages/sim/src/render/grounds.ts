@@ -252,6 +252,7 @@ export function drawPierOverWater(w: World, t: number, tx: number, ty: number, p
     if (n < 0 || n >= w.lot.length) continue;
     if ((want === 0 && tx === 0) || (want === 1 && tx === w.width - 1)) continue;
     if (w.lot[n] !== Lot.Dock || dockWaterDir(w, n) !== want) continue;
+    if (w.terrain[n] === Terrain.Lake) continue; // a pier segment ON the water draws itself (waterworks.ts)
     // the pier's shadow on the water first, then the deck
     drawPierFrame((x, y, c) => put(x, y, c), x0, y0, want, TILE_PX, n);
     return;

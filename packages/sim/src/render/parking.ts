@@ -8,7 +8,7 @@
  */
 import { Terrain, Lot, type World } from "../types.js";
 import { hexToRgb, shade, type RGB } from "../palette.js";
-import { RS, C, TILE_PX, pixHash, type Put } from "./core.js";
+import { RS, C, TILE_PX, pixHash, lotOccupancy, stallVisit, type Put } from "./core.js";
 import { drawVehicle, householdVehicle, householdPaint, vehicleSize } from "./vehicles.js";
 
 const hx = hexToRgb;
@@ -16,7 +16,7 @@ const STRIPE = hx("#bcb8ac");
 const CURB = hx("#a8a298");
 
 function occupancy(): number {
-  return RS.time === "night" ? 15 : RS.time === "dusk" ? 35 : RS.time === "dawn" ? 20 : 45;
+  return lotOccupancy();
 }
 
 export function drawParkingTile(w: World, t: number, tx: number, ty: number, x0: number, y0: number, put: Put): void {
@@ -41,8 +41,9 @@ export function drawParkingTile(w: World, t: number, tx: number, ty: number, x0:
   // parked cars nose-in (N–S, 2×3) in the four stalls of the tile
   const occ = occupancy();
   for (let k = 0; k < 4; k++) {
-    const h = pixHash(t, k, 811);
-    if (h % 100 >= occ) continue;
+    // cars come and go (core.stallVisit): a new car each visit
+    const h = stallVisit(t * 4 + k, occ);
+    if (h < 0) continue;
     // back-to-back rows: row A noses north (tail at y 3), row B south
     // (tail at y 4); 4-px kinds overhang onto the curb row
     const kind = householdVehicle(h);
@@ -69,8 +70,9 @@ export function drawParkingTile(w: World, t: number, tx: number, ty: number, x0:
 export function diagonalStall(gx: number, band: number, rowKey: number): RGB | null {
   const s = Math.floor((gx + band) / 4); // stall index along the street
   const k = (gx + band) % 4;
-  const h = pixHash(s, rowKey, 813);
-  const parked = h % 100 < occupancy() + 20;
+  const v = stallVisit(s * 977 + rowKey, occupancy() + 20); // curb cars come and go too
+  const parked = v >= 0;
+  const h = parked ? v : pixHash(s, rowKey, 813);
   if (parked && k >= 1) {
     const paint = householdPaint(h >>> 3);
     if (k === 1) return band === 0 ? shade(paint, 1.15) : paint;

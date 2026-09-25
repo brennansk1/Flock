@@ -14,19 +14,40 @@
  *  - SHOALS: pale shallows off a point bar (land jutting into the water).
  * Pure function of (world, tile, pixel, season, tick).
  */
-import { Terrain, type World } from "../types.js";
+import { Lot, Terrain, type World } from "../types.js";
 import { hexToRgb, shade, type RGB } from "../palette.js";
 import { RS, C, TILE_PX, pixHash, valueNoise, type Put } from "./core.js";
 
 const FIELD = new WeakMap<World, Uint8Array>();
 const MAXD = 6;
 
+/**
+ * Water for shoreline purposes: real water, plus the man-made things that
+ * stand out IN it (a jetty, the lighthouse pad at the jetty's end) — the
+ * sea stays deep right up to their granite, no sand rim / shallow ramp.
+ */
+export function seaLike(w: World, t: number): boolean {
+  if (w.terrain[t] === Terrain.Lake) return true;
+  const lot = w.lot[t];
+  if (lot === Lot.Jetty) return true;
+  if (lot !== Lot.Lighthouse) return false;
+  const x = t % w.width, y = (t / w.width) | 0;
+  let n = 0;
+  for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+    const xx = x + dx, yy = y + dy;
+    if (xx < 0 || yy < 0 || xx >= w.width || yy >= w.height) continue;
+    const k = yy * w.width + xx;
+    if (w.terrain[k] === Terrain.Lake || w.lot[k] === Lot.Jetty) n++;
+  }
+  return n >= 2;
+}
+
 export function waterField(w: World): Uint8Array {
   let f = FIELD.get(w);
   if (f) return f;
   const W = w.width, H = w.height;
   f = new Uint8Array(W * H);
-  for (let t = 0; t < f.length; t++) f[t] = w.terrain[t] === Terrain.Lake ? MAXD : 0;
+  for (let t = 0; t < f.length; t++) f[t] = seaLike(w, t) ? MAXD : 0;
   for (let pass = 0; pass < MAXD; pass++) {
     let changed = false;
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
@@ -70,7 +91,9 @@ const FOAM_D = hexToRgb("#bcd6dc");
 export function drawWater(w: World, t: number, tx: number, ty: number, put: Put, tick: number): void {
   const f = waterField(w);
   const x0 = tx * TILE_PX, y0 = ty * TILE_PX;
-  const isW = (n: number, ok: boolean): boolean => ok && w.terrain[n] === Terrain.Lake;
+  // a jetty standing out in the sea is water on either side of it: no
+  // sand rim along its flanks (its own tile draws stones + surf)
+  const isW = (n: number, ok: boolean): boolean => ok && seaLike(w, n);
   const wN = isW(t - w.width, ty > 0) || ty === 0;
   const wS = isW(t + w.width, ty < w.height - 1) || ty === w.height - 1;
   const wW = isW(t - 1, tx > 0) || tx === 0;
@@ -94,7 +117,7 @@ export function drawWater(w: World, t: number, tx: number, ty: number, put: Put,
   const landAt = (dx: number, dy: number): boolean => {
     const x = tx + dx, y = ty + dy;
     if (x < 0 || y < 0 || x >= w.width || y >= w.height) return false;
-    return w.terrain[y * w.width + x] !== Terrain.Lake;
+    return !seaLike(w, y * w.width + x);
   };
   const nwL = wN && wW && landAt(-1, -1), neL = wN && wE && landAt(1, -1);
   const swL = wS && wW && landAt(-1, 1), seL = wS && wE && landAt(1, 1);

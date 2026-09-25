@@ -13,9 +13,11 @@
 import { Terrain, type World } from "../types.js";
 import { hexToRgb, type RGB } from "../palette.js";
 import { RS, TILE_PX, pixHash, valueNoise, type Put } from "./core.js";
+import { wildGround } from "./ground.js";
+import { canopyPx } from "./canopy.js";
 
 const FIELD = new WeakMap<World, Uint8Array>();
-const MAXD = 5;
+const MAXD = 8;
 
 /** rings of rock around each tile (0 = not rock, 1 = edge … MAXD). */
 export function rockField(w: World): Uint8Array {
@@ -47,9 +49,8 @@ export function rockField(w: World): Uint8Array {
   return f;
 }
 
-/** Height (≈0..MAXD+1) at a logical pixel. */
-function heightAt(w: World, f: Uint8Array, gx: number, gy: number): number {
-  // tile-centre lattice
+/** raw bilinear ring distance at a logical pixel (0 outside … MAXD) */
+function baseAt(w: World, f: Uint8Array, gx: number, gy: number): number {
   const fx = (gx - TILE_PX / 2) / TILE_PX;
   const fy = (gy - TILE_PX / 2) / TILE_PX;
   const x0 = Math.floor(fx), y0 = Math.floor(fy);
@@ -58,9 +59,25 @@ function heightAt(w: World, f: Uint8Array, gx: number, gy: number): number {
   const g = (x: number, y: number): number => (x < 0 || y < 0 || x >= W || y >= Hh ? 0 : f[y * W + x]!);
   const top = g(x0, y0) * (1 - ax) + g(x0 + 1, y0) * ax;
   const bot = g(x0, y0 + 1) * (1 - ax) + g(x0 + 1, y0 + 1) * ax;
-  const base = top * (1 - ay) + bot * ay;
-  return base + 0.9 * valueNoise(gx, gy, 6, 211) + 0.45 * valueNoise(gx, gy, 3, 213);
+  return top * (1 - ay) + bot * ay;
 }
+
+/**
+ * Height at a logical pixel: the ring distance (a massif rises from its
+ * edge), plus RIDGED noise whose amplitude grows inland — spurs, saddles
+ * and peaks, so no interior ever reads as a flat plate — plus fine grain.
+ */
+function heightAt(w: World, f: Uint8Array, gx: number, gy: number): number {
+  const base = baseAt(w, f, gx, gy);
+  const inland = base > 3 ? 1 : base / 3;
+  const r1 = 1 - Math.abs(2 * valueNoise(gx, gy, 18, 209) - 1); // ridge lines
+  const r2 = 1 - Math.abs(2 * valueNoise(gx, gy, 9, 215) - 1);
+  return base * 0.85 + inland * (2.4 * r1 + 1.1 * r2) + 0.5 * valueNoise(gx, gy, 5, 211) + 0.25 * valueNoise(gx, gy, 3, 213);
+}
+
+/** 4×4 ordered-dither threshold (0..1) for smooth tone ramps */
+const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+const bayer = (gx: number, gy: number): number => (BAYER[(gy & 3) * 4 + (gx & 3)]! + 0.5) / 16;
 
 const GRANITE: RGB[] = ["#4f4e4c", "#686560", "#817d76", "#9b968d", "#b6b0a5", "#ccc6ba"].map(hexToRgb);
 const SANDSTONE: RGB[] = ["#6a3322", "#8a4530", "#a8593a", "#c2714a", "#d68c5e", "#e4a978"].map(hexToRgb);
@@ -76,46 +93,63 @@ export function drawRock(w: World, t: number, tx: number, ty: number, put: Put):
   const winter = RS.season === "winter";
   const x0 = tx * TILE_PX, y0 = ty * TILE_PX;
   const d = f[t]!;
+  // the ground this massif stands in (for the dithered foot)
+  let foot = -1;
+  if (d <= 1) {
+    for (const [dx, dy] of [[0, 1], [1, 0], [0, -1], [-1, 0], [1, 1], [-1, 1], [1, -1], [-1, -1]] as const) {
+      const x = tx + dx, y = ty + dy;
+      if (x < 0 || y < 0 || x >= w.width || y >= w.height) continue;
+      const n = y * w.width + x;
+      if (f[n] === 0 && w.terrain[n] !== Terrain.Lake) { foot = n; break; }
+    }
+  }
   for (let py = 0; py < TILE_PX; py++) {
     for (let px = 0; px < TILE_PX; px++) {
       const gx = x0 + px, gy = y0 + py;
-      const h = heightAt(w, f, gx, gy);
-      const hNW = heightAt(w, f, gx - 2, gy - 2);
-      const slope = h - hNW; // + = faces the NW sun
       const hash = pixHash(gx, gy, 217);
+      // the FOOT: where the massif meets the land, dither the rock out into
+      // the neighbouring ground (grass / forest floor / woods) over ~4 px
+      if (foot >= 0) {
+        const b0 = baseAt(w, f, gx, gy) + 0.9 * (valueNoise(gx, gy, 7, 229) - 0.5) + 0.3 * (valueNoise(gx, gy, 3, 233) - 0.5);
+        if (b0 < 1.45) {
+          const k = (1.45 - b0) / 1.1; // 0 at the rock … 1 at the tile edge
+          if (k > (pixHash(gx, gy, 235) % 100) / 100 * 0.85 + 0.08) {
+            put(gx, gy, w.terrain[foot] === Terrain.Woods && !desert ? canopyPx(gx, gy, 0.5) : wildGround(w, foot, gx, gy));
+            continue;
+          }
+        }
+      }
+      const h = heightAt(w, f, gx, gy);
+      // hillshade: gradient toward the NW sun over 2 px, dithered ramp
+      const slope = (h - heightAt(w, f, gx - 2, gy - 2)) * 1.4;
+      const tone = Math.max(0, Math.min(1, 0.5 + slope * 0.9)); // 0 shade … 1 lit
       let c: RGB;
       if (desert) {
-        // MESA: a flat caprock table on the interior, stepped strata walls
-        const mesaTop = h > 2.6;
+        const mesaTop = h > 3.4;
         if (mesaTop) {
-          c = CAPROCK[1 + (slope > 0.12 ? 1 : slope < -0.12 ? -1 : 0)]!;
-          if (hash % 23 === 0) c = SCRUB; // juniper / scrub on the table
+          const i = tone > 0.62 ? 2 : tone < 0.38 ? 0 : 1;
+          c = CAPROCK[i]!;
+          if (hash % 23 === 0) c = SCRUB;
         } else {
           const band = Math.floor(h * 2.2) & 1; // strata
-          let i = 2 + band + (slope > 0.15 ? 1 : slope < -0.15 ? -2 : 0);
-          if (h < 1.1) i -= 1; // talus foot in shadow
+          const lv = tone * 4 + bayer(gx, gy) - 0.5;
+          let i = 1 + band + Math.round(lv);
+          if (h < 1.2) i -= 1;
           c = SANDSTONE[i < 0 ? 0 : i > 5 ? 5 : i]!;
         }
-        if (winter && (mesaTop || slope > 0.2) && hash % 3 !== 0) c = slope < 0 ? SNOW_SHADE : SNOW;
+        if (winter && (mesaTop || tone > 0.6) && hash % 3 !== 0) c = tone < 0.45 ? SNOW_SHADE : SNOW;
       } else {
-        let i = 2 + (slope > 0.3 ? 2 : slope > 0.08 ? 1 : slope < -0.3 ? -2 : slope < -0.08 ? -1 : 0);
-        if (h > 3.2) i += 1; // high ground catches more light
+        // 6-step granite ramp, ordered-dithered between steps (no banding)
+        const lv = tone * 4.2 + (h > 5 ? 0.6 : 0) + bayer(gx, gy) - 0.5;
+        let i = Math.round(lv) + 1;
         c = GRANITE[i < 0 ? 0 : i > 5 ? 5 : i]!;
         // krummholz pines cling to the lower slopes
-        if (h < 1.6 && valueNoise(gx, gy, 4, 219) > 0.66) c = hash % 3 === 0 ? GRANITE[1]! : PINE;
-        // snow: the whole ridge in winter (bare rock shows on steep shade
-        // faces), only the high interior peaks the rest of the year
-        const snowLine = winter ? 1.3 : RS.season === "summer" ? 5.7 : 5.1;
-        if (h > snowLine && (slope > -0.25 || winter) && hash % 7 !== 0) c = slope < -0.1 ? SNOW_SHADE : SNOW;
-      }
-      // cliff rim: the rock edge drops away — dark on S/E faces, lit N/W
-      if (d === 1) {
-        const outS = ty + 1 < w.height && f[t + w.width] === 0 && py === TILE_PX - 1;
-        const outE = tx + 1 < w.width && f[t + 1] === 0 && px === TILE_PX - 1;
-        const outN = ty > 0 && f[t - w.width] === 0 && py === 0;
-        const outW = tx > 0 && f[t - 1] === 0 && px === 0;
-        if (outS || outE) c = desert ? SANDSTONE[0]! : GRANITE[0]!;
-        else if ((outN || outW) && !(winter && hash % 2 === 0)) c = desert ? SANDSTONE[4]! : GRANITE[4]!;
+        if (h < 2 && valueNoise(gx, gy, 4, 219) > 0.64) c = hash % 3 === 0 ? GRANITE[1]! : PINE;
+        // snow: in winter it lies on every face that isn't steep shade (the
+        // dark faces keep the relief legible); the rest of the year only
+        // the highest peaks keep a cap
+        if (winter) { if (h > 1.4 && tone > 0.42 && hash % 6 !== 0) c = tone < 0.55 ? SNOW_SHADE : SNOW; }
+        else if (h > (RS.season === "summer" ? 8.6 : 7.2) && tone > 0.35 && hash % 7 !== 0) c = tone < 0.45 ? SNOW_SHADE : SNOW;
       }
       put(gx, gy, c);
     }
@@ -126,13 +160,25 @@ export function drawRock(w: World, t: number, tx: number, ty: number, put: Put):
 export function screeAt(w: World, tx: number, ty: number, px: number, py: number): RGB | null {
   const f = rockField(w);
   const gx = tx * TILE_PX + px, gy = ty * TILE_PX + py;
-  const near = (ntx: number, nty: number, dist: number): boolean =>
-    ntx >= 0 && nty >= 0 && ntx < w.width && nty < w.height && f[nty * w.width + ntx]! > 0 &&
-    dist < 1.5 + 2.5 * valueNoise(gx, gy, 4, 223);
-  const hit = near(tx, ty - 1, py + 1) || near(tx, ty + 1, TILE_PX - py) || near(tx - 1, ty, px + 1) || near(tx + 1, ty, TILE_PX - px);
-  if (!hit) return null;
-  const hash = pixHash(gx, gy, 227);
-  if (hash % 3 !== 0) return null; // scattered, not a solid apron
+  // distance (px) to the nearest rock tile edge, up to 6 px out
+  let dist = 99;
+  const rock = (x: number, y: number): boolean => x >= 0 && y >= 0 && x < w.width && y < w.height && f[y * w.width + x]! > 0;
+  if (rock(tx, ty - 1)) dist = Math.min(dist, py + 1);
+  if (rock(tx, ty + 1)) dist = Math.min(dist, TILE_PX - py);
+  if (rock(tx - 1, ty)) dist = Math.min(dist, px + 1);
+  if (rock(tx + 1, ty)) dist = Math.min(dist, TILE_PX - px);
+  if (rock(tx - 1, ty - 1)) dist = Math.min(dist, Math.hypot(px + 1, py + 1));
+  if (rock(tx + 1, ty - 1)) dist = Math.min(dist, Math.hypot(TILE_PX - px, py + 1));
+  if (rock(tx - 1, ty + 1)) dist = Math.min(dist, Math.hypot(px + 1, TILE_PX - py));
+  if (rock(tx + 1, ty + 1)) dist = Math.min(dist, Math.hypot(TILE_PX - px, TILE_PX - py));
+  const reach = 2.5 + 3.5 * valueNoise(gx, gy, 5, 223);
+  if (dist > reach) return null;
+  // talus thins out with distance: dense at the foot, scattered stones out
+  const k = dist / reach;
+  if ((pixHash(gx, gy, 227) % 100) / 100 < k * 1.1) return null;
+  const hash = pixHash(gx, gy, 231);
   const desert = w.biome[ty * w.width + tx] === 1;
-  return desert ? SANDSTONE[hash % 2 === 0 ? 2 : 3]! : GRANITE[hash % 2 === 0 ? 2 : 3]!;
+  if (RS.season === "winter" && !desert && hash % 2 === 0) return SNOW_SHADE;
+  const ramp = desert ? SANDSTONE : GRANITE;
+  return ramp[hash % 3 === 0 ? 2 : hash % 3 === 1 ? 3 : 4]!;
 }

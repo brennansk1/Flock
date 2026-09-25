@@ -9,11 +9,12 @@ import { C, RS, TILE_PX, pixHash } from "./core.js";
 import { EMISSIVE } from "./grade.js";
 import { M, mix, type Plan } from "./plan.js";
 import { pane, letters } from "./lots.js";
+import { standsInWater, granite } from "./waterworks.js";
 
 const hx = hexToRgb;
 
 /** chain-link fence around [l0..l1]×[d0..d1] with a gate gap on the street side */
-function chainLink(p: Plan, l0: number, d0: number, l1: number, d1: number, gate = true): void {
+export function chainLink(p: Plan, l0: number, d0: number, l1: number, d1: number, gate = true): void {
   const f = hx("#a8a49a"), post = hx("#7a7670");
   const gl = (l0 + l1) >> 1;
   for (let l = l0; l <= l1; l++) {
@@ -39,118 +40,267 @@ function smoke(p: Plan, x: number, y: number, dense = false): void {
 // ------------------------------------------------------------ SUBSTATION
 
 /**
- * Fenced transformer yard: pale crushed-stone pad inside chain-link, a row
- * of dark oil-filled TRANSFORMERS (white bushings on top), the steel
- * A-frame GANTRY carrying the bus over the yard, the brick control house
- * by the gate, a red DANGER sign; a sodium yard light at night.
+ * Electrical SUBSTATION on its pole line: a crushed-stone yard inside
+ * chain-link; at the back (away from the street, where the transmission
+ * line comes in) a steel LATTICE GANTRY — two latticed towers and a
+ * latticed beam hung with white insulator strings; silver BUS BARS on
+ * post insulators across the yard; two big finned TRANSFORMERS with
+ * their bushings; the brick control house by the gate and a red-and-
+ * white DANGER sign on the fence; a sodium yard light at night.
+ * The incoming line itself runs across the country tiles (utility.ts).
  */
 export function substation(p: Plan): void {
-  const { L, D } = p;
-  const big = L >= 16 && D >= 16;
+  const { SW, SH, o } = p;
   const pad = hx("#b4afa4");
-  const e = big ? 2 : 1;
-  p.fill(e, e, L - 1 - e, D - 1 - e, (l, d) => {
-    const [X, Y] = p.gx(l, d);
-    const h = pixHash(X, Y, 91);
-    if (p.winter && h % 3) return M.snow;
-    return h % 5 === 0 ? shade(pad, 0.9) : h % 7 === 0 ? shade(pad, 1.06) : pad;
-  });
-  chainLink(p, e, e, L - 1 - e, D - 1 - e);
-  const tf = hx("#4e5e52"), tfTop = hx("#6e7e72"), bush = hx("#f0ece4"), steel = hx("#5a5e64");
-  // transformers: finned tanks on pads with bushings
-  const n = big ? 3 : 1;
-  const td = big ? 8 : 4;
-  for (let i = 0; i < n; i++) {
-    const l = big ? 4 + i * 3 : 3;
-    p.box({ l0: l, d0: td, l1: l + 1, d1: td + 1, h: 1, wall: tf, roof: tfTop, noSnow: true, front: (u) => (u % 2 ? shade(tf, 0.8) : tf), lip: () => tf });
-    p.spr(l, td, ["b.b"], { b: bush }, 0, 20);
+  const small = SW < 16 || SH < 16;
+  // yard
+  for (let y = 1; y < SH - 1; y++) for (let x = 1; x < SW - 1; x++) {
+    const h = pixHash(p.AX + x, p.AY + y, 91);
+    p.gScr(x, y, p.winter && h % 3 ? M.snow : h % 5 === 0 ? shade(pad, 0.88) : h % 7 === 0 ? shade(pad, 1.07) : pad);
   }
-  // the gantry: two A-frame legs and the bus bar across the yard
-  if (big) {
-    const gd = 5;
-    p.spr(3, gd, ["sss", "s.s", "s.s", "s.s"], { s: steel }, 1, 6);
-    p.spr(L - 4, gd, ["sss", "s.s", "s.s", "s.s"], { s: steel }, 1, 6);
-    p.later(gd + 6.5, () => {
-      const [x0, y0] = p.S(3, gd), [x1, y1] = p.S(L - 4, gd);
-      const n2 = Math.max(Math.abs(x1 - x0), Math.abs(y1 - y0));
-      for (let k = 0; k <= n2; k++) {
-        const x = x0 + Math.round(((x1 - x0) * k) / Math.max(1, n2)), y = y0 + Math.round(((y1 - y0) * k) / Math.max(1, n2)) - 3;
-        p.scr(x, y, k % 3 === 1 ? bush : steel);
+  // chain-link on the ring's inner edge, gate on the street side
+  const f = hx("#a8a49a"), post = hx("#6a6660");
+  const gx = SW >> 1, gy = SH >> 1;
+  const gate = (x: number, y: number): boolean =>
+    (o === 0 && y === SH - 2 && Math.abs(x - gx) <= 1) || (o === 1 && y === 1 && Math.abs(x - gx) <= 1) ||
+    (o === 2 && x === SW - 2 && Math.abs(y - gy) <= 1) || (o === 3 && x === 1 && Math.abs(y - gy) <= 1);
+  for (let x = 1; x < SW - 1; x++) for (const y of [1, SH - 2]) if (!gate(x, y)) p.scr(x, y, x % 3 === 0 ? post : f, 1);
+  for (let y = 1; y < SH - 1; y++) for (const x of [1, SW - 2]) if (!gate(x, y)) p.scr(x, y, y % 3 === 0 ? post : f, 1);
+  const steel = hx("#6a6e76"), steelD = hx("#44484e"), ins = hx("#f0ece4"), bus = hx("#aeb3ba");
+  const tf = hx("#56645a"), tfD = hx("#3e4a42"), tfTop = hx("#74847a");
+  if (small) {
+    // a pole-top yard: one transformer + a gantry pole
+    p.box({ l0: 2, d0: 2, l1: 4, d1: 4, h: 1, wall: tf, roof: tfTop, noSnow: true, front: (u) => (u % 2 ? tfD : tf), lip: () => tf });
+    p.sprAt(5, 5, ["iWi", ".s.", ".s.", ".s."], { i: ins, W: steel, s: steel }, 1, 5);
+    p.obj(gx, SH - 3, M.red);
+    return;
+  }
+  // back side (where the line comes in): 0 top · 1 bottom · 2 left · 3 right
+  const back = o === 0 ? 0 : o === 1 ? 1 : o === 2 ? 2 : 3;
+  const horiz = back <= 1;
+  // gantry base line and tower positions (screen)
+  const gyB = back === 0 ? 5 : back === 1 ? SH - 3 : 0;
+  const gxB = back === 2 ? 4 : back === 3 ? SW - 5 : 0;
+  const lattice = (x: number, y: number, k: number): RGB => ((x + y + k) & 1 ? steel : steelD);
+  const TH = 6; // tower height (px)
+  p.later((horiz ? gyB : SH - 3) + 0.4, () => p.tall(() => {
+    if (horiz) {
+      for (const tx of [3, SW - 5]) {
+        for (let k = 0; k < TH; k++) { p.scr(tx, gyB - k, lattice(tx, gyB - k, 0)); p.scr(tx + 1, gyB - k, lattice(tx + 1, gyB - k, 1)); }
       }
+      for (let x = 3; x <= SW - 4; x++) { p.scr(x, gyB - TH, lattice(x, 0, 0)); p.scr(x, gyB - TH + 1, lattice(x, 1, 1)); }
+      for (let x = 5; x <= SW - 6; x += 3) { p.scr(x, gyB - TH + 2, ins); p.scr(x, gyB - TH + 3, shade(ins, 0.8)); }
+    } else {
+      for (const ty of [4, SH - 4]) {
+        for (let k = 0; k < TH; k++) { p.scr(gxB, ty - k, lattice(gxB, ty - k, 0)); p.scr(gxB + 1, ty - k, lattice(gxB + 1, ty - k, 1)); }
+      }
+      for (let y = 4 - TH; y <= SH - 4 - TH; y++) { p.scr(gxB, y, lattice(0, y, 0)); p.scr(gxB + 1, y, lattice(1, y, 1)); }
+      for (let y = 4 - TH + 3; y <= SH - 4 - TH - 1; y += 3) { p.scr(gxB + 2, y, ins); }
+    }
+  }));
+  // bus bars on post insulators across the middle of the yard
+  const by0 = horiz ? (back === 0 ? 8 : SH - 7) : 5;
+  if (horiz) {
+    p.later(by0 + 0.3, () => {
+      for (let k = 0; k < 2; k++) for (let x = 3; x <= SW - 4; x++) p.scr(x, by0 - 2 + k * 2, bus);
+      for (let x = 4; x <= SW - 5; x += 4) { p.scr(x, by0 - 1, ins); p.scr(x, by0 + 1, ins); p.scr(x, by0, steelD); }
+    });
+  } else {
+    const bx0 = back === 2 ? 7 : SW - 8;
+    p.later(SH - 4, () => {
+      for (let k = 0; k < 2; k++) for (let y = 3; y <= SH - 4; y++) p.scr(bx0 + k * 2, y - 2, bus);
+      for (let y = 4; y <= SH - 5; y += 4) { p.scr(bx0 + 1, y - 2, ins); p.scr(bx0 + 1, y - 1, steelD); }
     });
   }
-  // control house by the gate
-  const cl0 = big ? L - 7 : L - 5;
-  p.box({ l0: cl0, d0: D - 6, l1: L - 4, d1: D - 4, h: 1, wall: M.brick, roof: M.tar, front: (u) => (u === 1 ? C.door : null) });
-  // danger sign on the gate + a yard light
-  p.obj((L >> 1) - 2, D - 3, hx("#c8342a"));
-  if (p.lit) p.g(3, D - 4, hx("#e8c070"));
+  // two finned transformers toward the front, bushings on top
+  const tpos: [number, number][] = horiz
+    ? (back === 0 ? [[3, 10], [8, 10]] : [[3, 4], [8, 4]])
+    : (back === 2 ? [[10, 3], [10, 8]] : [[3, 3], [3, 8]]);
+  for (const [x, y] of tpos) {
+    const [a0, b0] = p.Sinv(x, y), [a1, b1] = p.Sinv(x + 3, y + 2);
+    p.box({
+      l0: Math.min(a0, a1), d0: Math.min(b0, b1), l1: Math.max(a0, a1), d1: Math.max(b0, b1), h: 2, wall: tf, roof: tfTop, noSnow: true,
+      front: (u) => (u % 2 ? tfD : tf), back: (u) => (u % 2 ? tfD : tf), side: (u) => (u % 2 ? tfD : tf), lip: () => tfD,
+    });
+    p.sprAt(x + 1, y, ["i.i"], { i: ins }, 0, 10);
+  }
+  // control house by the gate + the DANGER sign on the fence
+  const [c0, d0] = p.Sinv(horiz ? SW - 6 : (back === 2 ? SW - 6 : 3), horiz ? (back === 0 ? SH - 6 : 3) : SH - 6);
+  const [c1, d1] = p.Sinv(horiz ? SW - 3 : (back === 2 ? SW - 3 : 6), horiz ? (back === 0 ? SH - 4 : 5) : SH - 4);
+  p.box({ l0: Math.min(c0, c1), d0: Math.min(d0, d1), l1: Math.max(c0, c1), d1: Math.max(d0, d1), h: 2, wall: M.brick, roof: M.tar,
+    front: (u) => (u === 1 ? C.door : null), side: (u) => (u === 1 ? C.door : null), back: (u) => (u === 1 ? C.door : null) });
+  const sx = o === 0 ? gx - 3 : o === 1 ? gx - 3 : o === 2 ? SW - 2 : 1;
+  const sy = o === 0 ? SH - 2 : o === 1 ? 1 : gy - 3;
+  p.scr(sx, sy, M.red); p.scr(sx + (o >= 2 ? 0 : 1), sy + (o >= 2 ? 1 : 0), M.white);
+  if (p.lit) p.gScr(gx, gy, hx("#e8c070"));
 }
 
 // ------------------------------------------------------------ WATER TOWER
 
 /**
- * Town water tower: a round tank on four legs with the riser pipe and
- * cross-bracing, the town's name painted in a band, a red beacon on top,
- * in a fenced gravel lot with a pump house. Tank colour by hash (silver,
- * pale blue, white with a checkered cap, sage).
+ * The classic BOWL-AND-LEGS town water tower (Chicago Bridge & Iron
+ * "hemispherical bottom" tank, the 1950s–80s small-town standard), drawn
+ * in 3/4 view rising over the back of its lot and into the overhang: a
+ * conical cap with a finial + red beacon, the tank band with the town's
+ * name, a catwalk ring, the bowl, four splayed legs with two tiers of
+ * X-bracing, the central riser pipe and a caged LADDER up one leg. A
+ * fenced gravel pad and the pump house below. Tank colour by hash.
  */
 export function waterTower(p: Plan): void {
   const { L, D } = p;
   const v = p.h(1) % 4;
   const tank = [hx("#c8ccd0"), hx("#9ec0d8"), hx("#eceae4"), hx("#b8c8a8")][v]!;
-  const cap = v === 2 ? M.red : shade(tank, 1.08);
+  const capC = v === 2 ? M.red : shade(tank, 1.06);
   const big = L >= 16;
-  if (big) {
-    p.pave(3, 3, L - 4, D - 3, "gravel");
-    chainLink(p, 3, 3, L - 4, D - 3);
-    p.box({ l0: L - 7, d0: D - 7, l1: L - 5, d1: D - 5, h: 1, wall: M.brick, roof: M.tar, front: (u) => (u === 1 ? C.door : null) });
-  } else {
-    p.pave(1, 1, L - 2, D - 2, "gravel");
-    chainLink(p, 1, 1, L - 2, D - 2);
-  }
-  // tall structure: anchored in SCREEN space (base near the footprint's
-  // south edge) so the tank stands upright in every orientation
-  const x = p.SW >> 1, y = p.SH - (big ? 3 : 2);
+  const { SW, SH } = p;
+  // mown lawn with a fenced gravel pad round the feet (the pad + fence
+  // are laid in SCREEN space under the legs, so every frontage matches)
+  p.lawn(1, 1, L - 2, D - 2);
+  const x = (SW >> 1) - (SW >= 16 ? 1 : 0); // tower centre column
+  const base = SH - (big ? 4 : 3); // leg feet row
+  const wide = SW >= 16;
+  const R = wide ? 6 : 3; // tank half-width
+  const legH = Math.max(8, Math.min(16, base - 2)); // legs (feet → bowl rim)
+  const rim = base - legH; // row of the tank's catwalk
   const beaconOn = ((RS.tick >> 3) & 1) === 0;
-  const beacon = beaconOn ? EMISSIVE.beacon : hx("#5a1a1a");
-  const t = shade(tank, 0.8);
-  const leg = hx("#4a4e56");
-  const rows = big
-    ? [
-        "....b....",
-        "...ccc...",
-        ".cCcCcCc.",
-        "cCcCcCcCc",
-        "TTTTTTTTt",
-        "TNNNNNNNt",
-        "TTTTTTTTt",
-        ".uuuuuuu.",
-        "..L.P.L..",
-        "..LxPxL..",
-        ".L..P..L.",
-        "L.xxPxx.L",
-      ]
-    : [".b.", "ccc", "TTt", "NNt", "uuu", "LPL"];
-  const pal = {
-    b: beacon, c: cap, C: v === 2 ? M.white : cap, T: tank, t, N: letters(0, 1, tank, tank), u: shade(tank, 0.7),
-    L: leg, P: shade(leg, 0.85), x: shade(leg, 1.2),
-  } as Record<string, RGB>;
-  // painted town name: letter ticks on the band
-  p.later(y + 0.25, () => {
-    const wid = rows[0]!.length, ox = x - (wid >> 1), oy = y - rows.length + 1;
-    for (let r = 0; r < rows.length; r++) for (let i = 0; i < wid; i++) {
-      const ch = rows[r]![i]!;
-      let c = pal[ch];
-      if (!c) continue;
-      if (ch === "N") c = i >= 1 && i <= wid - 3 && i % 2 === 1 ? hx("#2a3a5a") : tank;
-      p.scr(ox + i, oy + r, c);
+  const steel = hx("#34383f"), steelL = hx("#555a62"), rung = hx("#b8bcc2");
+  {
+    const px0 = x - R - 3, px1 = x + R + 3, py0 = Math.max(2, base - 5), py1 = Math.min(SH - 2, base + 2);
+    for (let y = py0; y <= py1; y++) for (let xx = px0; xx <= px1; xx++) {
+      const h = pixHash(p.AX + xx, p.AY + y, 53);
+      const edge = y === py0 || y === py1 || xx === px0 || xx === px1;
+      const c = edge ? ((xx + y) % 3 === 0 ? hx("#7a7670") : hx("#a8a49a")) : p.winter && h % 3 ? M.snow : h % 4 === 0 ? shade(M.gravel, 1.12) : M.gravel;
+      if (edge) p.scr(xx, y, c); else p.gScr(xx, y, c);
     }
-    // the red beacon on the cap blooms on its "on" frames
-    p.beacon(x, oy, beaconOn, p.lit ? 2 : 1);
-    // the tank's shadow on the ground to the SE
-    for (let i = 0; i < (big ? 5 : 2); i++) p.shadowPx(x + 1 + i, y + 1);
-  });
+    // the pump house on the pad's corner
+    const [a0, b0] = p.Sinv(px1 - 3, py1 - 3), [a1, b1] = p.Sinv(px1 - 1, py1 - 1);
+    if (big) p.box({ l0: Math.min(a0, a1), d0: Math.min(b0, b1), l1: Math.max(a0, a1), d1: Math.max(b0, b1), h: 1, wall: M.brick, roof: M.tar, front: (u) => (u === 1 ? C.door : null), back: (u) => (u === 1 ? C.door : null), side: (u) => (u === 1 ? C.door : null) });
+  }
+  const tShade = (dx: number): RGB => shade(tank, dx < -R * 0.4 ? 1.08 : dx > R * 0.5 ? 0.8 : 0.96);
+  p.later(base + 0.5, () => p.tall(() => {
+    // legs: feet splayed ±(R+1), tops at ±(R-1) under the rim
+    const feet = [-(R + 1), -((R + 1) >> 1) + 0, ((R + 1) >> 1), R + 1];
+    const tops = [-(R - 1), -((R - 1) >> 1), ((R - 1) >> 1), R - 1];
+    const legX = (i: number, y: number): number => Math.round(tops[i]! + ((feet[i]! - tops[i]!) * (y - rim)) / Math.max(1, legH));
+    for (let y = rim + 1; y <= base; y++) {
+      for (let i = 0; i < 4; i++) {
+        if (!wide && (i === 1 || i === 2)) continue;
+        const back = i === 1 || i === 2; // the rear pair reads darker
+        p.scr(x + legX(i, y), y, back ? shade(steel, 0.8) : i === 0 ? steelL : steel);
+      }
+      // riser pipe down the middle
+      p.scr(x, y, shade(tank, 0.7));
+      if (wide) p.scr(x + 1, y, shade(tank, 0.55));
+    }
+    // two tiers of X-bracing between the outer legs
+    for (const [y0, y1] of [[rim + 2, rim + 1 + (legH >> 1)], [rim + 2 + (legH >> 1), base - 1]] as const) {
+      const n = y1 - y0;
+      for (let k = 0; k <= n; k++) {
+        const y = y0 + k;
+        const xl = legX(0, y), xr = legX(3, y);
+        const t = k / Math.max(1, n);
+        p.scr(x + Math.round(xl + (xr - xl) * t), y, steelL);
+        p.scr(x + Math.round(xr + (xl - xr) * t), y, steel);
+      }
+      p.scr(x + legX(0, y1), y1, steelL);
+    }
+    // the ladder up the left front leg (rails + rungs), into the catwalk
+    for (let y = rim + 1; y <= base; y++) {
+      const lx = x + legX(0, y) + 1;
+      if (y % 2 === 0) p.scr(lx, y, rung);
+    }
+    // the TANK: bowl (below the rim), band, cone cap
+    // the hemispherical BOWL: the classic silhouette, shaded underneath
+    const bowl = wide ? [R, R, R - 1, R - 2, R - 4] : [R, R - 1];
+    for (let k = 0; k < bowl.length; k++) {
+      const hw = bowl[k]!, y = rim + 1 + k;
+      if (y > base - 1) break;
+      for (let dx = -hw; dx <= hw; dx++) p.scr(x + dx, y, shade(tShade(dx), 0.9 - k * 0.05));
+    }
+    // catwalk ring with its rail
+    for (let dx = -R - 1; dx <= R + 1; dx++) { p.scr(x + dx, rim, steel); if (dx % 2 === 0) p.scr(x + dx, rim - 1, steelL); }
+    const bandH = wide ? 3 : 2;
+    for (let k = 1; k <= bandH; k++) {
+      const y = rim - k;
+      for (let dx = -R; dx <= R; dx++) {
+        let c = tShade(dx);
+        // the town's name painted across the band's middle row
+        if (k === (bandH >> 1) + 1 && Math.abs(dx) <= R - 2 && (dx + R) % 2 === 1) c = v === 2 ? M.red : hx("#2a3a5a");
+        p.scr(x + dx, y, c);
+      }
+    }
+    const top = rim - bandH;
+    const cone = wide ? [R, R - 2, R - 4] : [R - 1, 1];
+    for (let k = 0; k < cone.length; k++) {
+      const hw = cone[k]!, y = top - 1 - k;
+      for (let dx = -hw; dx <= hw; dx++) {
+        let c = shade(capC, dx < 0 ? 1.08 : 0.86);
+        if (v === 2 && (dx + k) % 2 === 0) c = M.white; // checkered cap
+        if (p.winter && k < cone.length) c = dx <= 0 ? M.snow : shade(M.snow, 0.88);
+        p.scr(x + dx, y, c);
+      }
+    }
+    // finial + beacon
+    const by = top - cone.length - 1;
+    p.scr(x, by + 1 > top - 1 ? top - 1 : by + 1, steel);
+    if (p.lit) p.beacon(x, by, beaconOn, 2);
+    else p.scr(x, by, beaconOn ? EMISSIVE.beacon : hx("#7a2a2a"));
+    // shadow of the legs and tank on the ground, SE
+    for (let i = 1; i <= R + 2; i++) p.shadowPx(x + i, base + 1);
+  }));
+}
+
+// ------------------------------------------------------------ SILO
+
+/**
+ * A tall concrete STAVE SILO with a galvanized DOME cap, drawn in 3/4 view
+ * rising over the back of its lot: stave courses and steel hoops, the
+ * lit west flank, the enclosed unloading CHUTE with its ladder down the
+ * front, and a feed bunk / gravel apron at the foot. Winter: snow on the
+ * dome. Stave colour by hash (grey concrete · tan · Harvestore blue).
+ */
+export function silo(p: Plan): void {
+  const { SW, SH } = p;
+  const v = p.h(1) % 3;
+  const stave = [hx("#c8c4b8"), hx("#d0bc98"), hx("#2e4a78")][v]!;
+  const domeC = v === 2 ? hx("#2e4a78") : hx("#c8d0d4");
+  const x = SW >> 1;
+  const base = SH - 3;
+  const r = Math.min(3, (SW >> 1) - 2); // half-width (7 px across on 8+ px)
+  const tallH = Math.max(14, base + 6); // rises into the overhang
+  const top = base - tallH;
+  p.later(base + 0.5, () => p.tall(() => {
+    for (let y = top; y <= base; y++) {
+      const hoop = (y - top) % 3 === 2 && v !== 2;
+      for (let dx = -r; dx <= r; dx++) {
+        const f = dx <= -r + 1 ? 1.1 : dx >= r - 1 ? 0.76 : dx >= 1 ? 0.9 : 1;
+        let c = shade(stave, f * (hoop ? 0.74 : 1));
+        if (v !== 2 && !hoop && pixHash(dx, y, p.seed) % 7 === 0) c = shade(c, 0.95);
+        p.scr(x + dx, y, c);
+      }
+    }
+    // the dome
+    for (let k = 0; k < 3; k++) {
+      const y = top - 3 + k;
+      const hw = k === 0 ? r - 2 : k === 1 ? r - 1 : r;
+      for (let dx = -hw; dx <= hw; dx++) {
+        let c = shade(domeC, dx < 0 ? 1.12 : dx > 1 ? 0.8 : 0.98);
+        if (p.winter && k < 2) c = dx <= 0 ? M.snow : shade(M.snow, 0.9);
+        p.scr(x + dx, y, c);
+      }
+    }
+    p.scr(x, top - 3, shade(domeC, 0.8)); // vent cap
+    // the unloading chute + ladder down the front (right of centre)
+    for (let y = top; y <= base; y++) p.scr(x + 1, y, (y & 1) ? shade(stave, 0.62) : shade(stave, 0.72));
+    // the silo's shadow to the SE
+    for (let i = 1; i <= r + 2; i++) p.shadowPx(x + i, base + 1);
+    for (let y = base - 2; y <= base; y++) p.shadowPx(x + r + 1, y);
+  }));
+  // gravel apron + a feed bunk at the foot
+  const [ga, gb] = p.Sinv(x, base + 1);
+  p.pave(Math.max(1, ga - 3), Math.max(1, gb - 1), Math.min(p.L - 2, ga + 3), Math.min(p.D - 2, gb + 1), "gravel");
+  p.obj(1, p.D - 2, C.plank);
+  p.obj(2, p.D - 2, C.plankDark);
 }
 
 // ------------------------------------------------------------ BARN
@@ -238,63 +388,90 @@ export function greenhouse(p: Plan): void {
 
 // ------------------------------------------------------------ LIGHTHOUSE
 
-/** Where the lighthouse tower stands (plan point) and how tall it is (px). */
+/** Where the lighthouse tower stands (plan point) and how tall it is (px):
+ * `tall` = rows from the base up to the lantern (the beam's origin). */
 export function lighthouseTower(p: Plan): { l: number; d: number; tall: number } {
-  const wide = p.L >= 16;
-  const l = wide ? 4 : (p.L >> 1);
+  const l = p.L >> 1;
   const d = p.D - 3;
   const [, y] = p.S(l, d);
-  // as tall as the footprint allows above the base (the ring stays clear)
-  return { l, d, tall: Math.max(5, Math.min(11, y - 1)) };
+  // a TALL tower: rises through its own lot and over the tile(s) behind
+  return { l, d, tall: Math.max(12, Math.min(18, y + 10)) };
 }
 
 /**
- * White tower with a red lantern room (and a gallery), bands by hash; the
- * keeper's cottage beside it (or behind it on a deep lot). The rotating
- * beam is an overlay drawn over the water, unclipped — see landmarks.ts.
+ * CAPE COD LIGHTHOUSE at the seaward end of its stone jetty: a tapering
+ * white conical tower (a red day-mark band by hash, like Nauset), the
+ * black iron LANTERN room with its glazing (the lamp burns at night), the
+ * black gallery rail, a black cap with a ventilator ball; a round granite
+ * base on the riprap, water all round. The sweeping beam is an unclipped
+ * overlay (landmarks.ts).
  */
-export function lighthouse(p: Plan): void {
-  const { L, D } = p;
+export function lighthouse(p: Plan, w?: World): void {
   const v = p.h(1) % 3;
-  const band = v === 1 ? M.red : v === 2 ? hx("#2a2826") : M.white;
-  const wide = L >= 16, deep = D >= 16;
+  const band = v === 1 ? hx("#b8322a") : M.white;
   const { l, d, tall } = lighthouseTower(p);
-  const fr = p.D - 2;
-  const cottage = (l0: number, d0: number, l1: number, d1: number): void => {
-    p.box({ l0, d0, l1, d1, h: 2, wall: M.clapboard, roof: hx("#9a3a2c"), kind: "gable", front: (u, r) => (u === 2 && r >= 0 ? C.door : u % 3 === 1 && r === 0 ? pane(p, u, r, 30) : null) });
-  };
-  if (wide) {
-    cottage(8, 1, L - 2, Math.min(fr - 1, 5));
-    for (let dd = 3; dd <= fr; dd++) p.g(6, dd, C.pathStone);
-  } else if (deep) {
-    cottage(1, 1, L - 2, 6);
-    for (let dd = 7; dd <= fr; dd++) p.g(2, dd, C.pathStone);
-  } else {
-    // a lone light on its rock ledge with the little oil house
-    p.fill(1, 1, L - 2, D - 2, (l2, d2) => {
-      const [X, Y] = p.gx(l2, d2);
-      const h = pixHash(X, Y, 97);
-      return h % 3 === 0 ? C.rockShade : h % 5 === 0 ? shade(C.rock, 0.9) : C.rock;
-    });
-    p.box({ l0: 1, d0: 1, l1: 3, d1: 3, h: 1, wall: M.white, roof: hx("#9a3a2c"), kind: "gable", front: (u) => (u === 1 ? C.door : null) });
-  }
-  const lamp = p.lit ? EMISSIVE.beaconWhite : hx("#f0e8b0");
-  const rows = ["k", "L", "g"];
-  for (let i = 0; i < tall - 4; i++) rows.push(v !== 0 && (i >> 1) % 2 === 0 ? "B" : "W");
-  rows.push("s");
-  const pal: Record<string, RGB> = { k: hx("#2a2826"), L: lamp, g: M.red, W: M.white, B: band, s: shade(M.concrete, 0.9) };
   const [x, y] = p.S(l, d);
-  p.later(y, () => {
-    const oy = y - rows.length + 1;
-    for (let r = 0; r < rows.length; r++) {
-      const c = pal[rows[r]!]!;
-      if (r === 1) { p.scr(x - 1, oy + r, M.red); p.scr(x + 1, oy + r, M.red); }
-      p.scr(x, oy + r, c);
-      if (r > 2) { p.scr(x - 1, oy + r, shade(c, 1.05)); p.scr(x + 1, oy + r, shade(c, 0.8)); }
-      if (r === 2) { p.scr(x - 1, oy + r, M.dark); p.scr(x + 1, oy + r, M.dark); }
+  // out at sea (a water tile, or the pad at the end of the jetty): no
+  // causeway across the lot, just the riprap round the foot
+  const onWater = !!w && (w.terrain[p.seed] === Terrain.Lake || standsInWater(w, p.seed % w.width, (p.seed / w.width) | 0));
+  // the base: granite riprap round the foot (the jetty's head); on land a
+  // rock ledge with a gravel path
+  const rip = (xx: number, yy: number): RGB => {
+    const h = pixHash(p.AX + xx, p.AY + yy, 97);
+    return h % 3 === 0 ? C.rockShade : h % 5 === 0 ? shade(C.rock, 0.86) : C.rock;
+  };
+  if (onWater) {
+    // the jetty's HEAD: a rounded granite-block island filling the pad,
+    // wet dark stones at its rim (the sea and its surf ring it)
+    const cx = (p.SW - 1) / 2, cy = (p.SH - 1) / 2, ax = p.SW / 2 - 1, ay = p.SH / 2 - 1;
+    for (let yy = 1; yy < p.SH - 1; yy++) for (let xx = 1; xx < p.SW - 1; xx++) {
+      const e = ((xx - cx) / ax) ** 2 + ((yy - cy) / ay) ** 2;
+      if (e > 1.15) {
+        // a thin foam collar where the sea breaks on the granite
+        if (e < 1.6 && (xx * 3 + yy * 5 + (RS.tick >> 2)) % 4 !== 0) p.gScr(xx, yy, (xx + yy + (RS.tick >> 2)) % 3 ? hx("#eef4f4") : hx("#bcd6dc"));
+        continue;
+      }
+      p.gScr(xx, yy, granite(p.AX + xx, p.AY + yy, e > 0.7));
     }
-    p.shadowPx(x + 2, y); p.shadowPx(x + 2, y - 1);
-  });
+  } else {
+    const rr = Math.min(3, (Math.min(p.SW, p.SH) >> 1) - 1);
+    for (let yy = y - rr; yy <= y + rr; yy++) for (let xx = x - rr - 1; xx <= x + rr + 1; xx++) {
+      if ((xx - x) * (xx - x) + (yy - y) * (yy - y) * 2 > rr * rr + 3) continue;
+      p.gScr(xx, yy, rip(xx, yy));
+    }
+  }
+  if (!onWater) {
+    // the jetty / causeway runs on toward the shore across the lot
+    p.fill(Math.max(1, l - 1), 1, Math.min(p.L - 2, l + 1), p.D - 2, (l2, d2) => { const [X, Y] = p.gx(l2, d2); return rip(X - p.AX, Y - p.AY); });
+  }
+  const lamp = p.lit ? EMISSIVE.beaconWhite : hx("#dfe6e0");
+  const lampHalo = p.lit ? EMISSIVE.beam : hx("#9aa8a4");
+  const black = hx("#1e1e20"), white = M.white;
+  p.later(y + 0.5, () => p.tall(() => {
+    const top = y - tall;
+    // tower: 5 px at the foot tapering to 3 px under the gallery
+    for (let yy = top + 3; yy <= y; yy++) {
+      const k = (yy - (top + 3)) / Math.max(1, y - top - 3);
+      const hw = k > 0.55 ? 2 : 1;
+      const isBand = v === 1 && k > 0.2 && k < 0.45;
+      const body = isBand ? band : white;
+      for (let dx = -hw; dx <= hw; dx++) {
+        const f = dx === -hw ? 1.04 : dx === hw ? 0.8 : dx > 0 ? 0.9 : 1;
+        p.scr(x + dx, yy, shade(body, f));
+      }
+      // a door at the foot and two slit windows up the tower
+      if (yy === y) p.scr(x, yy, black);
+      if ((yy === top + 6 || yy === top + 10) && yy < y - 1) p.scr(x, yy, p.lit ? C.windowLit : M.glass);
+    }
+    // gallery rail (black), lantern (glazing between black mullions), cap
+    for (let dx = -2; dx <= 2; dx++) p.scr(x + dx, top + 2, black);
+    p.scr(x - 1, top + 1, black); p.scr(x, top + 1, lamp); p.scr(x + 1, top + 1, black);
+    p.scr(x - 1, top, lampHalo); p.scr(x, top, lamp); p.scr(x + 1, top, black);
+    for (let dx = -1; dx <= 1; dx++) p.scr(x + dx, top - 1, black);
+    p.scr(x, top - 2, black); // ventilator ball
+    // shadow to the SE over the riprap / water
+    for (let k = 1; k <= 4; k++) p.shadowPx(x + 1 + k, y + 1);
+  }));
 }
 
 // ------------------------------------------------------------ GRAIN ELEVATOR

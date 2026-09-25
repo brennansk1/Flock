@@ -11,7 +11,7 @@ import { drawVehicle, VEHICLE_KINDS, vehicleSize, CAR_PAINT } from "../packages/
 import { encodePNG } from "./lib/png.mjs";
 
 const [zA = "8", OUT = "scratch/studio/fleet.png"] = process.argv.slice(2);
-const Z = +zA, CELL = 8, SLATE = [0x18, 0x15, 0x12], GUIDE = [0x26, 0x22, 0x1e];
+const Z = +zA, CELL = 8, SLATE = process.env.SLATE ? [0x18, 0x15, 0x12] : [0x6f, 0x6b, 0x66], GUIDE = process.env.SLATE ? [0x26, 0x22, 0x1e] : [0x66, 0x62, 0x5d]; // asphalt by default so black tyres read (SLATE=1 for the studio slate)
 mkdirSync(dirname(OUT), { recursive: true });
 
 /** one 8×8 logical cell holding the vehicle centred, rendered at Z× */
@@ -44,7 +44,7 @@ const rows = VEHICLE_KINDS.map((kind, i) => {
   return `<div class="row"><b>${kind}</b>${cells.join("")}</div>`;
 }).join("");
 const browser = await chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/chrome" });
-const page = await browser.newPage({ viewport: { width: 1400, height: 400 } });
+const page = await browser.newPage({ viewport: { width: 900, height: 400 } });
 await page.setContent(`<style>body{margin:0;background:#0d0b09;color:#ddd;font:12px monospace;padding:8px}
   .row{display:flex;gap:6px;align-items:center;margin-bottom:4px}b{width:70px}figure{margin:0;text-align:center}
   img{image-rendering:pixelated;display:block}</style>${rows}`);

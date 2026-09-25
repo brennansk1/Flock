@@ -106,6 +106,13 @@ export interface BoxSpec {
 }
 
 const MASK_NONE = 0, MASK_GROUND = 1, MASK_ROOF = 2, MASK_WALL = 3, MASK_OBJ = 4;
+/**
+ * OVERHANG rows above the footprint (px): TALL structures (spires, masts,
+ * water towers, the lighthouse) may rise past the lot's north edge into
+ * the tile(s) behind. Those rows are composed with the lot but painted by
+ * drawPlanOverhangs() after every ground tile, so the draw order holds.
+ */
+export const PLAN_OVER = 16;
 
 interface Job {
   key: number;
@@ -132,6 +139,8 @@ export class Plan {
   fronted = true;
   buf: Array<RGB | null> = [];
   mask = new Uint8Array(0);
+  /** writes may enter the overhang rows (set while a tall sprite paints) */
+  overOK = false;
   private jobs: Job[] = [];
   private seq = 0;
 
@@ -155,7 +164,7 @@ export class Plan {
     this.AX = ax * TILE_PX;
     this.AY = ay * TILE_PX;
     this.seed = ay * w.width + ax;
-    const n = this.SW * this.SH;
+    const n = this.SW * (this.SH + PLAN_OVER);
     if (this.buf.length < n) this.buf = new Array(n).fill(null);
     for (let i = 0; i < n; i++) this.buf[i] = null;
     if (this.mask.length < n) this.mask = new Uint8Array(n);
@@ -179,16 +188,23 @@ export class Plan {
   }
   /** raw screen write */
   scr(x: number, y: number, c: RGB | null, m = MASK_OBJ): void {
-    if (!c || !this.inside(x, y)) return;
-    const i = y * this.SW + x;
+    if (!c) return;
+    if (!this.inside(x, y) && !(this.overOK && y <= 0 && y >= -PLAN_OVER && x >= 1 && x < this.SW - 1)) return;
+    const i = (y + PLAN_OVER) * this.SW + x;
     this.buf[i] = c;
     this.mask[i] = m;
   }
   at(x: number, y: number): RGB | null {
-    return x < 0 || y < 0 || x >= this.SW || y >= this.SH ? null : this.buf[y * this.SW + x]!;
+    return x < 0 || y < -PLAN_OVER || x >= this.SW || y >= this.SH ? null : this.buf[(y + PLAN_OVER) * this.SW + x]!;
   }
   maskAt(x: number, y: number): number {
-    return x < 0 || y < 0 || x >= this.SW || y >= this.SH ? 0 : this.mask[y * this.SW + x]!;
+    return x < 0 || y < -PLAN_OVER || x >= this.SW || y >= this.SH ? 0 : this.mask[(y + PLAN_OVER) * this.SW + x]!;
+  }
+  /** run a paint job allowed to rise into the overhang rows */
+  tall(run: () => void): void {
+    const o = this.overOK;
+    this.overOK = true;
+    try { run(); } finally { this.overOK = o; }
   }
   /** world px of a local point (for seamless textures) */
   gx(l: number, d: number): [number, number] {
@@ -289,13 +305,13 @@ export class Plan {
     drawVehicle((px, py, c) => this.scr(px, py, c), kind, x - (w >> 1), y - (h >> 1), dir, paint, RS.tick);
   }
   /** car with explicit screen-independent heading: local dir 0 +l · 1 -l · 2 +d · 3 -d */
-  carDir(l: number, d: number, ldir: number, kind: VehicleKind, paint: RGB, tick = -1, hazards = false): void {
+  carDir(l: number, d: number, ldir: number, kind: VehicleKind, paint: RGB, tick = -1, hazards = false, bloom = false): void {
     const [x, y] = this.S(l, d);
     const along = [0, 1, 3, 2][this.o]!;
     const toSt = [2, 3, 0, 1][this.o]!;
     const dir = ldir === 0 ? along : ldir === 1 ? along ^ 1 : ldir === 2 ? toSt : toSt ^ 1;
     const { w, h } = vehicleSize(kind, dir);
-    drawVehicle((px, py, c) => this.scr(px, py, c), kind, x - (w >> 1), y - (h >> 1), dir, paint, tick, hazards);
+    drawVehicle((px, py, c) => this.scr(px, py, c), kind, x - (w >> 1), y - (h >> 1), dir, paint, tick, hazards, bloom);
   }
 
   // ---------------------------------------------------------- queued layers
@@ -305,17 +321,20 @@ export class Plan {
   }
   /** upright sprite: rows are drawn with their bottom row on the screen
    * point of (l, d), horizontally centred (or offset by ax) */
-  spr(l: number, d: number, rows: readonly string[], pal: Record<string, RGB | null | undefined>, ax = -1, z = 0): void {
+  spr(l: number, d: number, rows: readonly string[], pal: Record<string, RGB | null | undefined>, ax = -1, z = 0, over = false): void {
     const [x, y] = this.S(l, d);
-    this.sprAt(x, y, rows, pal, ax, z);
+    this.sprAt(x, y, rows, pal, ax, z, over);
   }
   /** upright sprite at a screen point (bottom row on y) */
-  sprAt(x: number, y: number, rows: readonly string[], pal: Record<string, RGB | null | undefined>, ax = -1, z = 0): void {
+  sprAt(x: number, y: number, rows: readonly string[], pal: Record<string, RGB | null | undefined>, ax = -1, z = 0, over = false): void {
     const wid = rows[0]!.length;
     const ox = x - (ax < 0 ? wid >> 1 : ax);
-    // a tall sprite near the footprint's top edge slides down to fit
-    const oy = Math.max(1, y - rows.length + 1);
+    // a sprite near the footprint's top edge slides down to fit — unless
+    // it is a TALL structure, which rises into the overhang rows
+    const oy = Math.max(over ? 1 - PLAN_OVER : 1, y - rows.length + 1);
     this.later(y + z, () => {
+      const was = this.overOK;
+      if (over) this.overOK = true;
       for (let r = 0; r < rows.length; r++) {
         const row = rows[r]!;
         for (let i = 0; i < row.length; i++) {
@@ -323,6 +342,7 @@ export class Plan {
           if (c) this.scr(ox + i, oy + r, c);
         }
       }
+      this.overOK = was;
     });
   }
   /** on a roof only */
@@ -467,7 +487,7 @@ export class Plan {
   /** erase a screen px back to the lot's own ground */
   clear(x: number, y: number): void {
     if (!this.inside(x, y)) return;
-    const i = y * this.SW + x;
+    const i = (y + PLAN_OVER) * this.SW + x;
     this.buf[i] = null;
     this.mask[i] = 0;
   }
@@ -527,7 +547,9 @@ interface Entry {
   sh: number;
   ax: number;
   ay: number;
-  px: Int32Array; // packed rgb + 1 (0 = transparent)
+  px: Int32Array; // packed rgb + 1 (0 = transparent); rows -PLAN_OVER..SH-1
+  /** any pixel in the overhang rows (y ≤ 0) */
+  over: boolean;
 }
 const CACHE = new WeakMap<World, Map<number, Entry>>();
 let FRAME = 0;
@@ -567,13 +589,16 @@ export function drawPlanned(
     PLAN.reset(w, ax, ay, fw, fh, f);
     author(PLAN, w);
     PLAN.finish();
-    const n = PLAN.SW * PLAN.SH;
+    const n = PLAN.SW * (PLAN.SH + PLAN_OVER);
     const px = e && e.px.length === n ? e.px : new Int32Array(n);
+    let over = false;
+    const overN = PLAN.SW * (PLAN_OVER + 1);
     for (let i = 0; i < n; i++) {
       const c = PLAN.buf[i];
       px[i] = c ? ((c[0] << 16) | (c[1] << 8) | c[2]) + 1 : 0;
+      if (c && i < overN) over = true;
     }
-    e = { frame: FRAME, season: RS.season, time: RS.time, tick: RS.tick, sw: PLAN.SW, sh: PLAN.SH, ax, ay, px };
+    e = { frame: FRAME, season: RS.season, time: RS.time, tick: RS.tick, sw: PLAN.SW, sh: PLAN.SH, ax, ay, px, over };
     m.set(key, e);
   }
   const AX = ax * TILE_PX, AY = ay * TILE_PX;
@@ -583,11 +608,37 @@ export function drawPlanned(
     for (let pxl = 0; pxl < TILE_PX; pxl++) {
       const sx = x0 + pxl - AX;
       if (sx < 1 || sx >= e.sw - 1) continue;
-      const v = e.px[sy * e.sw + sx]!;
+      const v = e.px[(sy + PLAN_OVER) * e.sw + sx]!;
       if (v === 0) continue;
       let c = INTERN.get(v);
       if (!c) { const k = v - 1; c = [(k >> 16) & 255, (k >> 8) & 255, k & 255]; INTERN.set(v, c); }
       put(x0 + pxl, y0 + py, c);
+    }
+  }
+}
+
+/**
+ * Paint the OVERHANG rows of every lot composed this frame (tall spires,
+ * masts, tanks rising past the footprint's north edge). Called once after
+ * the ground/lot pass so the tall parts sit over the tiles behind them;
+ * southern lots paint last.
+ */
+export function drawPlanOverhangs(w: World, put: Put): void {
+  const m = CACHE.get(w);
+  if (!m) return;
+  const list: Entry[] = [];
+  for (const e of m.values()) if (e.frame === FRAME && e.over) list.push(e);
+  list.sort((a, b) => a.ay - b.ay || a.ax - b.ax);
+  for (const e of list) {
+    const AX = e.ax * TILE_PX, AY = e.ay * TILE_PX;
+    for (let sy = -PLAN_OVER; sy <= 0; sy++) {
+      for (let sx = 1; sx < e.sw - 1; sx++) {
+        const v = e.px[(sy + PLAN_OVER) * e.sw + sx]!;
+        if (v === 0) continue;
+        let c = INTERN.get(v);
+        if (!c) { const k = v - 1; c = [(k >> 16) & 255, (k >> 8) & 255, k & 255]; INTERN.set(v, c); }
+        put(AX + sx, AY + sy, c);
+      }
     }
   }
 }

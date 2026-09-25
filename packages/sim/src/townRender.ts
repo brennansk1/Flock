@@ -54,9 +54,14 @@ import { composeFacade } from "./render/compose.js";
 import { drawWater, pointBarAt, bleedWater } from "./render/water.js";
 import { drawHouse, drawBackyard, drawApartment, frontageOf, isHouseTile, curbCutAt, homeCarSpot } from "./render/houses.js";
 import { drawVehicle, householdVehicle, householdPaint, dirOf, vehicleSize, type VehicleKind } from "./render/vehicles.js";
-import { drawPlanned, planFrame } from "./render/plan.js";
+import { drawPlanned, planFrame, drawPlanOverhangs } from "./render/plan.js";
 import { drawPark, drawOrchard, drawDock, drawPierOverWater, drawPivotTile } from "./render/grounds.js";
 import { PLANNED } from "./render/registry.js";
+import { drawTransmissionLines } from "./render/utility.js";
+import { canopyPx } from "./render/canopy.js";
+import { drawTrain, mainLine } from "./render/train.js";
+import { desertGround } from "./render/desert.js";
+import { drawWaterLot, drawTailwater, drawJetty, seaFill, standsInWater } from "./render/waterworks.js";
 import { COMPOUND_LOTS, drawLotOverlays } from "./render/landmarks.js";
 import { TILE_PX, RS, C, DEFAULT_COLORS, pixHash, valueNoise, isLitHour, type Put } from "./render/core.js";
 
@@ -460,6 +465,13 @@ export interface RenderOpts {
   view?: { x: number; y: number; w: number; h: number };
   /** Season variant for map colors. Defaults to "summer". */
   season?: "spring" | "summer" | "fall" | "winter";
+  /**
+   * Season transition, 0..1 toward the NEXT season (spring → summer → fall
+   * → winter → spring): the frame is rendered in both seasons and the two
+   * cross-faded, so leaves turn, snow arrives and melts smoothly. 0 / omitted
+   * = the plain season (no extra cost).
+   */
+  seasonBlend?: number;
   /** Time of day variant for map lighting. Defaults to "day". */
   timeOfDay?: "dawn" | "day" | "dusk" | "night";
   /** Overlay per-district dissent heatmap. */
@@ -494,10 +506,29 @@ function skinAccent(id: number): RGB | undefined {
   return sk ? hexToRgb(sk.accent) : undefined;
 }
 
+const NEXT_SEASON = { spring: "summer", summer: "fall", fall: "winter", winter: "spring" } as const;
+
 export function renderTown(sim: SimState, opts: RenderOpts = {}): RenderedFrame {
   activeSkins = opts.skins;
   try {
-    return renderTownFrame(sim, opts);
+    const k = opts.seasonBlend ?? 0;
+    if (!(k > 0)) return renderTownFrame(sim, opts);
+    const from = opts.season ?? "summer";
+    const to = NEXT_SEASON[from];
+    if (k >= 1) return renderTownFrame(sim, { ...opts, season: to });
+    // SEASON CROSS-FADE: both palettes rendered, blended per pixel (fixed-
+    // point weights — presentation only, deterministic per frame)
+    const a = renderTownFrame(sim, { ...opts, season: from });
+    const b = renderTownFrame(sim, { ...opts, season: to });
+    const wb = Math.round(k * 256), wa = 256 - wb;
+    const out = a.data;
+    const bd = b.data;
+    for (let i = 0; i < out.length; i += 4) {
+      out[i] = (out[i]! * wa + bd[i]! * wb) >> 8;
+      out[i + 1] = (out[i + 1]! * wa + bd[i + 1]! * wb) >> 8;
+      out[i + 2] = (out[i + 2]! * wa + bd[i + 2]! * wb) >> 8;
+    }
+    return a;
   } finally {
     activeSkins = undefined;
   }
@@ -655,7 +686,9 @@ function renderTownFrame(sim: SimState, opts: RenderOpts): RenderedFrame {
   const tx0 = Math.max(0, vx - 1);
   const ty0 = Math.max(0, vy - 1);
   const tx1 = Math.min(w.width - 1, vx + vw);
-  const ty1 = Math.min(w.height - 1, vy + vh);
+  // (+2 rows below: a tall lot just south of the view still composes, so
+  // its spire / mast overhang reaches into the view — drawPlanOverhangs)
+  const ty1 = Math.min(w.height - 1, vy + vh + 2);
 
   // ---- pass 1: ground + lots ----
   for (let ty = ty0; ty <= ty1; ty++) {
@@ -725,6 +758,7 @@ function renderTownFrame(sim: SimState, opts: RenderOpts): RenderedFrame {
           if (yy < 0 || yy >= w.height) continue;
           const rt = yy * w.width + x;
           if (w.terrain[rt] !== Terrain.Rail) continue;
+          if (mainLine(w)?.on[rt]) continue; // the siding only: the main line carries the moving freight
           const bx = x * TILE_PX;
           const by = yy * TILE_PX;
           const col = pixHash(rt, 1, 88) % 2 === 0 ? C.boxcarA : C.boxcarB;
@@ -740,6 +774,14 @@ function renderTownFrame(sim: SimState, opts: RenderOpts): RenderedFrame {
       }
     }
   }
+
+  // ---- pass 1.62: the scheduled FREIGHT TRAIN on the main line ----
+  drawTrain(w, tick, put);
+
+  // ---- pass 1.65: TALL structures rising over the tiles behind them ----
+  drawPlanOverhangs(w, put);
+  // the transmission line feeding each substation / leaving the powerhouse
+  drawTransmissionLines(w, put, { x0: tx0, y0: ty0, x1: tx1, y1: ty1 });
 
   // ---- pass 1.7: overlays reaching past a footprint (lighthouse beam) ----
   drawLotOverlays(w, tick, put, { x0: tx0, y0: ty0, x1: tx1, y1: ty1 });
@@ -946,7 +988,8 @@ function naturalEdgeBleed(
   // woods: canopy clumps thinning at the very fringe
   const blob = pixHash(gx >> 2, gy >> 2, 77) % 5;
   if (bestPen < 0.7 && h % 2 === 0) return null; // frayed outermost rim
-  return h % 23 === 0 ? C.trunk : blob < 2 ? C.canopy : blob < 4 ? C.canopyDark : C.canopyLight;
+  void blob;
+  return canopyPx(gx, gy, w.biome[bestT] === 3 ? 0.08 : w.biome[bestT] === 2 ? 0.55 : 0.22); // the same crowns as the stand
 }
 
 function drawTile(
@@ -1183,6 +1226,12 @@ function drawTile(
       return;
     }
     case Terrain.Path: {
+      if (w.lot[t] === Lot.Jetty) {
+        // the stone breakwater runs out over open water
+        seaFill(w, t, tx, ty, put, frameTick);
+        drawJetty(w, t, tx, ty, put, frameTick);
+        return;
+      }
       if (w.biome[t] === 4 /* Biome.Ocean */) {
         // BOARDWALK: weathered grey-brown planks laid across the walk,
         // dark seams, a rail along the surf side, sand-drift at the ends
@@ -1328,9 +1377,7 @@ function drawTile(
             if (nearWater) {
               c = RS.season === "winter" ? (h % 3 === 0 ? C.sandDark : C.sandBg) : h % 3 === 0 ? hexToRgb("#61b53e") : hexToRgb("#4c962b"); // oasis grass
             } else {
-              c = h % (RS.season === "winter" ? 6 : 3) === 0 ? C.sandDark : C.sandBg;
-              if (valueNoise(gx, gy, 30, 66) > 0.68) c = shade(C.sandBg, 1.05); // dune crest
-              if (h % 31 === 0) c = C.sandScrub; // dry brush
+              c = desertGround(gx, gy); // red soil · sand · dune ripples · caliche (render/desert.ts)
               // DRY WASH (§2): a winding dry-creek bed cut through the blob —
               // a narrow noise-contour band of darker packed sand + stones
               const wash = valueNoise(gx, gy, 22, 55);
@@ -1835,7 +1882,12 @@ function drawTile(
     }
     case Terrain.Lake: {
       drawWater(w, t, tx, ty, put, frameTick);
-      drawPierOverWater(w, t, tx, ty, put);
+      // lots standing IN the water: jetty, dam, chained piers / marina;
+      // the lighthouse (and a powerhouse on the tailrace) compose on top
+      const wl = w.lot[t]!;
+      if (!drawWaterLot(w, t, tx, ty, put, frameTick)) drawPierOverWater(w, t, tx, ty, put);
+      drawTailwater(w, tx, ty, put, frameTick);
+      if (wl === Lot.Lighthouse || wl === Lot.Powerhouse) drawLotBuilding(w, t, tx, ty, x0, y0, wl, put);
       return;
     }
     case Terrain.Rock: {
@@ -1880,39 +1932,10 @@ function drawTile(
           const gy = ty * TILE_PX + py;
           const h = pixHash(gx, gy);
           
-          let c: RGB;
-          if (w.biome[t] === 3 /* Biome.Autumn */ && RS.season === "fall") {
-            const colorRoll = pixHash(gx >> 2, gy >> 2, 79) % 3;
-            const aRed = hexToRgb("#96473a"); // muted brick
-            const aOrange = hexToRgb("#b06f33"); // muted russet
-            const aGold = hexToRgb("#c0a052"); // dry ochre
-            const baseCol = colorRoll === 0 ? aRed : colorRoll === 1 ? aOrange : aGold;
-            c = h % 3 === 0 ? baseCol : h % 3 === 1 ? shade(baseCol, 0.82) : shade(baseCol, 1.15);
-          } else if (RS.season === "winter") {
-            // WINTER WOODS: snow-dusted conifer clumps among bare hardwoods
-            // over a snowy floor — the same clump scale as summer, so the
-            // forest keeps its shape instead of dissolving into speckle
-            const v = valueNoise(gx, gy, 5, 77);
-            const conifer = hexToRgb("#3a5640");
-            if (v < 0.42) c = valueNoise(gx, gy - 1, 5, 77) >= 0.42 ? hexToRgb("#e8eef2") : h % 9 === 0 ? shade(conifer, 0.8) : conifer;
-            else if (v < 0.6) c = h % 4 === 0 ? C.canopyDark : C.canopy; // bare branches
-            else c = h % 11 === 0 ? C.canopyDark : C.forestFloor; // snowy floor between trunks
-          } else {
-            // clumpy canopy (§10): cell-noise blobs of light/dark green + trunk gaps + pine highlights
-            const blob = pixHash(gx >> 2, gy >> 2, 77) % 6;
-            c = blob === 0 ? hexToRgb("#6bb352") : blob === 1 ? hexToRgb("#4e873a") : blob < 4 ? C.canopyDark : C.canopyLight;
-            if (h % 59 === 0) c = hexToRgb("#82c468"); // dappled sunlit leaf canopy highlight
-          }
-
-          if (h % 23 === 0 && RS.season !== "winter") c = hexToRgb("#523d2b"); // pine trunk detail
-          // sunlit fringe on north/west edges
-          if ((edgeN && py === 0) || (edgeW && px === 0)) {
-            if (w.biome[t] === 3 /* Biome.Autumn */ && RS.season === "fall") {
-              c = hexToRgb("#d2c070"); // soft golden sunlight edge (muted)
-            } else {
-              c = C.canopyLight;
-            }
-          }
+          // crown-by-crown canopy, per season (render/canopy.ts); the
+          // autumn-maple biome keeps fewer conifers, highlands more
+          let c: RGB = canopyPx(gx, gy, w.biome[t] === 3 ? 0.08 : w.biome[t] === 2 ? 0.55 : 0.22);
+          void h; void edgeN; void edgeW;
           if (claim && h % 5 < claim.stage) c = shade(C.canopyLight, 1.18); // clearing
           put(x0 + px, y0 + py, c);
         }
@@ -2538,6 +2561,15 @@ export function drawLotBuilding(
       };
       drawCourthouse(w, ax, ay, fw, fh, clip);
     }
+    return;
+  }
+  // the lighthouse's pad out at the end of its jetty: open water round it
+  if (lot === Lot.Lighthouse && w.terrain[t] !== Terrain.Lake && standsInWater(w, tx, ty)) {
+    seaFill(w, t, tx, ty, put, RS.tick);
+  }
+  // water-works lots on a land tile (a jetty root, a dam abutment)
+  if (lot === Lot.Jetty || lot === Lot.Dam) {
+    drawWaterLot(w, t, tx, ty, put, RS.tick);
     return;
   }
   // plan-kit lots (render/registry.ts): one composed building / compound

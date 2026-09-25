@@ -2,7 +2,9 @@
  * Lot QA sheet (renderer): each named lot at its main footprint fronting a
  * street on S / N / E / W, then its alt size, winter and night — one row
  * per lot on a grass studio lot with the street kept, so ground blending
- * reads. Usage: node tools/lotqa.mjs <out.png> <Lot,Lot,...> [lod=4] [district] [tick=0]
+ * reads. Env: ONLY=side:SNEW (just those frontages) · SEASON · TIME (for the
+ * side shots) · ALT=1 (use the alt footprint).
+ * Usage: node tools/lotqa.mjs <out.png> <Lot,Lot,...> [lod=4] [district] [tick=0]
  */
 import { readFileSync } from "node:fs";
 import { loadBalance, createSim, generateWorld, renderTown, Lot, Terrain, Districts, footprintOf } from "../packages/sim/dist/index.js";
@@ -28,16 +30,49 @@ function shot(lot, fw, fh, side, season, time, dist, extra) {
   for (let dy = 0; dy < fh; dy++) for (let dx = 0; dx < fw; dx++) { const t = (y0 + dy) * N + x0 + dx; w.terrain[t] = Terrain.Citizen; w.lot[t] = lot; w.district[t] = dist; w.pop[t] = 4; }
   if (extra) extra(w, N, x0, y0);
   const sim = createSim({ seed: 99, balance, world: w, spawns: [], timerTicks: 0, dominationPermille: 1000 });
-  const f = renderTown(sim, { frameTick: TICK, lod: LOD, view: { x: 1, y: 1, w: fw + 2, h: fh + 2 }, season, timeOfDay: time });
+  const f = renderTown(sim, { frameTick: TICK, lod: LOD, view: { x: 1, y: 0, w: fw + 2, h: fh + 3 }, season, timeOfDay: time });
+  return { w: f.width, h: f.height, d: f.data };
+}
+/**
+ * SCENES (names = "scene:water"): hand-built waterfront / riverside
+ * worlds for the lots that stand in the water — a stone jetty chain out
+ * to the lighthouse, a two-lane marina + a single pier, a river dam with
+ * its powerhouse. Rendered at the given season/time (env), tick = arg 5.
+ */
+function waterScene(season, time) {
+  const N = 24;
+  const w = generateWorld(99, N, N);
+  for (let i = 0; i < w.terrain.length; i++) { w.terrain[i] = Terrain.Grass; w.lot[i] = 0; w.pop[i] = 0; w.landmark[i] = 0; w.owner[i] = 0; w.district[i] = 0; w.biome[i] = 0; }
+  const T = (x, y) => y * N + x;
+  // the sea: rows 12.. (ocean biome), a shore road on row 10
+  for (let y = 12; y < N; y++) for (let x = 0; x < 14; x++) { w.terrain[T(x, y)] = Terrain.Lake; w.biome[T(x, y)] = 4; }
+  for (let x = 0; x < 14; x++) { w.terrain[T(x, 10)] = Terrain.Road; w.terrain[T(x, 11)] = Terrain.Path; }
+  // jetty x=3 from y=12..17, lighthouse (1×2) at y=18..19
+  for (let y = 12; y <= 17; y++) w.lot[T(3, y)] = Lot.Jetty;
+  for (let y = 18; y <= 19; y++) w.lot[T(3, y)] = Lot.Lighthouse;
+  // marina: two lanes x=7,8 from y=12..16; single pier x=11 y=12..14
+  for (let y = 12; y <= 16; y++) { w.lot[T(7, y)] = Lot.Dock; w.lot[T(8, y)] = Lot.Dock; }
+  for (let y = 12; y <= 14; y++) w.lot[T(11, y)] = Lot.Dock;
+  // a river on x=17..20 flowing south, the dam across it on row 8
+  for (let y = 0; y < N; y++) for (let x = 17; x <= 20; x++) w.terrain[T(x, y)] = Terrain.Lake;
+  for (let y = 3; y < 8; y++) for (let x = 15; x <= 22; x++) w.terrain[T(x, y)] = Terrain.Lake; // the millpond
+  for (let x = 15; x <= 22; x++) { w.terrain[T(x, 8)] = Terrain.Lake; w.lot[T(x, 8)] = Lot.Dam; }
+  for (let x = 12; x <= 14; x++) w.terrain[T(x, 8)] = Terrain.Road;
+  for (let x = 23; x < N; x++) w.terrain[T(x, 8)] = Terrain.Road;
+  w.terrain[T(21, 10)] = Terrain.Citizen; w.terrain[T(22, 10)] = Terrain.Citizen; w.lot[T(21, 10)] = Lot.Powerhouse; w.lot[T(22, 10)] = Lot.Powerhouse;
+  for (let x = 21; x < N; x++) w.terrain[T(x, 11)] = Terrain.Road;
+  const sim = createSim({ seed: 99, balance, world: w, spawns: [], timerTicks: 0, dominationPermille: 1000 });
+  const f = renderTown(sim, { frameTick: TICK, lod: LOD, view: process.env.VIEW ? Object.fromEntries(["x", "y", "w", "h"].map((k, i) => [k, +process.env.VIEW.split(",")[i]])) : { x: 0, y: 5, w: N, h: 17 }, season, timeOfDay: time });
   return { w: f.width, h: f.height, d: f.data };
 }
 const rows = [];
-for (const name of names.split(",")) {
-  const lot = Lot[name]; const fp = footprintOf(lot);
+if (names.startsWith("scene:")) rows.push([waterScene(process.env.SEASON ?? "summer", process.env.TIME ?? "day")]);
+for (const name of names.startsWith("scene:") ? [] : names.split(",")) {
+  const lot = Lot[name]; const fp0 = footprintOf(lot); const fp = process.env.ALT && fp0.alt ? { ...fp0, ...fp0.alt } : fp0;
   const dist = distA !== "" ? +distA : (DEF_DIST[name] ?? Districts.Downtown);
   const ONLY = process.env.ONLY ?? "";
   const SIDES = ONLY.startsWith("side:") ? ONLY.slice(5).split("") : ["S", "N", "E", "W"];
-  const parts = ONLY === "var" ? [] : SIDES.map((s) => shot(lot, fp.w, fp.h, s, "summer", "day", dist));
+  const parts = ONLY === "var" ? [] : SIDES.map((s) => shot(lot, fp.w, fp.h, s, process.env.SEASON ?? "summer", process.env.TIME ?? "day", dist));
   if (ONLY.startsWith("side:")) { rows.push(parts); continue; }
   if (ONLY === "facing") { rows.push(parts); continue; }
   if (fp.alt) { parts.push(shot(lot, fp.alt.w, fp.alt.h, "S", "summer", "day", dist)); parts.push(shot(lot, fp.alt.h, fp.alt.w, "E", "summer", "day", dist)); }

@@ -166,8 +166,7 @@ export function drawAmbientTraffic(w: World, tick: number, fog: Uint8Array | nul
     // anchor the lot rectangle
     let ax = sx; while (ax > 0 && w.lot[sy * w.width + ax - 1] === Lot.Sheriff) ax--;
     const apX = ax * TILE_PX + 3, apY = sy * TILE_PX + 5;
-    const call = (day >= 1000 && day < 1150) || day >= 2000 || day < 150;
-    if (visible(apX, apY)) drawAt(put, "cruiser", apX + 1, apY, 1, 0, [30, 29, 28], call ? tick : -1);
+    // (the parked cruisers are the sheriff lot's own art — lots.ts)
     // the patrol car: a loop from the station to a hashed house and back,
     // a fresh destination every patrol
     if (plan.houses.length > 0) {

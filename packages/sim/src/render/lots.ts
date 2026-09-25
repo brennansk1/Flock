@@ -8,10 +8,11 @@
  * orientation — layouts are computed from the local canvas L × D.
  */
 import { hexToRgb, shade, type RGB } from "../palette.js";
-import { C, RS, pixHash } from "./core.js";
+import { C, RS, pixHash, lotOccupancy, stallVisit } from "./core.js";
 import { EMISSIVE } from "./grade.js";
 import { householdPaint, householdVehicle } from "./vehicles.js";
 import { M, mix, type Plan, type Face } from "./plan.js";
+import { chainLink } from "./works.js";
 
 const hx = hexToRgb;
 
@@ -35,94 +36,203 @@ function stallRow(p: Plan, l0: number, l1: number, dNose: number, toStreet: bool
   for (let l = l0; l + 1 <= l1; l += 3) {
     // stall stripe
     for (let k = 0; k < 3; k++) p.g(l - 1, toStreet ? dNose - k : dNose + k, M.stripe);
-    const h = p.h(l * 13 + dNose, salt);
-    if (h % 100 >= occ) continue;
+    const h = stallVisit(p.seed * 131 + l * 13 + dNose + salt * 7, occ);
+    if (h < 0) continue;
     const kind = householdVehicle(h);
     // centre: 3–4 long cars; nose at dNose
     p.carDir(l, toStreet ? dNose - 1 : dNose + 1, toStreet ? 2 : 3, kind, householdPaint(h >>> 4));
   }
 }
 export function occupancy(): number {
-  return RS.time === "night" ? 15 : RS.time === "dusk" ? 35 : RS.time === "dawn" ? 20 : 55;
+  return lotOccupancy(8);
 }
 
 // ------------------------------------------------------------ BANK
 
 /**
- * Columned bank + drive-up teller lane. Variants: limestone temple front ·
- * red brick with white columns · 1970s brown-brick modern with bronze
- * glass fins. A time-and-temperature sign on a pole by the lane.
+ * Old-time NEOCLASSICAL bank (the 1900s "temple of money" every county
+ * seat kept): a gable-front temple whose street end is a full PEDIMENT
+ * with a round CLOCK in the tympanum, over an entablature lettered in
+ * bronze, a colonnade of granite COLUMNS, BRONZE doors in the middle bay
+ * and a run of granite steps. A drive-up teller lane (added in the 60s)
+ * runs down the side under a small canopy, and a green cast-iron post
+ * clock stands at the curb. Variants: Indiana limestone · grey granite ·
+ * white marble (roof lead-grey or verdigris copper).
  */
 export function bank(p: Plan): void {
   const { L, D } = p;
   const v = p.h(1) % 3;
-  const wall = [M.limestone, M.brick, M.brickBrown][v]!;
-  const col = v === 2 ? hx("#cfc4ae") : hx("#f4f0e6");
+  const stone = [M.limestone, hx("#b8b8b4"), hx("#ece6da")][v]!;
+  const col = [hx("#f2eee4"), hx("#d8d8d2"), hx("#fbf8f0")][v]!;
+  const colShade = shade(col, 0.82);
+  const bronze = hx("#8a6230"), bronzeD = hx("#5e4020");
+  const recess = hx("#3e3a34");
   const deep = D >= 16;
-  const wide = L >= 16;
+  const wide = L >= 20;
   const laneW = wide ? 4 : 0;
   const laneL0 = L - 1 - laneW, laneL1 = L - 2;
-  const bl0 = 1, bl1 = wide ? laneL0 - 2 : L - 2;
-  const bd0 = 1, bd1 = deep ? D - 7 : D - 4;
+  const bl0 = wide ? 2 : 1, bl1 = wide ? laneL0 - 2 : L - 2;
+  const bd0 = 1, bd1 = deep ? D - 6 : D - 4;
   const fr = FRONT(p);
-  // ground: plaza / lawn in front, the drive-up lane at the side
-  p.lawn(bl0, bd1 + 1, bl1, fr);
-  const cxl = ((bl0 + bl1) >> 1);
-  p.pave(cxl - 1, bd1 + 1, cxl + 2, fr, "concrete");
+  const cxl = (bl0 + bl1) >> 1;
+  // ground: lawn panels either side of a granite plaza; steps at the portico
+  p.lawn(1, bd1 + 1, bl1 + 1, fr);
+  p.pave(cxl - 3, bd1 + 1, cxl + 4, fr, "concrete");
+  for (let l = bl0; l <= bl1; l++) p.g(l, bd1 + 1, (l & 1) ? shade(col, 0.9) : shade(col, 0.84)); // granite steps
   if (wide) {
     p.pave(laneL0, 1, laneL1, fr, "asphalt");
-    for (let d = 2; d <= fr; d += 2) p.g(laneL0, d, M.stripe); // lane edge
+    for (let d = 2; d <= fr; d += 2) p.g(laneL0, d, M.stripe);
   }
-  const h = deep ? 4 : 2;
-  const recess = hx("#4a4238");
+  const h = deep ? 5 : 3;
+  const n2 = (n: number): number => n >> 1;
+  /** the temple front: entablature, colonnade, plinth (pediment in deco) */
   const front: Face = (u, r, n, hh) => {
-    if (r === 0) return letters(u, n, shade(wall, 1.1), v === 2 ? hx("#e8c070") : hx("#8a7a5a"), 2);
-    if (r === hh - 1 && hh >= 3) return shade(col, 0.9); // steps / plinth
-    const doorU = n >> 1;
-    if ((u === doorU || u === doorU - 1) && r >= hh - 2) return hx("#3a2e22");
-    if (v === 2) return u % 2 === 0 ? shade(wall, 0.9) : pane(p, u, r, 1, M.glassBronze);
-    return u % 2 === 1 ? col : recess; // colonnade
+    const mid = n2(n);
+    if (r === 0) return letters(u, n, shade(stone, 1.06), bronzeD, 3); // entablature
+    if (r === hh - 1) return u % 2 ? shade(col, 0.9) : shade(col, 0.84); // stylobate
+    // bronze doors in the middle bay
+    if ((u === mid || u === mid - 1) && r >= hh - 3) return r === hh - 3 ? bronze : (u === mid ? bronze : bronzeD);
+    // columns on a 3-px rhythm: lit shaft + shaded fluting, dark bays
+    const k = (u - 1) % 3;
+    if (u === 0 || u === n - 1) return stone; // corner antae
+    if (k === 0) return r === 1 ? shade(col, 1.06) : col;
+    if (k === 1) return colShade;
+    return r === 1 ? shade(recess, 1.2) : pane(p, u, r, 1, recess);
   };
+  const roofC = shade(stone, 0.78);
   p.box({
-    l0: bl0, d0: bd0, l1: bl1, d1: bd1, h, wall,
-    roof: v === 2 ? M.tar : v === 1 ? M.slate : hx("#8c877e"),
-    kind: v === 1 ? "hip" : "flat",
+    l0: bl0, d0: bd0, l1: bl1, d1: bd1, h, wall: stone, roof: roofC, kind: "flat",
     front,
-    side: (u, r, n, hh) => (r === 0 ? shade(wall, 1.08) : u % 3 === 1 && r < hh - 1 ? pane(p, u, r, 2) : null),
-    lip: (k) => (k % 2 === 1 ? col : shade(wall, 0.8)),
     deco: () => {
-      // rooftop: HVAC and (classical) a pediment over the door
-      p.top(bl0 + 2, bd0 + 1, M.hvac);
-      if (v !== 2 && p.o === 0) {
-        const [x, y] = p.S(cxl, bd1 - h);
-        const ped = shade(col, 0.96);
-        for (let i = -2; i <= 3; i++) p.scr(x + i, y, ped, 2);
-        for (let i = -1; i <= 2; i++) p.scr(x + i, y - 1, shade(ped, 1.05), 2);
-        p.scr(x, y - 2, ped, 2); p.scr(x + 1, y - 2, ped, 2);
+      // parapet balustrade round the flat roof
+      for (let l = bl0; l <= bl1; l++) { p.top(l, bd0, shade(col, 0.95)); }
+      p.top(cxl - 3, bd0 + 2, M.hvac);
+      if (p.o !== 0) return;
+      // the PEDIMENT: a low wide triangle over the colonnade, raking
+      // cornice, tympanum, and the bank's round clock in its heart
+      const x0 = bl0, x1 = bl1, yb = bd1 - h; // row above the wall
+      const cx2 = x0 + x1; // 2× centre
+      const half = (x1 - x0) / 2;
+      const rise = Math.min(4, bd1 - h - bd0);
+      for (let k = 0; k <= rise; k++) {
+        const hw = half * (1 - k / (rise + 0.6));
+        for (let x = x0; x <= x1; x++) {
+          const off = Math.abs(2 * x - cx2) / 2;
+          if (off > hw) continue;
+          const edge = off > hw - 1.3 || k === 0;
+          p.scr(x, yb - k, edge ? shade(col, k === 0 ? 0.94 : 1.05) : shade(stone, 0.7), 2);
+        }
       }
+      // clock: 3-px white dial with bronze rim, dark hands
+      const mx = cx2 >> 1, my = yb - 2;
+      p.scr(mx, my - 1, hx("#f8f4e6"), 2);
+      p.scr(mx - 1, my, hx("#f8f4e6"), 2); p.scr(mx, my, M.dark, 2); p.scr(mx + 1, my, hx("#f8f4e6"), 2);
+      p.scr(mx, my + 1, hx("#f8f4e6"), 2);
+      p.scr(mx + ((RS.tick >> 6) & 1), my - 1, M.dark, 2); // the minute hand creeps
     },
+    back: (u, r, n, hh) => {
+      if (r === 0) return shade(stone, 1.06);
+      if (u === n2(n) && r >= hh - 2) return C.door;
+      return u % 3 === 1 && r < hh - 1 ? pane(p, u, r, 2) : null;
+    },
+    side: (u, r, n, hh) => {
+      if (r === 0) return shade(stone, 1.06); // entablature runs round
+      if (r === hh - 1) return shade(col, 0.86);
+      // the portico's side columns at the street end, pilasters + tall windows behind
+      if (u >= n - 4) return (u - n) % 2 === 0 ? col : recess;
+      if (u % 3 === 0) return shade(stone, 1.05);
+      return u % 3 === 1 && r >= 1 && r <= hh - 2 ? pane(p, u, r, 3) : null;
+    },
+    lip: (k) => (k % 3 === 0 ? col : k % 3 === 1 ? colShade : recess),
   });
   if (wide) {
-    // drive-up canopy over the teller lane, pneumatic-tube island beside it
+    // drive-up canopy + teller island on the lane (the 60s addition)
     const cd0 = deep ? 3 : 1, cd1 = deep ? 6 : 3;
-    const brand = v === 2 ? hx("#6a4a2a") : hx("#2f5a4a");
     p.box({
-      l0: laneL0, d0: cd0, l1: laneL1, d1: cd1, h: 1, wall: brand, roof: shade(wall, 1.05), noShadow: false,
-      front: (u, _r, n) => (u === 0 || u === n - 1 ? M.steel : brand),
-      side: () => brand,
-      lip: () => brand,
+      l0: laneL0, d0: cd0, l1: laneL1, d1: cd1, h: 1, wall: stone, roof: shade(stone, 1.05),
+      front: (u, _r, n) => (u === 0 || u === n - 1 ? col : hx("#3a3632")),
+      side: () => stone,
+      lip: () => stone,
     });
-    if (deep) p.obj(laneL0 + 1, cd1 + 1, M.hvac);
     const hc = p.h(7);
-    if (hc % 2 === 0) p.carDir(laneL0 + 2, cd1 + (deep ? 3 : 2), 2, householdVehicle(hc), householdPaint(hc >>> 3));
-    // time & temperature sign on a pole at the lane mouth
-    const amber: RGB = p.lit ? EMISSIVE.hazard : hx("#c89030");
-    const blink = (RS.tick >> 5) & 1;
-    p.spr(laneL1, fr, ["SSS", blink ? "a.a" : ".a.", "S|S", ".|.", ".|."], { S: hx("#2a2826"), a: amber, "|": M.steel }, 1);
-  } else {
-    p.flagpole(bl1, fr);
+    if ((hc % 100) < occupancy() + 15) p.carDir(laneL0 + 2, cd1 + (deep ? 3 : 2), 3, householdVehicle(hc), householdPaint(hc >>> 3));
   }
+  // cast-iron post clock at the curb (lit dial after dark)
+  const dial = p.lit ? EMISSIVE.headlight : hx("#f6f2e2");
+  const iron = hx("#2c4a36");
+  p.spr(wide ? bl1 + 1 : bl0 + 1, fr, [".g.", "gWg", "gkg", ".g.", ".|.", ".|.", ".|."], { g: iron, W: dial, k: M.dark, "|": iron }, 1);
+  p.flagpole(bl0 < 2 ? bl1 : bl0, deep ? fr - 1 : fr, deep ? 7 : 5);
+  p.lamp(cxl - 3, fr);
+  p.lamp(cxl + 4, fr);
+}
+
+// ------------------------------------------------------------ SHERIFF
+
+/**
+ * County sheriff's office: a tan-brick 1970s station with a navy
+ * department band and the gold star, a glass lobby entry, the flag, a
+ * taller JAIL WING behind with barred slit windows, a comms whip on the
+ * roof, and a chain-link CRUISER LOT beside it holding two or three
+ * black-and-white cruisers whose bubble lights flash (with a night bloom).
+ * The patrol car (traffic.ts) is the one that's out.
+ */
+export function sheriff(p: Plan): void {
+  const { L, D } = p;
+  const wall = p.h(1) % 2 ? hx("#c8b48e") : hx("#b89a78");
+  const navy = hx("#2a3a5e"), gold = hx("#e0b840");
+  const wide = L >= 20;
+  const fr = FRONT(p);
+  const lotW = wide ? 8 : 6;
+  const ll0 = L - 1 - lotW, ll1 = L - 2; // cruiser lot
+  const bl0 = 1, bl1 = ll0 - 2;
+  const deep = D >= 16;
+  const jd1 = deep ? 5 : 3; // jail wing (rear)
+  const od0 = jd1 + 1, od1 = deep ? D - 5 : D - 3; // office block (front)
+  const cxl = (bl0 + bl1) >> 1;
+  // ground: lawn + entry walk, the fenced lot
+  p.lawn(bl0, od1 + 1, bl1 + 1, fr);
+  p.walk(cxl, od1 + 1, fr);
+  p.pave(ll0, 1, ll1, fr, "asphalt");
+  chainLink(p, ll0, 1, ll1, fr - 1, true);
+  // the jail wing: taller, blank brick, barred slits
+  p.box({
+    l0: bl0, d0: 1, l1: bl1 - 2, d1: jd1 + 1, h: deep ? 4 : 3, wall: shade(wall, 0.92), roof: M.tar, kind: "flat",
+    front: (u, r, n, hh) => (r === 0 ? shade(wall, 1.05) : u % 2 === 1 && r >= 1 && r < hh - 1 ? (r === 1 ? M.dark : hx("#4a4a50")) : null),
+    side: (u, r, _n, hh) => (u % 2 === 1 && r >= 1 && r < hh - 1 ? M.dark : null),
+    back: (u, r, _n, hh) => (u % 2 === 1 && r >= 1 && r < hh - 1 ? M.dark : null),
+    deco: () => { p.top(bl0 + 2, 2, M.hvac); p.top(bl0 + 3, 2, shade(M.hvac, 0.85)); },
+  });
+  // the office block with the navy band and the gold star over the doors
+  p.box({
+    l0: bl0, d0: od0, l1: bl1, d1: od1, h: deep ? 3 : 2, wall, roof: hx("#8a8278"), kind: "flat",
+    front: (u, r, n, hh) => {
+      const mid = n >> 1;
+      if (r === 0) return u === mid || u === mid - 1 ? gold : letters(u, n, navy, hx("#d8dce8"), 2);
+      if ((u === mid || u === mid - 1) && r >= hh - 2) return p.lit ? C.windowLit : hx("#5a7a98"); // glass lobby doors
+      return u % 3 === 1 ? pane(p, u, r, 30) : null;
+    },
+    side: (u, r) => (r === 0 ? navy : u % 3 === 1 ? pane(p, u, r, 31) : null),
+    back: (u, r, n, hh) => (r === 0 ? navy : u === n - 2 && r >= hh - 2 ? C.door : null),
+    lip: (k, n) => (k === n >> 1 || k === (n >> 1) - 1 ? gold : navy),
+    deco: () => {
+      // the comms whip on the roof: steel mast, red lamp at the tip
+      const [x, y] = p.S(bl0 + 1, od0 + 1);
+      const on = ((RS.tick >> 3) & 1) === 0;
+      p.sprAt(x, y, ["r", "|", "|", "|", "|"], { r: on ? EMISSIVE.beacon : hx("#5a1a1a"), "|": M.steel }, 0, 400);
+    },
+  });
+  p.flagpole(cxl + 2, fr - 1, deep ? 7 : 5);
   p.lamp(bl0 + 1, fr);
+  // the cruisers: 3 by day, 2 at night / on a shift change, lights flashing
+  // in desynced pairs; each rides its own stall across the lot
+  const n = 2 + (((RS.tick >> 10) + p.h(5)) % 2 === 0 && !p.night ? 1 : 0);
+  const stalls = deep ? [3, 7, 11] : [3, 7];
+  const cl = (ll0 + ll1 + 1) >> 1;
+  for (let i = 0; i < Math.min(n, stalls.length); i++) {
+    const d = stalls[i]!;
+    for (let l = ll0 + 1; l < ll1; l++) p.g(l, d + 2, M.stripe);
+    p.carDir(cl, d, (i + p.h(6)) & 1, "cruiser", hx("#1e1d1c"), RS.tick + i * 3, false, p.lit);
+  }
 }
 
 // ------------------------------------------------------------ POST OFFICE
@@ -138,6 +248,8 @@ export function postOffice(p: Plan): void {
   const buff = p.h(1) % 3 === 0;
   const wall = buff ? M.brickBuff : M.brick;
   const lime = hx("#e0d8c4");
+  // USPS blue trim + sign band, the white "sonic eagle" mark
+  const usps = hx("#1f4e9a"), uspsD = hx("#173a74"), eagle = hx("#f4f4f0");
   const deep = D >= 16;
   const wide = L >= 16;
   const dockW = wide ? 4 : 0;
@@ -163,15 +275,21 @@ export function postOffice(p: Plan): void {
     roof: cupola ? M.slate : hx("#6a5a52"),
     kind: "hip",
     front: (u, r, n, hh) => {
-      if (r === 0) return lime; // cornice
       const doorU = n >> 1;
-      if ((u === doorU || u === doorU - 1) && r >= hh - 2) return r === hh - 1 ? hx("#3a2e22") : shade(lime, 0.9);
+      if (r === 0) {
+        // the blue sign band: lettering either side of the eagle mark
+        if (u === doorU - 1 || u === doorU) return eagle;
+        if (u === doorU - 2 || u === doorU + 1) return usps;
+        return letters(u, n, usps, eagle, 1);
+      }
+      if ((u === doorU || u === doorU - 1) && r >= hh - 2) return r === hh - 1 ? hx("#3a2e22") : usps; // blue door frame + transom
+      if ((u === doorU - 2 || u === doorU + 1) && r >= 1) return uspsD; // blue door surround
       if (r === hh - 1 && hh >= 3) return u % 2 === 0 ? pane(p, u, r, 3) : wall;
       return u % 2 === 0 && u > 0 && u < n - 1 ? pane(p, u, r, 3) : wall;
     },
-    side: (u, r) => (r === 0 ? lime : u % 2 === 0 && u > 0 ? pane(p, u, r, 4) : null),
-    back: (u, r, n, hh) => (r === 0 ? lime : u === n >> 1 && r >= hh - 2 ? C.door : null),
-    lip: (k, n) => (k === n >> 1 || k === (n >> 1) - 1 ? hx("#3a2e22") : lime),
+    side: (u, r) => (r === 0 ? usps : u % 2 === 0 && u > 0 ? pane(p, u, r, 4, uspsD) : null),
+    back: (u, r, n, hh) => (r === 0 ? lime : u === n >> 1 && r >= hh - 2 ? usps : null),
+    lip: (k, n) => (k === n >> 1 || k === (n >> 1) - 1 ? eagle : letters(k, n, usps, eagle, 1)),
     deco: () => {
       if (cupola && deep) {
         const [x, y] = p.S(cxl, bd0 + 2);
@@ -185,8 +303,9 @@ export function postOffice(p: Plan): void {
   p.g(cxl, bd1 + 1, shade(lime, 0.9));
   p.g(cxl + 1, bd1 + 1, shade(lime, 0.9));
   p.flagpole(deep ? bl0 + 1 : bl0, deep ? fr - 1 : fr, deep ? 7 : 5);
-  // blue collection box at the curb
-  p.obj(cxl + 3, fr, hx("#2a4f9a"));
+  // blue collection boxes at the curb + the blue-and-white eagle sign
+  p.spr(cxl + 3, fr, ["bb", "BB"], { b: usps, B: uspsD }, 0);
+  p.spr(cxl - 2, fr, ["BBB", "BeB", ".|."], { B: usps, e: eagle, "|": M.steel }, 1);
   if (deep) p.tree(bl1 - 1, fr - 1, false, 3);
 }
 
@@ -300,41 +419,6 @@ export function library(p: Plan): void {
   p.obj(cxl + 3, fr, hx("#4a5a7a")); // book drop
 }
 
-// ------------------------------------------------------------ CHAPEL
-
-/**
- * Clapboard chapel: gable-FRONT (ridge runs away from the street), a small
- * belfry + spire over the front gable, an arched door and lancet windows,
- * a signboard on the lawn. Siding and roof by hash.
- */
-export function chapel(p: Plan): void {
-  const { L, D } = p;
-  const sid = [M.clapboard, hx("#e8dcb0"), hx("#c8d0d8")][p.h(1) % 3]!;
-  const roof = [hx("#7a7470"), hx("#8a6a4a"), hx("#8a3a30")][p.h(2) % 3]!;
-  const deep = D >= 16;
-  const bl0 = L >= 16 ? (L >> 1) - 3 : 1, bl1 = L >= 16 ? (L >> 1) + 2 : L - 2;
-  const bd0 = deep ? 3 : 1, bd1 = deep ? D - 5 : D - 3;
-  const fr = FRONT(p);
-  const cxl = (bl0 + bl1) >> 1;
-  p.walk(cxl, bd1 + 1, fr);
-  p.box({
-    l0: bl0, d0: bd0, l1: bl1, d1: bd1, h: 2, wall: sid, roof, kind: "gable", across: true,
-    front: (u, r, n) => (u === n >> 1 || u === (n >> 1) - 1 ? (r === 0 ? hx("#4a3a2a") : hx("#3a2a1e")) : r === 0 && (u === 1 || u === n - 2) ? pane(p, u, r, 10, hx("#6a5a8a")) : null),
-    side: (u, r, n) => (u % 2 === 1 && u < n - 1 && r === 0 ? pane(p, u, r, 11, hx("#6a5a8a")) : null),
-    lip: (k, n) => (k === n >> 1 || k === (n >> 1) - 1 ? hx("#3a2a1e") : sid),
-  });
-  // belfry + spire over the front gable end
-  const [x, y] = p.S(cxl, bd1 - 2);
-  const bell = RS.season === "winter" ? M.snow : shade(roof, 0.8);
-  p.sprAt(x + 1, y, deep ? [".g.", ".s.", ".s.", "sss", "BkB", "BBb"] : [".g.", ".s.", "BkB", "BBb"], { g: C.landmarkGold, s: bell, k: hx("#3a2a1e"), B: sid, b: shade(sid, 0.85) }, 1, 300);
-  // sign board on the lawn
-  if (deep) {
-    p.obj(bl0 - 1 < 1 ? bl1 + 1 : bl0 - 1, fr - 1, hx("#f0ece0"));
-    p.obj(bl0 - 1 < 1 ? bl1 + 1 : bl0 - 1, fr, M.door);
-    if (L >= 16) { p.tree(1, bd0 + 2, false, 21); p.tree(L - 2, bd0 + 4, true, 22); }
-  }
-}
-
 // ------------------------------------------------------------ CINEMA
 
 /**
@@ -355,9 +439,15 @@ export function cinema(p: Plan): void {
   const bd0 = 1, bd1 = deep ? D - 5 : D - 3;
   const fr = FRONT(p);
   const tick = RS.tick;
+  const lit = p.lit;
   p.pave(bl0, bd1 + 1, bl1, fr, "terrazzo");
-  const bulb = (i: number): RGB => ((i + (tick >> 1)) % 3 === 0 ? (p.lit ? EMISSIVE.hazard : hx("#fff0b0")) : hx("#b89040"));
-  const lipC = (k: number): RGB => (k % 2 === 0 ? bulb(k) : (p.lit ? neon : neonDay));
+  // chaser bulbs: every third bulb dark, the gap marching on the clock
+  const bulb = (i: number): RGB => ((i + (tick >> 1)) % 3 === 0 ? (lit ? hx("#6a4a20") : hx("#b89040")) : lit ? EMISSIVE.hazard : hx("#fff0b0"));
+  const neonC = lit ? neon : neonDay;
+  const board = lit ? EMISSIVE.marqueeBoard : hx("#f0ece0");
+  const posters = [EMISSIVE.posterA, EMISSIVE.posterB, EMISSIVE.posterC];
+  const poster = (k: number): RGB => (lit ? posters[(k + p.seed) % 3]! : [hx("#b0603a"), hx("#4a6a9a"), hx("#c8a848")][(k + p.seed) % 3]!);
+  const lipC = (k: number): RGB => (k % 2 === 0 ? bulb(k) : neonC);
   // auditorium + lobby (tall brick, pilaster rhythm on the sides)
   const mq = deep ? 2 : 1; // marquee depth
   const ad1 = bd1 - mq;
@@ -366,12 +456,12 @@ export function cinema(p: Plan): void {
     front: (u, r, n, hh) => {
       const mid = n >> 1;
       if (r === 0) return shade(wall, 1.1);
-      if (u >= mid - 1 && u <= mid) return r === hh - 1 ? hx("#2a2622") : hx("#8a6a3a"); // ticket booth
-      if ((u === mid - 3 || u === mid + 2) && r >= hh - 2) return hx("#3a2e22"); // doors
-      if ((u === 1 || u === n - 2) && r >= hh - 2) return p.lit ? C.windowLit : hx("#c8b060"); // poster cases
+      if (u >= mid - 1 && u <= mid) return r === hh - 1 ? (lit ? C.windowLit : hx("#2a2622")) : hx("#8a6a3a"); // ticket booth
+      if ((u === mid - 3 || u === mid + 2) && r >= hh - 2) return lit ? C.windowLit : hx("#3a2e22"); // lobby doors
+      if ((u === 1 || u === n - 2) && r >= hh - 2) return poster(u + r); // poster cases
       return null;
     },
-    side: (u, r) => (u % 3 === 0 ? shade(wall, 0.9) : r === 0 ? shade(wall, 1.1) : null),
+    side: (u, r, n, hh) => (u >= n - 2 && r >= hh - 2 ? poster(u) : u % 3 === 0 ? shade(wall, 0.9) : r === 0 ? shade(wall, 1.1) : null),
     back: (u, r, n, hh) => (u === 2 && r >= hh - 2 ? C.door : null),
     lip: (k) => (k % 3 === 0 ? shade(wall, 0.9) : wall),
     deco: () => {
@@ -379,32 +469,58 @@ export function cinema(p: Plan): void {
       p.top(bl1 - 2, bd0 + 2, M.hvac);
     },
   });
-  // the MARQUEE: projects over the sidewalk; chaser bulbs frame the board
+  // the MARQUEE: projects over the sidewalk; chaser bulbs frame the
+  // back-lit letter board (the late-show titles), neon along its top
   p.box({
-    l0: bl0 + 1, d0: ad1 + 1, l1: bl1 - 1, d1: bd1 + 1, h: 2, wall: hx("#f0ece0"), roof: p.lit ? neon : neonDay, kind: "flat", noSnow: true,
-    front: (u, r, n) => (r === 0 ? bulb(u) : u === 0 || u === n - 1 ? bulb(u + 1) : letters(u, n, p.lit ? hx("#fff8e8") : hx("#f0ece0"), hx("#2a2622"), 1)),
-    side: (u, r) => (r === 0 ? bulb(u) : hx("#f0ece0")),
+    l0: bl0 + 1, d0: ad1 + 1, l1: bl1 - 1, d1: bd1 + 1, h: 2, wall: board, roof: neonC, kind: "flat", noSnow: true,
+    front: (u, r, n) => (r === 0 ? bulb(u) : u === 0 || u === n - 1 ? bulb(u + 1) : letters(u, n, board, hx("#2a2622"), 1)),
+    side: (u, r) => (r === 0 ? bulb(u) : board),
     back: (u) => bulb(u),
     lip: lipC,
     deco: () => {
-      // chaser bulbs round the marquee top
       const [ax, ay] = p.S(bl0 + 1, ad1 + 1), [bx, by] = p.S(bl1 - 1, bd1 + 1);
-      const x0 = Math.min(ax, bx), x1 = Math.max(ax, bx), y0 = Math.min(ay, by);
+      const x0 = Math.min(ax, bx), x1 = Math.max(ax, bx), y0 = Math.min(ay, by), y1 = Math.max(ay, by);
       for (let x = x0; x <= x1; x++) p.scr(x, y0, bulb(x), 2);
+      for (let y = y0; y <= y1; y++) { p.scr(x0, y, bulb(y + 1), 2); p.scr(x1, y, bulb(y + 2), 2); }
     },
   });
-  // the vertical BLADE sign at the front, rising above the roof
+  // after dark the marquee floods the terrazzo and sidewalk with light
+  if (lit) {
+    for (let d = bd1 + 2; d <= fr; d++) {
+      for (let l = bl0; l <= bl1; l++) {
+        const [X, Y] = p.gx(l, d);
+        const near = d <= bd1 + 3 && l > bl0 && l < bl1;
+        p.g(l, d, near ? ((X + Y) & 1 ? EMISSIVE.marqueePoolHi : EMISSIVE.marqueePool) : (X + Y) % 3 === 0 ? EMISSIVE.marqueePool : null);
+      }
+    }
+  }
+  // the vertical BLADE sign at the front corner, rising above the roof:
+  // bulb-chased edges and neon letters that spell out one by one, then
+  // the whole blade flashes
   const bladeL = bl0 + 2;
+  const nRows = deep ? 10 : 5;
   const [x, y] = p.S(bladeL, ad1 - (deep ? 3 : 1));
-  const rows = deep ? ["nn", "nN", "nn", "nN", "nn", "nN", "nn", "nN", "nn"] : ["nn", "nN", "nN", "nn"];
-  const flick = (tick >> 2) % 7 === 0;
+  const cyc = (tick >> 2) % (nRows + 6);
+  const rows: string[] = [];
+  for (let i = 0; i < nRows; i++) {
+    const on = !lit || cyc >= nRows + 3 ? cyc % 2 === 0 || !lit : i <= cyc;
+    rows.push(`${(i + (tick >> 1)) % 3 === 0 ? "o" : "O"}${on ? "N" : "n"}${(i + 1 + (tick >> 1)) % 3 === 0 ? "o" : "O"}`);
+  }
+  rows.push(".|.");
   p.sprAt(x, y, rows, {
-    n: p.lit ? neon : neonDay,
-    N: p.lit ? (flick ? neonDay : hx("#fff8e8")) : hx("#f0ece0"),
+    n: lit ? shade(neon, 0.55) : neonDay,
+    N: lit ? neon : hx("#f0ece0"),
+    O: lit ? EMISSIVE.hazard : hx("#e8d8a0"),
+    o: lit ? hx("#6a4a20") : hx("#b89040"),
     "|": M.steel,
-  }, 0, 300);
-  // poster-case glow spills onto the terrazzo at night
-  if (p.lit) { p.g(bl0 + 1, bd1 + 1, shade(C.windowLit, 0.7)); p.g(bl1 - 1, bd1 + 1, shade(C.windowLit, 0.7)); }
+  }, 1, 300);
+  // the late-show crowd: a short queue at the booth after dark
+  if (lit) {
+    const mid = (bl0 + bl1) >> 1;
+    const shirts = [hx("#c8342a"), hx("#2a4f9a"), hx("#e8c040"), hx("#ece8dc"), hx("#3a8a4a")];
+    const q = 2 + (((tick >> 6) + p.seed) % 3);
+    for (let k = 0; k < q; k++) p.obj(mid - 2 - k, bd1 + 2 + (k & 1), shirts[(k + p.seed) % shirts.length]!);
+  }
 }
 
 // ------------------------------------------------------------ DINER
@@ -478,7 +594,10 @@ export function diner(p: Plan): void {
 export function supermarket(p: Plan): void {
   const { L, D } = p;
   const v = p.h(1) % 3;
-  const sign = [M.red, hx("#2f7a3a"), hx("#2a4f9a")][v]!;
+  // the 1980s grocery look: a long GREEN sign band (Kroger / IGA / Jewel
+  // greens), white letters, the store's red accent stripe under it
+  const sign = [hx("#2f7a3a"), hx("#236a44"), hx("#3a8a34")][v]!;
+  const accent = [M.red, hx("#e8a030"), M.red][v]!;
   const wall = [hx("#d8cbb0"), hx("#c8b89a"), M.white][v]!;
   const mansard = hx("#6a4a3a");
   const deep = D >= 16;
@@ -498,27 +617,41 @@ export function supermarket(p: Plan): void {
     l0: bl0, d0: bd0, l1: bl1, d1: bd1, h: 3, wall, roof: hx("#cdc8be"), kind: "flat",
     front: (u, r, n) => {
       if (r === 0) {
-        // mansard fascia with the big sign in the middle
+        // the full-width green band with the big lettered sign in the middle
         const mid = n >> 1, half = Math.max(3, n >> 2);
-        if (Math.abs(u - mid) <= half) return letters(u - (mid - half), half * 2 + 1, sign, p.lit ? hx("#fff8e8") : M.white, 1);
-        return u % 2 ? mansard : shade(mansard, 0.85);
+        if (Math.abs(u - mid) <= half) return letters(u - (mid - half), half * 2 + 1, sign, p.lit ? EMISSIVE.beaconWhite : M.white, 1);
+        return u === 0 || u === n - 1 ? mansard : shade(sign, 0.9);
       }
+      if (r === 1 && (u <= 1 || u >= n - 2)) return accent;
       if (r === 1) return u === 2 || u === n - 3 ? hx("#8ab0c8") : u === 0 || u === n - 1 ? wall : pane(p, u, 1, 15, hx("#4a5a6a"));
       return u === 2 || u === n - 3 ? hx("#6a8aa0") : u % 4 === 0 ? wall : hx("#8a8478"); // carts / base
     },
-    side: (u, r) => (r === 0 ? mansard : u % 5 === 2 ? shade(wall, 0.85) : null),
+    side: (u, r) => (r === 0 ? shade(sign, 0.9) : u % 5 === 2 ? shade(wall, 0.85) : null),
     back: (u, r, n) => (u === 2 && r >= 1 ? hx("#4a4a4a") : u === 5 && r >= 1 ? hx("#4a4a4a") : u === n - 3 && r === 2 ? M.hvac : null),
     lip: (k, n) => {
       const mid = n >> 1, half = Math.max(3, n >> 2);
-      return Math.abs(k - mid) <= half ? letters(k - (mid - half), half * 2 + 1, sign, M.white, 1) : mansard;
+      return Math.abs(k - mid) <= half ? letters(k - (mid - half), half * 2 + 1, sign, M.white, 1) : shade(sign, 0.9);
     },
     deco: () => {
       for (let l = bl0 + 3; l < bl1 - 1; l += 5) p.top(l, bd0 + 2, M.hvac);
       if (bd1 - bd0 >= 6) for (let l = bl0 + 5; l < bl1 - 1; l += 5) p.top(l, bd0 + 4, shade(M.hvac, 0.9));
     },
   });
-  // cart corral
-  if (fr - bd1 >= 3) { p.obj(bl0 + 1, bd1 + 1, M.steel); p.obj(bl0 + 2, bd1 + 1, M.steel); }
+  // carts nested by the doors, and a steel CART CORRAL out in the lot
+  // with a few strays (the corral fills up after dark)
+  if (fr - bd1 >= 3) {
+    p.obj(bl0 + 2, bd1 + 1, M.steel); p.obj(bl0 + 3, bd1 + 1, shade(M.steel, 1.2));
+    p.obj(bl1 - 2, bd1 + 1, M.steel); p.obj(bl1 - 3, bd1 + 1, shade(M.steel, 1.2));
+  }
+  if (fr - bd1 >= 5) {
+    const cl = ((bl0 + bl1) >> 1) - 2, cd = bd1 + 3;
+    const rail = hx("#8a9096"), cart = hx("#d8dce0");
+    const full = p.lit ? 4 : 1 + (p.h(11) % 3);
+    for (let k = 1; k < 5; k++) { p.g(cl + k, cd - 1, rail); p.g(cl + k, cd + 1, rail); }
+    p.obj(cl, cd - 1, sign); p.obj(cl, cd, rail); p.obj(cl, cd + 1, sign); // green-capped end
+    for (let k = 1; k <= full; k++) p.obj(cl + k, cd, (k & 1) ? cart : shade(cart, 0.85));
+    if (!p.lit) p.obj(cl + 6 + (p.h(12) % 3), cd + 1, cart); // a stray
+  }
 }
 
 // ------------------------------------------------------------ GAS STATION

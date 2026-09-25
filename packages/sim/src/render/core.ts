@@ -147,3 +147,33 @@ export function stamp(put: Put, x0: number, y0: number, rows: readonly string[],
 export function isLitHour(): boolean {
   return RS.time === "night" || RS.time === "dusk";
 }
+
+/**
+ * Parking-lot occupancy (%) by the civic clock: frameTick through a
+ * 2400-tick day — empty small hours, a morning fill, busy midday, an
+ * evening ebb — capped low when the frame is lit as night.
+ */
+export function lotOccupancy(bias = 0): number {
+  const tod = ((RS.tick % 2400) + 2400) % 2400;
+  let o = tod < 240 ? 8 : tod < 640 ? 8 + ((tod - 240) * 52) / 400 : tod < 1400 ? 60 : tod < 1900 ? 60 - ((tod - 1400) * 35) / 500 : 25 - ((tod - 1900) * 15) / 500;
+  if (RS.time === "night") o = Math.min(o, 18);
+  else if (RS.time === "dusk") o = Math.min(o, 40);
+  return Math.max(0, Math.min(95, o + bias));
+}
+
+/**
+ * Cars COME AND GO: a stall's visits are a pure function of frameTick and
+ * the stall's hash — each stall cycles on its own period with a hashed
+ * phase, holding a car for the occupancy share of that period. Returns the
+ * current visitor's seed (a different car each visit), or -1 when empty.
+ */
+export function stallVisit(key: number, occ: number): number {
+  const h = pixHash(key, 3, 8117);
+  const P = 360 + (h % 480);
+  const t = RS.tick + ((h >>> 9) % P);
+  const v = Math.floor(t / P);
+  const hv = pixHash(key, v, 8119);
+  // per-visit jitter so neighbouring stalls don't fill in lockstep
+  const share = (occ + ((hv % 21) - 10)) / 100;
+  return t - v * P < P * share ? hv : -1;
+}

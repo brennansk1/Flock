@@ -13,6 +13,7 @@
 import { Terrain, type World } from "../types.js";
 import { shade, type RGB } from "../palette.js";
 import { RS, C, TILE_PX, pixHash, valueNoise } from "./core.js";
+import { desertGround } from "./desert.js";
 
 /** Terrain that counts as open country for blending. */
 function wild(tr: number): boolean {
@@ -43,7 +44,7 @@ export function wildMask(w: World): Uint8Array {
 export function wildGround(w: World, t: number, gx: number, gy: number): RGB {
   const b = w.biome[t];
   const h = pixHash(gx, gy, 5);
-  if (b === 1) return h % (RS.season === "winter" ? 6 : 3) === 0 ? C.sandDark : C.sandBg; // desert
+  if (b === 1) return desertGround(gx, gy); // desert: the same zoned sand as the open land
   if (b === 4) return valueNoise(gx, gy, 9, 13) > 0.55 ? shade(C.sandBg, 1.06) : C.sandBg; // beach
   const cell = valueNoise(gx, gy, 9, 13) > 0.55 ? 0 : 1;
   let c = cell === 0 ? C.meadowLight : C.meadow;

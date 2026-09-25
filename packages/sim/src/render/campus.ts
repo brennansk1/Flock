@@ -228,48 +228,80 @@ export function playground(p: Plan): void {
 // ------------------------------------------------------------ CEMETERY
 
 /**
- * Churchyard / town cemetery: mown turf, a gravel lane in from the street
- * gate with a cross path, headstone rows with family gaps (grey and white
- * stones, a few obelisks, flowers on some graves), cedars and a maple, an
- * iron fence or a clipped hedge, and a small limestone mausoleum by hash.
+ * The town CEMETERY at the edge of town: mown turf inside a black iron
+ * fence (or a clipped hedge), stone gate piers carrying an iron arch at
+ * the entrance, GRAVEL DRIVES (the centre drive from the gate, a loop
+ * round the sections), ROWS of headstones — each a 1-px white stone with
+ * its grey shaded face below and a shadow on the grass — with the odd
+ * obelisk and flowers, columnar CEDARS along the drive, and (by hash) a
+ * limestone mausoleum at the head of the drive.
  */
 export function cemetery(p: Plan): void {
   const { L, D } = p;
   p.fill(1, 1, L - 2, D - 2, (l, d) => p.turfAt(l, d));
-  const hedge = p.h(1) % 2 === 0;
-  const fence = hedge ? (p.winter ? hx("#4a6048") : hx("#2e5a2a")) : hx("#2a2826");
+  const hedge = p.h(1) % 3 === 0;
+  const fence = hedge ? (p.winter ? hx("#4a6048") : hx("#2e5a2a")) : hx("#26262a");
+  const post = hedge ? fence : hx("#4a4a50");
   const gate = (L >> 1) - 1;
   for (let l = 1; l <= L - 2; l++) {
-    p.g(l, 1, fence);
-    if (l < gate || l > gate + 1) p.g(l, D - 2, fence);
+    p.g(l, 1, l % 4 === 0 ? post : fence);
+    if (l < gate - 1 || l > gate + 2) p.g(l, D - 2, l % 4 === 0 ? post : fence);
   }
-  for (let d = 1; d <= D - 2; d++) { p.g(1, d, fence); p.g(L - 2, d, fence); }
-  const gravel = p.winter ? hx("#d0d4d6") : hx("#c9c2b2");
-  // lane from the gate + a cross path
-  for (let d = 2; d <= D - 2; d++) { p.g(gate, d, gravel); p.g(gate + 1, d, gravel); }
-  const crossD = D >= 16 ? (D >> 1) - 1 : -1;
-  if (crossD > 0) for (let l = 2; l <= L - 3; l++) p.g(l, crossD, gravel);
-  const stone = hx("#cbd0d4"), stoneDark = hx("#8c9296"), white = hx("#eceae4");
+  for (let d = 1; d <= D - 2; d++) { p.g(1, d, d % 4 === 0 ? post : fence); p.g(L - 2, d, d % 4 === 0 ? post : fence); }
+  // gravel drives: centre drive from the gate, and a loop round the sections
+  const gravel = (l: number, d: number): RGB => {
+    const [X, Y] = p.gx(l, d);
+    const h = pixHash(X, Y, 67);
+    if (p.winter) return h % 3 ? hx("#d8dcde") : hx("#c4c8ca");
+    return h % 4 === 0 ? hx("#b4ac9a") : h % 7 === 0 ? hx("#d6d0c0") : hx("#c9c2b2");
+  };
+  const big = L >= 24 && D >= 16;
+  const lx0 = 4, lx1 = L - 5, ly0 = 4, ly1 = D - 5;
+  for (let d = big ? ly0 : 2; d <= D - 2; d++) { p.g(gate, d, gravel(gate, d)); p.g(gate + 1, d, gravel(gate + 1, d)); }
+  if (big) {
+    for (let l = lx0; l <= lx1; l++) { p.g(l, ly0, gravel(l, ly0)); p.g(l, ly1, gravel(l, ly1)); }
+    for (let d = ly0; d <= ly1; d++) { p.g(lx0, d, gravel(lx0, d)); p.g(lx1, d, gravel(lx1, d)); }
+  }
+  // headstones in rows (every 3 px deep, every 2 px along)
+  const stone = p.winter ? hx("#8e949a") : hx("#f2f0ea");
+  const face = p.winter ? hx("#5e646a") : hx("#a4a8ac");
   const flowers = [hx("#c8342a"), hx("#e8c040"), hx("#e8a0c0")];
+  const onDrive = (l: number, d: number): boolean =>
+    l === gate || l === gate + 1 || (big && (l === lx0 || l === lx1 || d === ly0 || d === ly1));
   for (let d = 3; d <= D - 4; d += 3) {
-    if (d === crossD || d - 1 === crossD) continue;
     for (let l = 3; l <= L - 4; l += 2) {
-      if (l === gate || l === gate + 1 || l === gate - 1) continue;
+      if (onDrive(l, d) || onDrive(l, d + 1) || onDrive(l - 1, d) || onDrive(l + 1, d)) continue;
       const h = pixHash(p.seed, l * 64 + d, 61);
-      if (h % 9 === 0) continue; // a family gap
-      const c = h % 5 === 0 ? white : h % 5 === 1 ? stoneDark : stone;
-      if (h % 23 === 0) {
-        p.spr(l, d, ["c", "c"], { c: white }, 0, 1); // obelisk
-      } else p.obj(l, d, c);
-      p.shadowPx(...p.S(l, d + 1));
-      if (!p.winter && h % 7 === 0) p.g(l, d + 1, flowers[h % 3]!);
+      if (h % 11 === 0) continue; // a family gap
+      if (h % 29 === 0) {
+        p.spr(l, d + 1, ["s", "s", "f"], { s: stone, f: face }, 0, 1); // an obelisk
+      } else {
+        p.obj(l, d, stone);
+        p.obj(l, d + 1, face);
+      }
+      const [sx, sy] = p.S(l, d + 1);
+      p.later(sy + 0.1, () => { p.shadowPx(sx + 1, sy); p.shadowPx(sx + 1, sy + 1); });
+      if (!p.winter && h % 7 === 0) p.g(l - 1, d + 1, flowers[h % 3]!);
     }
   }
-  // trees + an optional mausoleum at the back
-  p.tree(2, 2, false, 40);
-  if (L >= 16) p.tree(L - 3, D >= 16 ? (D >> 1) : 2, true, 41);
-  if (L >= 16 && D >= 16 && p.h(2) % 2 === 0) {
-    p.box({ l0: gate - 1, d0: 2, l1: gate + 2, d1: 4, h: 1, wall: M.limestone, roof: shade(M.limestone, 0.9), kind: "gable", across: true, front: (u, _r, n) => (u === n >> 1 || u === (n >> 1) - 1 ? hx("#4a4238") : null) });
+  // columnar CEDARS along the centre drive and in the corners
+  const cedar = (l: number, d: number, salt: number): void => {
+    const dk = p.winter ? hx("#2e4a36") : hx("#24452a"), lt = p.winter ? M.snow : hx("#3e6a3e");
+    const tall = 3 + (p.h(salt) % 2);
+    const rows: string[] = [".l"]; for (let i = 1; i < tall; i++) rows.push("ld"); rows.push(".t");
+    p.spr(l, d, rows, { l: lt, d: dk, t: C.trunk }, 1, 2);
+    const [x, y] = p.S(l, d);
+    p.later(y + 2.1, () => { p.shadowPx(x + 1, y); p.shadowPx(x + 2, y); });
+  };
+  for (let d = big ? ly0 + 3 : 4; d <= D - 4; d += 5) { cedar(gate - 1, d, d); cedar(gate + 3, d, d + 50); }
+  cedar(2, 3, 91);
+  if (L >= 16) cedar(L - 3, 3, 92);
+  // gate piers + the iron arch over the entrance
+  p.spr(gate - 1, D - 2, ["kkkk", "P..P", "P..P"], { k: hx("#26262a"), P: M.limestone }, 0, 5);
+  // a limestone mausoleum at the head of the drive (by hash)
+  if (big && p.h(2) % 2 === 0) {
+    p.box({ l0: gate - 1, d0: 1, l1: gate + 2, d1: ly0 - 1, h: 1, wall: M.limestone, roof: shade(M.limestone, 0.9), kind: "gable", across: true,
+      front: (u, _r, n) => (u === n >> 1 || u === (n >> 1) - 1 ? hx("#4a4238") : null) });
   }
   void turf;
 }

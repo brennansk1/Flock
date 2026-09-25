@@ -131,7 +131,7 @@ test("radio tower: natural ground outside its pad, and a blooming red beacon at 
     assert.deepEqual([a[i], a[i + 1], a[i + 2]], [bg[i], bg[i + 1], bg[i + 2]], `open ground at ${x},${y}`);
   }
   const s = createSim({ seed: 7, balance, world: stage(lot, fw, fh, "S", true), spawns: [], timerTicks: 0, dominationPermille: 1000 });
-  const night = renderTown(s, { frameTick: 0, lod: 1, view: { x: 3, y: 3, w: fw, h: fh }, season: "summer", timeOfDay: "night" }).data;
+  const night = renderTown(s, { frameTick: 0, lod: 1, view: { x: 3, y: 1, w: fw, h: fh + 2 } /* the tall mast rises into the overhang */, season: "summer", timeOfDay: "night" }).data;
   let hot = 0;
   for (let i = 0; i < night.length; i += 4) if (night[i]! >= 160 && night[i + 1]! < 80 && night[i + 2]! < 80) hot++;
   assert.ok(hot >= 9, `beacon + bloom should be >= 9 red px at night, got ${hot}`);

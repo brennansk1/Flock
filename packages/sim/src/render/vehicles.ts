@@ -13,7 +13,8 @@
  * Palette keys:  B body · b body shade · R roof (lit) · G glass · g glass
  * shade · W wood-grain panel · T white hardtop · K black · k bed/cargo dark ·
  * S stripe/accent · L light bar (flashes) · H hazard lamp (blinks) · Y bus
- * yellow · y bus shade · w window band · P rider shirt · F frame.
+ * yellow · y bus shade · w window band · P rider shirt · F frame ·
+ * O tyre (E/W wheel row only).
  */
 import { hexToRgb, shade, type RGB } from "../palette.js";
 import type { Put } from "./core.js";
@@ -46,18 +47,28 @@ export type VehicleKind = (typeof VEHICLE_KINDS)[number];
  * with the light bar on the roof; the wagon's roof runs to the tailgate
  * over a wood-grain flank.
  */
-const SPRITES: Record<VehicleKind, readonly string[]> = {
-  sedan: ["bRB", "bgb"],
-  wagon: ["RRRB", "WWWb"],
-  kcar: ["GRB", "bgB"],
-  blazer: ["TTG", "bgK"],
-  pickup: ["rkRG", "bbgB"],
-  beetle: [".RG", "bBb"],
-  camaro: ["bGBB", "bgSB"],
-  van: ["RRRG", "SSSb"],
-  cruiser: ["KTLG", "KTTK"],
-  bus: ["HYYYYy", "Hwwwwy"],
-  bmx: ["KP"],
+interface VSprite {
+  /** E-facing body rows (rear → front); row 0 = roof, last = near (south) flank */
+  body: readonly string[];
+  /** near-side wheels: on E/W headings the 'O' columns of the near-flank
+   * (last) row are drawn as tyres — inside the box; N/S shows none */
+  wheels?: string;
+  /** top-down body for N/S headings (defaults to `body`) */
+  ns?: readonly string[];
+}
+const SPRITES: Record<VehicleKind, VSprite> = {
+  sedan: { body: ["bRB", "bgb"], wheels: "O.O" },
+  wagon: { body: ["RRRB", "WWWb"], wheels: "O..O" },
+  kcar: { body: ["GRB", "bgB"], wheels: "O.O" },
+  blazer: { body: ["TTG", "bgb"], wheels: "O.O" },
+  // cab + open bed: tailgate, dark bed floor, cab (raised), hood
+  pickup: { body: ["rkRG", "bbgB"], wheels: ".O.O", ns: ["rkRB", "rkRb"] },
+  beetle: { body: [".RG", "bBb"], wheels: "O.O" },
+  camaro: { body: ["bGBB", "bgSB"], wheels: "O..O" },
+  van: { body: ["RRRG", "SSSb"], wheels: "O..O" },
+  cruiser: { body: ["KTLG", "DTTD"], wheels: "O..O" },
+  bus: { body: ["HYYYYy", "Hwwwwy"], wheels: ".O..O." },
+  bmx: { body: ["KP"] },
 };
 
 /** 80s Kodachrome paint: warm, sun-faded, slightly desaturated. */
@@ -78,6 +89,8 @@ const GLASS = hexToRgb("#2a3550");
 const WOOD = hexToRgb("#7a5230");
 const WHITE = hexToRgb("#ece8dc");
 const BLACK = hexToRgb("#1e1d1c");
+/** tyres: near-black, a touch warmer than the black paint so they read under dark cars */
+const TYRE = hexToRgb("#141312");
 const BUS = hexToRgb("#e8b020");
 
 /** Stable fleet pick for a household seed (never the cruiser / bus / bmx). */
@@ -93,7 +106,7 @@ export function householdPaint(seed: number): RGB {
 
 /** Box dimensions for a kind + heading (dir 0=E 1=W 2=S 3=N). */
 export function vehicleSize(kind: VehicleKind, dir: number): { w: number; h: number } {
-  const m = SPRITES[kind];
+  const m = SPRITES[kind].body;
   const len = m[0]!.length, wid = m.length;
   return dir < 2 ? { w: len, h: wid } : { w: wid, h: len };
 }
@@ -114,7 +127,8 @@ export function drawVehicle(
   hazards = false,
   bloom = false,
 ): void {
-  const m = SPRITES[kind];
+  const sp = SPRITES[kind];
+  const m = dir >= 2 && sp.ns ? sp.ns : sp.body;
   const len = m[0]!.length, wid = m.length;
   // work trucks never go near-black: a dark pickup reads as a hole in the
   // road, so dark paints fade to a sun-bleached mid tone
@@ -131,6 +145,8 @@ export function drawVehicle(
       case "W": return WOOD;
       case "T": return WHITE;
       case "K": return BLACK;
+      case "O": return TYRE;
+      case "D": return hexToRgb("#48484e"); // sunlit black quarter panel (tyres read under it)
       case "k": return shade(paint, 0.62); // pickup bed floor
       case "r": return shade(paint, 1.25); // tailgate / bed rail (lit)
       case "S": return kind === "camaro" ? hexToRgb("#d8a830") : hexToRgb("#b8642c");
@@ -158,7 +174,8 @@ export function drawVehicle(
   }
   for (let r = 0; r < wid; r++) {
     for (let a = 0; a < len; a++) {
-      const c = pal(m[r]![a]!);
+      const tyre = dir < 2 && r === wid - 1 && sp.wheels !== undefined && sp.wheels[a] === "O";
+      const c = tyre ? TYRE : pal(m[r]![a]!);
       if (!c) continue;
       // along index a: 0 = rear … len-1 = front
       let px: number, py: number;

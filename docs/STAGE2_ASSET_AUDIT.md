@@ -236,3 +236,20 @@ Tile budgets are defined in code in `packages/sim/src/footprints.ts` (`FOOTPRINT
 | Motel | 3×1 (alt 2×1) | 2×1 |
 | Office / sheriff / gas / depot / parking | 2×1 | 2×1 |
 | Car · bus · BMX · person (px) | 3×2 · 6×2 · 2×1 · 1×1 | 3×2 · 3×1 · none · 1×1 |
+
+## 6. Resolution (end of Stage 2)
+
+Every item tagged S2 above has been fixed and then re-graded by the lead on the approval-pack contact sheets (`tools/approval_pack.mjs` + `tools/pack_sheets.mjs`). Anything short of the standard went back for another pass: three renderer rounds and two map-layout rounds. The standard for each asset was:
+- it fills its real footprint;
+- it faces its street in all four orientations;
+- it reads at a glance;
+- it has variants, plus winter and night versions;
+- it blends into the ground around it;
+- it is era-accurate.
+
+**Deferred to Stage 3:**
+- night-light polish beyond the town core;
+- cult vans, agents and CPA vehicles (dormant systems);
+- the E/W street-facing sign strip, which is 1 px wide at this scale.
+
+Renders from after the fixes are in `docs/assets/stage2_after/`; the "before" images are in `docs/assets/audit/`. The user-facing gate is the per-item approval docket, which covers every asset and every map-generation aspect, with a verdict for each.

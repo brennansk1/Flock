@@ -41,7 +41,9 @@ article.item[data-status="rejected"]{border-left:4px solid var(--bad)}
 .chip{font:500 12px var(--mono);background:var(--chip);border-radius:4px;padding:1px 7px;color:var(--ink)}
 .scale{color:var(--muted);font-size:13px}
 .rule{margin:0;max-width:90ch}
-.shots{display:flex;gap:12px;overflow-x:auto;padding-bottom:4px}
+.shots{display:flex;flex-wrap:wrap;gap:12px;padding-bottom:4px}
+figure.wide{flex:1 1 100%;max-width:100%}
+figure:not(.wide){max-width:100%;overflow-x:auto}
 figure{margin:0;flex:0 0 auto;display:grid;gap:4px}
 figure .well{background:var(--well);border-radius:6px;padding:6px;display:grid;place-items:center}
 figure img{image-rendering:pixelated;display:block;max-width:none}
@@ -80,7 +82,7 @@ button:focus-visible,textarea:focus-visible{outline:2px solid var(--accent);outl
 
 <script>
 const ITEMS = /*__ITEMS__*/[];
-const GROUP_ORDER = ["1980s Vehicle Fleet","Downtown & Main Street","Residential & School","Industry & Countryside","Hydrology, Terrain & Foliage","Landmarks","Micro-animations","Map Generation"];
+const GROUP_ORDER = ["Before → After","1980s Vehicle Fleet","Downtown & Main Street","Residential & School","Industry & Countryside","Hydrology, Terrain & Foliage","Landmarks","Micro-animations","Map Generation"];
 const groups = GROUP_ORDER.filter(g => ITEMS.some(i => i.group === g));
 const verdicts = {}; // id -> {status, note}
 let db = null, writable = true, fGroup = "All", fStatus = "all";
@@ -128,7 +130,9 @@ function card(it){
   }
   if (it.images?.length) {
     const shots = el("div",{class:"shots"});
-    for (const im of it.images) { const img = el("img",{src:im.file,alt:`${it.name} — ${im.label}`,loading:"lazy"}); img.onload = () => { const z = img.naturalWidth > 900 ? 1 : 2; img.style.width = (img.naturalWidth*z)+"px"; }; shots.append(el("figure",{},el("div",{class:"well"},img),el("figcaption",{text:im.label}))); }
+    for (const im of it.images) { const img = el("img",{src:im.file,alt:`${it.name} — ${im.label}`,loading:"lazy"}); const fig = el("figure",{},el("div",{class:"well"},img),el("figcaption",{text:im.label}));
+      img.onload = () => { if (img.naturalWidth > 560) { fig.classList.add("wide"); img.style.width = "100%"; } else img.style.width = (img.naturalWidth*2)+"px"; };
+      shots.append(fig); }
     a.append(shots);
   }
   const v = el("div",{class:"verdict"}); const seg = el("div",{class:"seg",role:"group","aria-label":`Verdict for ${it.name}`});

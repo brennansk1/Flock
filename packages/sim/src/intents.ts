@@ -11,12 +11,13 @@ import type { PlayerId, TileId, DistrictId, Stance, CivicDecreeId } from "./type
 export const IntentType = {
   SPAWN: "SPAWN",
   SET_STANCE: "SET_STANCE",
-  OPEN_FRONT: "OPEN_FRONT",
-  CLOSE_FRONT: "CLOSE_FRONT",
+  MISSION_SEND: "MISSION_SEND",
+  MISSION_RECALL: "MISSION_RECALL",
   BUILD: "BUILD",
+  UPGRADE_COMMUNE: "UPGRADE_COMMUNE",
+  BUY_RECRUITS: "BUY_RECRUITS",
   BUY_PROPERTY: "BUY_PROPERTY",
   CANCEL_BUILD: "CANCEL_BUILD",
-  RITUAL: "RITUAL",
   ABILITY: "ABILITY",
   SIGNATURE: "SIGNATURE",
   STRIKE: "STRIKE",
@@ -32,6 +33,7 @@ export const IntentType = {
   EMOTE: "EMOTE",
   SURRENDER: "SURRENDER",
   CIVIC_DECREE: "CIVIC_DECREE",
+  RITUAL: "RITUAL",
 } as const;
 
 export type IntentType = (typeof IntentType)[keyof typeof IntentType];
@@ -45,26 +47,24 @@ export type BuildingType =
 
 export type StrikeType = "pamphlet_bomb" | "prime_time_expose" | "manifesto_drop";
 
-export type RitualId = "sermon" | "midnight_festival" | "the_offering" | "day_of_atonement";
-
 export type AgentMission = "deprogram" | "scandal";
 
 export type Intent =
   | { t: typeof IntentType.SPAWN; player: PlayerId; tile: TileId }
+  | { t: typeof IntentType.RITUAL; player: PlayerId; ritual: string }
   | { t: typeof IntentType.SET_STANCE; player: PlayerId; stance: Stance }
-  | { t: typeof IntentType.OPEN_FRONT; player: PlayerId; tiles: TileId[] }
-  | { t: typeof IntentType.CLOSE_FRONT; player: PlayerId; front: number }
+  /** v3 missions (DESIGN_MISSIONS.md §1): send `permille`‰ of the flock to
+   * work the town around `tile` in the chosen per-sortie mode. */
+  | { t: typeof IntentType.MISSION_SEND; player: PlayerId; tile: TileId; permille: number; mode: Stance }
+  /** Recall the cohort in `slot` — they walk home (friction is the point). */
+  | { t: typeof IntentType.MISSION_RECALL; player: PlayerId; slot: number }
   | { t: typeof IntentType.BUILD; player: PlayerId; building: BuildingType; tile: TileId }
+  /** v3 (DESIGN_MISSIONS.md §2): pay to raise the commune one stage (1→5),
+   * lifting the flock cap. The commune is the only buildable. */
+  | { t: typeof IntentType.UPGRADE_COMMUNE; player: PlayerId }
+  | { t: typeof IntentType.BUY_RECRUITS; player: PlayerId }
   | { t: typeof IntentType.BUY_PROPERTY; player: PlayerId; tile: TileId }
   | { t: typeof IntentType.CANCEL_BUILD; player: PlayerId; tile: TileId }
-  | {
-      t: typeof IntentType.RITUAL;
-      player: PlayerId;
-      ritual: RitualId;
-      /** anchor tile for placed effects (Festival aura, Offering host district) */
-      tile?: TileId;
-      district?: DistrictId;
-    }
   | { t: typeof IntentType.ABILITY; player: PlayerId; ability: string; target?: TileId }
   | { t: typeof IntentType.SIGNATURE; player: PlayerId; payload?: Record<string, number> }
   | { t: typeof IntentType.STRIKE; player: PlayerId; strike: StrikeType; target: TileId }

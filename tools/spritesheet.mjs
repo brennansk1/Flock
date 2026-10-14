@@ -32,7 +32,8 @@ const sim = createSim({ seed: 11, balance, world, spawns: [{ id: 1, archetype: "
 step(sim, { n: 0, intents: [{ t: IntentType.SPAWN, player: 1, tile: 0 }], seedSlice: 1 }, balance);
 sim.buildings.length = 0; // drop the auto compound from spawn
 
-const BUILD_TYPES = ["compound","collection_plate","watchtower","broadcast_tower","hotline_center","print_shop","garage","supplement_lab","satellite"];
+// the LIVE building set (the Clean Cut removed hotline/print/garage)
+const BUILD_TYPES = ["compound","collection_plate","watchtower","broadcast_tower","supplement_lab","satellite"];
 // row 2: buildings (owner-coloured icons)
 BUILD_TYPES.forEach((type, i) => {
   sim.buildings.push({ id: i + 1, player: 1, type, tile: 2 * SIZE + 2 + i * 2, buildTicksLeft: 0, disabledTicks: 0 });

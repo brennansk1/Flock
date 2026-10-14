@@ -16,6 +16,7 @@ import {
   createWorld,
   step,
   fromInt,
+  toFloat,
   hashState,
   IntentType,
   type RawBalance,
@@ -41,12 +42,19 @@ function sim16() {
   return s;
 }
 
-test("OPEN_FRONT with a giant tile array is length-capped", () => {
+test("MISSION_SEND permille is clamped to the legal band (can't deploy the inner circle)", () => {
   const s = sim16();
-  const huge = Array.from({ length: 100_000 }, (_, i) => i % (16 * 16));
-  step(s, { n: s.tick, intents: [{ t: IntentType.OPEN_FRONT, player: 1, tiles: huge }], seedSlice: 2 } as Turn, balance);
-  const front = s.fronts[s.fronts.length - 1]!;
-  assert.ok(front.tiles.length <= 128, `front capped, got ${front.tiles.length}`);
+  const p = s.players[0]!;
+  const flock = toFloat(p.followers);
+  // an absurd permille can never deploy more than the 80% cap
+  step(s, {
+    n: s.tick,
+    intents: [{ t: IntentType.MISSION_SEND, player: 1, tile: 8 * 16 + 6, permille: 1_000_000, mode: "spread" }],
+    seedSlice: 2,
+  } as Turn, balance);
+  assert.equal(p.cohorts.length, 1, "cohort created");
+  const cap = (flock * (1000 - balance.missions.innerCirclePermille)) / 1000;
+  assert.ok(toFloat(p.cohorts[0]!.mass) <= cap + 1, `deployed ${toFloat(p.cohorts[0]!.mass)} within cap ${cap}`);
 });
 
 test("out-of-range and garbage intent payloads are harmless no-ops", () => {
@@ -57,8 +65,13 @@ test("out-of-range and garbage intent payloads are harmless no-ops", () => {
     {
       n: s.tick,
       intents: [
-        // out-of-bounds tiles get filtered to nothing
-        { t: IntentType.OPEN_FRONT, player: 1, tiles: [-5, 999999, 1 << 30] },
+        // out-of-bounds mission targets get rejected
+        { t: IntentType.MISSION_SEND, player: 1, tile: -5, permille: 300, mode: "spread" },
+        { t: IntentType.MISSION_SEND, player: 1, tile: 999999, permille: 300, mode: "spread" },
+        // a bogus mode is rejected
+        { t: IntentType.MISSION_SEND, player: 1, tile: 10, permille: 300, mode: "prayer" as never },
+        // recall of a non-existent slot
+        { t: IntentType.MISSION_RECALL, player: 1, slot: 99 },
         // spawn by a non-existent player
         { t: IntentType.SPAWN, player: 999, tile: 0 },
         // build with an unknown building string
@@ -70,13 +83,8 @@ test("out-of-range and garbage intent payloads are harmless no-ops", () => {
     } as Turn,
     balance,
   );
-  // none of those should have produced a front or otherwise mutated meaningfully
-  assert.equal(s.fronts.length, 0, "no front from out-of-range tiles");
-  // re-running the same garbage twice is deterministic
-  const a = hashState(s);
+  assert.equal(s.players[0]!.cohorts.length, 0, "no cohort from garbage targets/modes");
   const s2 = sim16();
-  assert.notEqual(before, undefined);
-  assert.equal(typeof a, "string");
   assert.equal(hashState(s2), before, "garbage turn left a clean sim untouched-equivalent");
 });
 

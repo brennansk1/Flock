@@ -7,6 +7,8 @@
  * ever see a float.
  */
 
+import { listArchetypes } from "./archetypes/registry.js";
+import type { ArchetypeId } from "./archetypes/types.js";
 import { fromFloat, type Fixed } from "./fixed.js";
 
 /** Shape of balance.json as authored (floats). */
@@ -22,6 +24,15 @@ export interface RawBalance {
     courier_per_tile: number;
     courier_cap: number;
     courier_interval_s: number;
+    /** v3 (§4): recruits/s per believer soul held; territory feeds the flock */
+    recruits_per_believer?: number;
+    /** v3: a small floor so a young cult trickles recruits before it holds ground */
+    base_recruits_per_s?: number;
+    /** Prosperity Gospel (§2C): a recruitment drive adds this ‰ of current
+     *  flock for cash — makes `income` a live stat (Circle's engine). */
+    recruit_drive_permille?: number;
+    /** usd per bought recruit; the drive's cost scales with the ‰ above. */
+    recruit_cost_per?: number;
   };
   conversion: {
     base_pressure: number;
@@ -37,14 +48,27 @@ export interface RawBalance {
     spread: { commit: number; mult: number };
     crusade: { commit: number; mult: number; heat_per_s: number; dissent_per_capture: number };
   };
-  heat: { decay: number; cpa_harass: number; cpa_siege: number };
+  heat: { decay: number; cpa_harass: number; cpa_siege: number; flip_heat?: number; crusade_flip_mult?: number };
   schism: { territory_share: number; avg_dissent: number; sustain_s: number; secede_share: number };
   scandal: { evidence_per_s: number; notify_at: number; dmg_heat_coef: number; dmg_min: number; dmg_max: number };
-  archetypes: Record<"dawn" | "radiant" | "circle" | "visitors", { r0: number; retain: number; income: number; heat: number; growth?: number }>;
+  /** Per-archetype tuning; any registered archetype missing here uses its definition defaults. */
+  archetypes: Record<string, { r0: number; retain: number; income: number; heat: number; growth?: number }>;
   victory: {
     domination_pct: Record<"S" | "M" | "L", number>;
     economic_usd: Record<"S" | "M" | "L", number>;
-    doctrinal: { faith_hold_s: number; channel_s: number };
+    doctrinal?: { faith_hold_s: number; channel_s: number };
+    /** Ascension countdown every win path must survive (seconds). */
+    ascend_s?: number;
+    /** Revelation path: Faith floor while holding the Megachurch. */
+    revelation_faith?: number;
+    /** Default soul-share needed for the Domination path (percent). */
+    domination_default_pct?: number;
+    /** Tipping Point: the Domination bar slides from its start to this floor. */
+    tipping_start_s?: number;
+    tipping_end_s?: number;
+    tipping_floor_pct?: number;
+    /** Ledger targets by map class. */
+    ledger_usd?: { S: number; M: number; L: number };
   };
   charisma_items: number;
   /** Property purchase + crowding (§18 rev.) — optional for older files. */
@@ -64,6 +88,30 @@ export interface RawBalance {
     highschool_growth_mult: number;
     grocery_defense_mult: number;
     church_faith_per_s: number;
+    /** §2A economic anchors (B1.4.20) — optional for older files. */
+    anchor_tithe_mult?: number;
+    sawmill_build_mult?: number;
+    lighthouse_outreach_bonus?: number;
+    /** v3 §3: key buildings are sieges — resistance ×this (≈25–40 s to take) */
+    siege_resist_mult?: number;
+    /** v3 §13: Civic Momentum — global conversion +this per key building held. */
+    civic_momentum_per?: number;
+  };
+  /** v3 missions (DESIGN_MISSIONS.md) — optional for older files. */
+  missions?: {
+    inner_circle_permille?: number;
+    min_send_permille?: number;
+    max_send_permille?: number;
+    /** legacy M1 knob, superseded by the travel model (ignored) */
+    recall_ticks?: number;
+    march_ticks_per_tile?: number;
+    work_radius?: number;
+    followers_per_door?: number;
+    max_doors?: number;
+    crusade_attrition_permille_per_s?: number;
+    tend_hold_divisor?: number;
+    /** v3: Faith/s a deployed Tend cohort banks — fuels doctrine buys */
+    tend_faith_per_s?: number;
   };
 }
 
@@ -91,6 +139,10 @@ export interface Balance {
     courierPerTile: Fixed;
     courierCap: Fixed;
     courierIntervalS: number;
+    recruitsPerBeliever: Fixed;
+    baseRecruitsPerS: Fixed;
+    recruitDrivePermille: number;
+    recruitCostPer: Fixed;
   };
   conversion: {
     basePressure: Fixed;
@@ -106,9 +158,19 @@ export interface Balance {
     spread: { commit: Fixed; mult: Fixed };
     crusade: { commit: Fixed; mult: Fixed; heatPerS: Fixed; dissentPerCapture: Fixed };
   };
-  heat: { decay: Fixed; cpaHarass: Fixed; cpaSiege: Fixed };
-  archetypes: Record<"dawn" | "radiant" | "circle" | "visitors", ArchetypeCoeffs>;
+  heat: { decay: Fixed; cpaHarass: Fixed; cpaSiege: Fixed; flipHeat: Fixed; crusadeFlipMult: Fixed };
+  archetypes: Record<ArchetypeId, ArchetypeCoeffs>;
   charismaItems: Fixed;
+  victory: {
+    ascendTicks: number;
+    revelationFaith: Fixed;
+    dominationPermille: number;
+    tippingStartTick: number;
+    tippingEndTick: number;
+    tippingFloorPermille: number;
+    /** Ledger targets by map class (S ≤ 64², M ≤ 112², L beyond). */
+    ledgerUsd: { S: Fixed; M: Fixed; L: Fixed };
+  };
   property: {
     parcelRadius: number;
     baseCost: Fixed;
@@ -124,18 +186,39 @@ export interface Balance {
     highschoolGrowthMult: Fixed;
     groceryDefenseMult: Fixed;
     churchFaithPerS: Fixed;
+    anchorTitheMult: Fixed;
+    sawmillBuildMult: Fixed;
+    lighthouseOutreachBonus: number;
+    siegeResistMult: Fixed;
+    civicMomentumPer: Fixed;
+  };
+  missions: {
+    innerCirclePermille: number;
+    minSendPermille: number;
+    maxSendPermille: number;
+    marchTicksPerTile: number;
+    workRadius: number;
+    followersPerDoor: number;
+    maxDoors: number;
+    crusadeAttritionPermillePerS: number;
+    tendHoldDivisor: number;
+    tendFaithPerS: Fixed;
   };
 }
 
 export function loadBalance(raw: RawBalance): Balance {
   const dt = fromFloat(raw.sim.tick_ms / 1000);
-  const arche = (k: "dawn" | "radiant" | "circle" | "visitors"): ArchetypeCoeffs => ({
-    r0: fromFloat(raw.archetypes[k].r0),
-    retain: fromFloat(raw.archetypes[k].retain),
-    income: fromFloat(raw.archetypes[k].income),
-    heat: fromFloat(raw.archetypes[k].heat),
-    growth: fromFloat(raw.archetypes[k].growth ?? 1.0),
-  });
+  const archetypes: Record<ArchetypeId, ArchetypeCoeffs> = {};
+  for (const def of listArchetypes()) {
+    const r = raw.archetypes[def.id] ?? def.coeffs;
+    archetypes[def.id] = {
+      r0: fromFloat(r.r0),
+      retain: fromFloat(r.retain),
+      income: fromFloat(r.income),
+      heat: fromFloat(r.heat),
+      growth: fromFloat(r.growth ?? def.coeffs.growth),
+    };
+  }
   return {
     tickMs: raw.sim.tick_ms,
     hashEveryTurns: raw.sim.hash_every_turns,
@@ -147,6 +230,10 @@ export function loadBalance(raw: RawBalance): Balance {
       followerGrowth: fromFloat(raw.economy.follower_growth),
       capBase: fromFloat(raw.economy.cap_base),
       capPerCompound: fromFloat(raw.economy.cap_per_compound),
+      recruitsPerBeliever: fromFloat(raw.economy.recruits_per_believer ?? 0.005),
+      baseRecruitsPerS: fromFloat(raw.economy.base_recruits_per_s ?? 1),
+      recruitDrivePermille: raw.economy.recruit_drive_permille ?? 200,
+      recruitCostPer: fromFloat(raw.economy.recruit_cost_per ?? 35),
       courierPerTile: fromFloat(raw.economy.courier_per_tile),
       courierCap: fromFloat(raw.economy.courier_cap),
       courierIntervalS: raw.economy.courier_interval_s,
@@ -174,14 +261,24 @@ export function loadBalance(raw: RawBalance): Balance {
       decay: fromFloat(raw.heat.decay),
       cpaHarass: fromFloat(raw.heat.cpa_harass),
       cpaSiege: fromFloat(raw.heat.cpa_siege),
+      flipHeat: fromFloat(raw.heat.flip_heat ?? 0.25),
+      crusadeFlipMult: fromFloat(raw.heat.crusade_flip_mult ?? 2),
     },
-    archetypes: {
-      dawn: arche("dawn"),
-      radiant: arche("radiant"),
-      circle: arche("circle"),
-      visitors: arche("visitors"),
-    },
+    archetypes,
     charismaItems: fromFloat(raw.charisma_items),
+    victory: {
+      ascendTicks: Math.round(((raw.victory.ascend_s ?? 45) * 1000) / raw.sim.tick_ms),
+      revelationFaith: fromFloat(raw.victory.revelation_faith ?? 90),
+      dominationPermille: (raw.victory.domination_default_pct ?? 65) * 10,
+      tippingStartTick: Math.round(((raw.victory.tipping_start_s ?? 480) * 1000) / raw.sim.tick_ms),
+      tippingEndTick: Math.round(((raw.victory.tipping_end_s ?? 720) * 1000) / raw.sim.tick_ms),
+      tippingFloorPermille: (raw.victory.tipping_floor_pct ?? 50) * 10,
+      ledgerUsd: {
+        S: fromFloat((raw.victory.ledger_usd ?? raw.victory.economic_usd).S),
+        M: fromFloat((raw.victory.ledger_usd ?? raw.victory.economic_usd).M),
+        L: fromFloat((raw.victory.ledger_usd ?? raw.victory.economic_usd).L),
+      },
+    },
     property: {
       parcelRadius: raw.property?.parcel_radius ?? 2,
       baseCost: fromFloat(raw.property?.base_cost ?? 8000),
@@ -197,6 +294,30 @@ export function loadBalance(raw: RawBalance): Balance {
       highschoolGrowthMult: fromFloat(raw.civics?.highschool_growth_mult ?? 1.15),
       groceryDefenseMult: fromFloat(raw.civics?.grocery_defense_mult ?? 1.2),
       churchFaithPerS: fromFloat(raw.civics?.church_faith_per_s ?? 0.1),
+      anchorTitheMult: fromFloat(raw.civics?.anchor_tithe_mult ?? 1.1),
+      sawmillBuildMult: fromFloat(raw.civics?.sawmill_build_mult ?? 0.88),
+      lighthouseOutreachBonus: raw.civics?.lighthouse_outreach_bonus ?? 2,
+      siegeResistMult: fromFloat(raw.civics?.siege_resist_mult ?? 3.5),
+      civicMomentumPer: fromFloat(raw.civics?.civic_momentum_per ?? 0.03),
+    },
+    missions: {
+      innerCirclePermille: raw.missions?.inner_circle_permille ?? 200,
+      minSendPermille: raw.missions?.min_send_permille ?? 100,
+      maxSendPermille: raw.missions?.max_send_permille ?? 900,
+      marchTicksPerTile: raw.missions?.march_ticks_per_tile ?? 2,
+      workRadius: raw.missions?.work_radius ?? 6,
+      followersPerDoor: raw.missions?.followers_per_door ?? 15,
+      maxDoors: raw.missions?.max_doors ?? 12,
+      crusadeAttritionPermillePerS: raw.missions?.crusade_attrition_permille_per_s ?? 2,
+      tendHoldDivisor: raw.missions?.tend_hold_divisor ?? 200,
+      tendFaithPerS: fromFloat(raw.missions?.tend_faith_per_s ?? 0.4),
     },
   };
+}
+
+/** Coefficients for a registered archetype (throws on an unknown id). */
+export function archCoeffs(b: Balance, id: ArchetypeId): ArchetypeCoeffs {
+  const c = b.archetypes[id];
+  if (!c) throw new Error(`no balance coefficients for archetype: ${id}`);
+  return c;
 }

@@ -171,7 +171,9 @@ function runBotBrains() {
         player: bot.id,
         stance: nextRange(botRng, 3) === 0 ? "crusade" : "spread",
       });
-    queue(sim.tick, { t: IntentType.OPEN_FRONT, player: bot.id, tiles });
+    // v3: send a cohort at the block center (mission verb replaces fronts)
+    if (tiles.length > 0)
+      queue(sim.tick, { t: IntentType.MISSION_SEND, player: bot.id, tile: tiles[(tiles.length / 2) | 0], permille: 400, mode: "spread" });
     if (toInt(p.usd) > 40_000 && nextRange(botRng, 6) === 0) {
       const builds = ["compound", "collection_plate", "watchtower"];
       queue(sim.tick, {

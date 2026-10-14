@@ -2,6 +2,7 @@
  * Core simulation types (Part II). All gameplay scalars that participate in sim
  * math are stored as Fixed (Q16.16). Counts and ids are plain integers.
  */
+import type { ArchetypeId } from "./archetypes/types.js";
 
 import type { Fixed } from "./fixed.js";
 import type { RngState } from "./rng.js";
@@ -51,6 +52,12 @@ export const Terrain = {
   Pasture: 9,
   /** Railroad right-of-way — unbuildable, unclaimable; ideas cross it. */
   Rail: 10,
+  /**
+   * Rock ridge / mountainside (Stage 2, mountain & desert archetypes):
+   * unbuildable, unclaimable, unconvertible — a natural wall like open
+   * water. Ideas don't cross it (conversion treats it as nature).
+   */
+  Rock: 11,
 } as const;
 export type Terrain = (typeof Terrain)[keyof typeof Terrain];
 
@@ -141,6 +148,18 @@ export const Lot = {
   Cannery: 34,
   /** Timber keystone (§2A mountain archetype). */
   Sawmill: 35,
+  /** Stage 2 Courthouse Square: the county courthouse filling the square's centre. */
+  Courthouse: 36,
+  /** Stage 2 high-school campus: cinder running track around the football field. */
+  Track: 37,
+  /** Stage 2 landmark compounds: the building footprint around the landmark anchor tile. */
+  Megachurch: 38,
+  Fairground: 39,
+  RadioTower: 40,
+  /** Stage 2b: stone breakwater segment out into the sea (the lighthouse stands at its end). */
+  Jetty: 41,
+  /** Stage 2b: the dam's powerhouse on the bank. */
+  Powerhouse: 42,
 } as const;
 export type Lot = (typeof Lot)[keyof typeof Lot];
 
@@ -148,6 +167,10 @@ export type Lot = (typeof Lot)[keyof typeof Lot];
 export const TileFlag = {
   /** Prosperity Circle Downline: creep-flipped, pays 2× tithe forever (§11.3) */
   Downline: 1,
+  /** Mapgen: this Field tile is part of a desert center-pivot circle (render hint only). */
+  Pivot: 2,
+  /** Mapgen: a lot inside the planned trailer park (render hint only: trailers draw here). */
+  TrailerPark: 4,
 } as const;
 
 export interface World {
@@ -194,19 +217,35 @@ export interface World {
 }
 
 /**
- * An active Front (§4): a player's committed push into a target region. The
- * tile list is kept sorted ascending so every machine iterates identically.
+ * A deployed cohort (v3 missions — DESIGN_MISSIONS.md §1): a slice of the
+ * flock sent to work a part of town. `mode` reuses the Stance vocabulary
+ * per-sortie ("this wave is a crusade"). Mass is CONSERVED: it leaves
+ * `followers` on SEND and returns when the recall completes — deployed
+ * followers are a stake, not a projection.
  */
-export interface Front {
-  id: number;
-  player: PlayerId;
-  tiles: TileId[];
+export interface Cohort {
+  /** anchor tile the cohort was sent at */
+  target: TileId;
+  /** per-sortie mode: Spread converts, Tend holds, Crusade burns */
+  mode: Stance;
+  /** follower-mass committed (Q16.16) */
+  mass: Fixed;
+  /** ticks since dispatch (drives march-out + the M2 arrival model) */
+  age: number;
+  /** walking home; mass rejoins the flock when the return completes */
+  recalling: boolean;
+  /** ticks since recall began */
+  recallAge: number;
 }
+
+/** Max concurrent cohorts — the readability cap (DESIGN_MISSIONS.md §1). */
+export const MAX_COHORTS = 3;
 
 /** Per-player runtime state (§3). */
 export interface PlayerState {
   id: PlayerId;
-  archetype: "dawn" | "radiant" | "circle" | "visitors";
+  /** Registered archetype id (see archetypes/registry.ts). */
+  archetype: ArchetypeId;
   alive: boolean;
   stance: Stance;
   followers: Fixed;
@@ -219,9 +258,10 @@ export interface PlayerState {
   spawned: boolean;
   /** remaining cooldown ticks per ritual/ability id; absent = ready */
   cooldowns: Record<string, number>;
-  /** Sermon's +5% conversion buff, remaining ticks (§9) */
+  /** VESTIGIAL (rituals cut, v3 M3.2b): always 0 now — kept to preserve the
+   *  snapshot/hash layout; purge with the next SNAPSHOT_VERSION bump. */
   sermonBuffTicks: number;
-  /** Day of Atonement: dissent decay ×4, own fronts frozen, remaining ticks (§9) */
+  /** VESTIGIAL (rituals cut, v3 M3.2b): always 0 now — see sermonBuffTicks. */
   atonementTicks: number;
   /** Final Dawn: Prophecy Countdown is once per match (§11.1) */
   prophecyUsed: boolean;
@@ -246,18 +286,24 @@ export interface PlayerState {
   schismRiskTicks: number;
   /** lifetime $ earned — timer tiebreak + recap stat (§1/§25) */
   usdEarned: Fixed;
-  /** Doctrinal victory (§18): consecutive ticks at Faith 100 (Revelation). */
-  faithHoldTicks: number;
-  /** Doctrinal victory: Megachurch channel progress after the hold. */
-  channelTicks: number;
+  /** Share of the town's residents who believe in this cult (‰), refreshed each tick. */
+  soulsPermille: number;
+  /** Exposes this cult has published this match (drives Expose price). */
+  exposes: number;
+  /** Victory path currently ascending ("" = none) — see victory.ts. */
+  ascendPath: string;
+  /** Ticks left on the public Ascension countdown (0 with a path = win). */
+  ascendTicks: number;
   /** Land parcels bought (§18 rev.) — drives escalating BUY_PROPERTY cost. */
   parcels: number;
+  /** Deployed cohorts (v3 missions) — at most MAX_COHORTS live entries. */
+  cohorts: Cohort[];
 }
 
 /** Recap event log (§25): the raw material for headlines and cards. */
 export interface RecapEvents {
   betrayals: { traitor: PlayerId; victim: PlayerId; tick: number }[];
-  scandals: { attacker: PlayerId; victim: PlayerId; tick: number }[];
+  scandals: { attacker: PlayerId; victim: PlayerId; tick: number; followersLost?: number }[];
   schisms: { parent: PlayerId; splinter: PlayerId; tick: number }[];
   prophecies: { player: PlayerId; fulfilled: boolean; tick: number }[];
 }
@@ -457,8 +503,6 @@ export interface SimState {
   rng: RngState;
   world: World;
   players: PlayerState[];
-  fronts: Front[];
-  nextFrontId: number;
   progress: ProgressMap;
   /** count of citizen tiles — the victory-balance unit (§1) */
   populated: number;
@@ -478,8 +522,8 @@ export interface SimState {
   activeDecrees: ActiveDecree[];
 
   // ---- M1 systems ----
-  /** Revelation mode: economic + (future) doctrinal victory paths active (§18). */
-  revelationMode: boolean;
+  /** Victory path that ended the match ("" while running / timer / elimination). */
+  winPath: string;
   disableCouriers: boolean;
   disableCPA: boolean;
   disableSchisms: boolean;

@@ -164,8 +164,8 @@ test("Active Civic Decree: Pep Rally grants followers with overflow to tithe cas
   // Execute Pep Rally
   const executed = executeCivicDecree(s, 1, CivicDecreeId.PepRally, balance, fromInt(2_000));
   assert.equal(executed, true, "Pep rally should execute successfully");
-  assert.equal(toInt(p1.usd), 8_000, "Cost $12,000 USD deducted");
-  assert.equal(toInt(p1.followers), 1_300, "Followers increased by 1,200");
+  assert.equal(toInt(p1.usd), 18_800, "Cost $1,200 USD deducted (Stage 1 rescale)");
+  assert.equal(toInt(p1.followers), 400, "Followers increased by 300");
   assert.equal(p1.cooldowns["decree_pep_rally"], 1000, "Cooldown set to 1000 ticks");
 
   // Cannot execute while on cooldown

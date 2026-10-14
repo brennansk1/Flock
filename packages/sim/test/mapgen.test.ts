@@ -226,9 +226,96 @@ test("the countryside is farmed, watered, and wooded like working land", () => {
   assert.ok(water > 200, `drainage too sparse: ${water} water tiles`);
 });
 
+test("the downtown core and the works exist in every town (quality sweep)", () => {
+  // A real Main Street has its bank, post office, diner, cinema, office and
+  // library; a real farm town has its factory. Pre-sweep these missed more
+  // seeds than they hit (Factory 4/6, PostOffice 5/6) — anchored now with
+  // size/district fallbacks + a deterministic nearest-tile last resort.
+  for (const seed of SEEDS) {
+    const w = generateWorld(seed, 96, 96);
+    const present = new Set<number>();
+    for (let t = 0; t < w.lot.length; t++) if (w.lot[t] !== 0) present.add(w.lot[t]!);
+    for (const [name, kind] of [
+      ["bank", Lot.Bank],
+      ["post office", Lot.PostOffice],
+      ["factory", Lot.Factory],
+      ["cinema", Lot.Cinema],
+      ["library", Lot.Library],
+      ["diner", Lot.Diner],
+      ["office", Lot.Office],
+    ] as const) {
+      assert.ok(present.has(kind), `seed ${seed}: no ${name}`);
+    }
+    // and the grocery is IN town, not on a farmstead (force-place spiral):
+    // Stage 2 zoning puts it on the highway strip or downtown
+    for (let t = 0; t < w.lot.length; t++) {
+      if (w.lot[t] !== Lot.Supermarket) continue;
+      const d = Math.hypot((t % 96) - 48, Math.floor(t / 96) - 48);
+      assert.ok(d < 34, `seed ${seed}: supermarket ${d.toFixed(0)} tiles from town center`);
+      assert.ok(w.district[t] === 3 || w.district[t] === 6, `seed ${seed}: supermarket outside Downtown/Commercial (district ${w.district[t]})`);
+      break;
+    }
+  }
+});
+
 test("household/member names are pure and stable", () => {
   assert.equal(householdName(1234), householdName(1234));
   assert.equal(memberName(1234, 0), memberName(1234, 0));
   assert.notEqual(memberName(1234, 0), memberName(1234, 1));
   assert.ok(householdName(99).length >= 2);
+});
+
+test("every parking lot touches a road, and civic anchors park on their frontage (§2 rev. 6)", () => {
+  for (const seed of SEEDS) {
+    const w = generateWorld(seed, 96, 96);
+    const width = 96;
+    // Stage 2b: a works' truck yard or an institution's lot may be reached
+    // off its gravel lane (Dirt) — still never landlocked
+    const road = (t: number): boolean => t >= 0 && t < w.terrain.length && (w.terrain[t] === Terrain.Road || w.terrain[t] === Terrain.Dirt);
+    // every connected parking component must have at least one tile on a road or lane
+    const seen = new Set<number>();
+    for (let t = 0; t < w.lot.length; t++) {
+      if (w.lot[t] !== Lot.Parking || seen.has(t)) continue;
+      const component: number[] = [];
+      const queue = [t];
+      seen.add(t);
+      while (queue.length) {
+        const c = queue.pop()!;
+        component.push(c);
+        for (const n of [c - 1, c + 1, c - width, c + width]) {
+          if (n < 0 || n >= w.lot.length || seen.has(n)) continue;
+          if (w.lot[n] === Lot.Parking) {
+            seen.add(n);
+            queue.push(n);
+          }
+        }
+      }
+      const touches = component.some((c) =>
+        [c - 1, c + 1, c - width, c + width].some((n) => road(n)),
+      );
+      assert.ok(
+        touches,
+        `seed ${seed}: parking component at tile ${component[0]} (${component.length} tiles) touches no road`,
+      );
+    }
+    // the big civic anchors carry an adjacent parking lot
+    for (const [name, kind] of [
+      ["supermarket", Lot.Supermarket],
+      ["elementary school", Lot.School],
+      ["high school", Lot.HighSchool],
+      ["sheriff", Lot.Sheriff],
+      ["fire station", Lot.FireStation],
+    ] as const) {
+      let hasLot = false;
+      let exists = false;
+      for (let t = 0; t < w.lot.length && !hasLot; t++) {
+        if (w.lot[t] !== kind) continue;
+        exists = true;
+        for (const n of [t - 1, t + 1, t - width, t + width]) {
+          if (n >= 0 && n < w.lot.length && w.lot[n] === Lot.Parking) hasLot = true;
+        }
+      }
+      assert.ok(!exists || hasLot, `seed ${seed}: ${name} has no adjacent parking lot`);
+    }
+  }
 });

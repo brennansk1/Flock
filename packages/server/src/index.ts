@@ -16,7 +16,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
-import { dailyChallenge, dayNumber, freeRotation, purchase, CATALOG, type RawBalance, type Wallet } from "@flock/sim";
+import { hasArchetype, sanitizeLoadout, dailyChallenge, dayNumber, freeRotation, purchase, CATALOG, type RawBalance, type Wallet } from "@flock/sim";
 import { LobbyDirector } from "./lobby.js";
 import { InMemoryStore, JsonFileStore, type Store, type Account } from "./store.js";
 import { AuthService } from "./auth.js";
@@ -26,7 +26,6 @@ import type { WireAccount } from "./protocol.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT ?? 8787);
-const ARCHETYPES = new Set(["dawn", "radiant", "circle", "visitors"]);
 
 async function main(): Promise<void> {
   const raw = JSON.parse(readFileSync(resolve(here, "../../../balance.json"), "utf8")) as RawBalance;
@@ -172,7 +171,7 @@ async function main(): Promise<void> {
   async function onConnection(ws: WebSocket, url: string): Promise<void> {
     const q = new URL(url, "http://localhost").searchParams;
     const arche = q.get("archetype") ?? "dawn";
-    const archetype = (ARCHETYPES.has(arche) ? arche : "dawn") as "dawn" | "radiant" | "circle" | "visitors";
+    const archetype = hasArchetype(arche) ? arche : "dawn";
 
     // Auth: an existing session token, else an instant guest (§26 no-wall FTUE).
     const token = q.get("token");
@@ -221,7 +220,11 @@ async function main(): Promise<void> {
     if (q.get("disableCouriers") === "1") config.disableCouriers = true;
     if (q.get("disableCPA") === "1") config.disableCPA = true;
     if (q.get("disableSchisms") === "1") config.disableSchisms = true;
+    // Cosmetics: only skins this account owns ride along (render-only).
+    const owned = account.unlocks;
+    const skin = sanitizeLoadout({ livery: q.get("livery") }, (id) => owned.includes(id));
     lobby.join(ws, account, archetype, {
+      skin,
       ...(room !== null ? { room } : {}),
       createPrivate,
       ...(createPrivate ? { config } : {}),

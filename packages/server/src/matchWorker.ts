@@ -48,12 +48,15 @@ import {
   type BotState,
   type BotTier,
   type MatchRecap,
+  archetypeIds,
+  type SkinLoadout,
 } from "@flock/sim";
 import type { ServerMsg, WirePlayer, MatchResult } from "./protocol.js";
 import { moderateChat } from "./moderation.js";
 
 const RATE_LIMIT_PER_SEC = 20;
-const ARCHETYPES = ["dawn", "radiant", "circle", "visitors"] as const;
+/** Bot archetype pool: every registered cult (registration order — deterministic). */
+const ARCHETYPES = archetypeIds();
 
 /** Drifter name generator (§21): a silly two-part grammar. */
 const BOT_FIRST = [
@@ -214,12 +217,12 @@ export class MatchWorker {
   }
 
   /** Attach a connecting client; assigns a player id and spawns them in. */
-  addClient(ws: WebSocket, name: string, archetype: WirePlayer["archetype"], accountId = ""): void {
+  addClient(ws: WebSocket, name: string, archetype: WirePlayer["archetype"], accountId = "", skin?: SkinLoadout): void {
     if (this.paused) {
       this.paused = false; // a second founder arrives: the town wakes up
       this.broadcast({ type: "paused", value: false });
     }
-    const playerId = this.addPlayer(name, archetype, false);
+    const playerId = this.addPlayer(name, archetype, false, skin);
     this.clients.set(playerId, { playerId, ws, accountId, windowStart: 0, windowCount: 0 });
     if (accountId) this.accountOf.set(playerId, accountId);
 
@@ -265,7 +268,6 @@ export class MatchWorker {
   addChurch(tier: BotTier = "church", aggression = 2): void {
     const name = CHURCH_NAMES[nextRange(this.botRng, CHURCH_NAMES.length)]!;
     const archetype = ARCHETYPES[nextRange(this.botRng, ARCHETYPES.length)]!;
-    const idx = this.roster.length;
     const playerId = this.addPlayer(name, archetype, true);
     this.bots.push({
       playerId,
@@ -274,22 +276,9 @@ export class MatchWorker {
       aggression,
       grudge: 0,
     });
-    // Pre-seed territory: a ring of OPEN_FRONT around the spawn so the major
-    // starts the match already established (intents, not a direct world poke).
-    const spawn = spawnTileFor(this.sim.world, idx);
-    const w = this.sim.world;
-    const sx = spawn % w.width;
-    const sy = (spawn / w.width) | 0;
-    const seedTiles: number[] = [];
-    for (let oy = -4; oy <= 4; oy++) {
-      for (let ox = -4; ox <= 4; ox++) {
-        const x = sx + ox;
-        const y = sy + oy;
-        if (x < 0 || y < 0 || x >= w.width || y >= w.height) continue;
-        seedTiles.push(y * w.width + x);
-      }
-    }
-    this.pending.push({ t: IntentType.OPEN_FRONT, player: playerId, tiles: seedTiles });
+    // v3: the major founds like everyone else (compound + flock via the
+    // founding-gate auto-place) and establishes by sending missions — no
+    // pre-seeded territory. Its aggression prior does the rest.
     this.broadcast({ type: "player_joined", player: this.roster[this.roster.length - 1]! });
   }
 
@@ -311,9 +300,15 @@ export class MatchWorker {
   }
 
   /** Shared join path: roster + sim player + SPAWN through the turn stream. */
-  private addPlayer(name: string, archetype: WirePlayer["archetype"], autoSpawn: boolean): number {
+  private addPlayer(name: string, archetype: WirePlayer["archetype"], autoSpawn: boolean, skin?: SkinLoadout): number {
     const playerId = this.nextPlayerId++;
-    this.roster.push({ id: playerId, name, archetype, ...(autoSpawn ? { bot: true } : {}) });
+    this.roster.push({
+      id: playerId,
+      name,
+      archetype,
+      ...(autoSpawn ? { bot: true } : {}),
+      ...(skin && skin.livery ? { skin } : {}),
+    });
     // Players enter the sim via the same door as everyone: an intent in the
     // turn stream. Late join == late spawn, deterministically.
     this.sim.players.push(newPlayer(playerId, archetype, this.balance));
@@ -511,7 +506,7 @@ export class MatchWorker {
   private runBots(): void {
     for (const bot of this.bots) {
       if (!botShouldAct(bot, this.sim.tick)) continue;
-      const intents = botTurn(this.sim, bot, this.botRng);
+      const intents = botTurn(this.sim, bot, this.botRng, this.balance);
       for (const intent of intents) this.pending.push(intent);
     }
   }

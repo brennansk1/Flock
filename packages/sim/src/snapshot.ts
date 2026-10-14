@@ -13,7 +13,6 @@ import type {
   SimState,
   World,
   PlayerState,
-  Front,
   Pylon,
   DistrictBuff,
   Aura,
@@ -35,7 +34,7 @@ import type {
 } from "./types.js";
 import type { Street } from "./names.js";
 
-export const SNAPSHOT_VERSION = 8;
+export const SNAPSHOT_VERSION = 10; // v10: fronts removed (v3 missions)
 
 export interface Snapshot {
   v: number;
@@ -63,8 +62,6 @@ export interface Snapshot {
     property: number[];
   };
   players: PlayerState[];
-  fronts: Front[];
-  nextFrontId: number;
   /** progress map flattened to [key, value] pairs, sorted by key. */
   progress: [number, Fixed][];
   populated: number;
@@ -78,7 +75,7 @@ export interface Snapshot {
   auras: Aura[];
   prophecies: Prophecy[];
   activeDecrees: ActiveDecree[];
-  revelationMode: boolean;
+  winPath: string;
   disableCouriers: boolean;
   disableCPA: boolean;
   disableSchisms: boolean;
@@ -129,9 +126,12 @@ export function toSnapshot(s: SimState): Snapshot {
       biome: [...w.biome],
       property: [...w.property],
     },
-    players: s.players.map((p) => ({ ...p, cooldowns: { ...p.cooldowns }, doctrine: [...p.doctrine] })),
-    fronts: s.fronts.map((f) => ({ ...f, tiles: [...f.tiles] })),
-    nextFrontId: s.nextFrontId,
+    players: s.players.map((p) => ({
+      ...p,
+      cooldowns: { ...p.cooldowns },
+      doctrine: [...p.doctrine],
+      cohorts: p.cohorts.map((c) => ({ ...c })),
+    })),
     progress: [...s.progress.entries()].sort((a, z) => a[0] - z[0]),
     populated: s.populated,
     totalPop: s.totalPop,
@@ -144,7 +144,7 @@ export function toSnapshot(s: SimState): Snapshot {
     auras: s.auras.map((e) => ({ ...e })),
     prophecies: s.prophecies.map((e) => ({ ...e })),
     activeDecrees: s.activeDecrees.map((e) => ({ ...e })),
-    revelationMode: s.revelationMode,
+    winPath: s.winPath,
     disableCouriers: s.disableCouriers,
     disableCPA: s.disableCPA,
     disableSchisms: s.disableSchisms,
@@ -208,9 +208,8 @@ export function fromSnapshot(snap: Snapshot): SimState {
       ...p,
       cooldowns: { ...p.cooldowns },
       doctrine: [...p.doctrine],
+      cohorts: p.cohorts.map((c) => ({ ...c })),
     })),
-    fronts: snap.fronts.map((f) => ({ ...f, tiles: [...f.tiles] })),
-    nextFrontId: snap.nextFrontId,
     progress: new Map(snap.progress),
     populated: snap.populated,
     totalPop: snap.totalPop,
@@ -223,7 +222,7 @@ export function fromSnapshot(snap: Snapshot): SimState {
     auras: snap.auras.map((e) => ({ ...e })),
     prophecies: snap.prophecies.map((e) => ({ ...e })),
     activeDecrees: (snap.activeDecrees ?? []).map((e) => ({ ...e })),
-    revelationMode: snap.revelationMode,
+    winPath: snap.winPath,
     disableCouriers: snap.disableCouriers,
     disableCPA: snap.disableCPA,
     disableSchisms: snap.disableSchisms,

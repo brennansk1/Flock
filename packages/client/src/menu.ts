@@ -10,7 +10,18 @@
  * the whole menu (nav, buttons, pattern overlay) on selection.
  */
 
+import {
+  listArchetypes,
+  getArchetype,
+  hasArchetype,
+  loadBalance,
+  newPlayer,
+  toInt,
+  type RawBalance,
+  listSkins,
+} from "@flock/sim";
 import { getSettings, saveSettings } from "./settings.js";
+import rawBalance from "../../../balance.json";
 
 const TOKEN_KEY = "flock.session";
 
@@ -78,72 +89,110 @@ function icon(name: string, color: string, px: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// archetype data (kit copy + accents, ported from the design prototype)
+// archetype data — driven by the sim's ARCHETYPE REGISTRY (DLC-ready): name,
+// tagline, playstyle, difficulty, unique win route and powers all come from
+// `listArchetypes()`. Only purely cosmetic menu dressing (background pattern,
+// highlight tint) is keyed here, with a fallback for cults we don't know.
 // ---------------------------------------------------------------------------
-type ArchId = "dawn" | "radiant" | "circle" | "visitors";
+type ArchId = string;
 type Pattern = "crack" | "bloom" | "stripe" | "stars";
 
+interface ArchPower {
+  name: string;
+  blurb: string;
+  slot: string;
+  price: string;
+}
 interface ArchDef {
+  id: ArchId;
   label: string;
   tag: string;
+  tagline: string;
+  playstyle: string;
+  difficulty: number;
   accent: string;
   accent2: string;
   glyph: string;
-  actD: string;
-  actF: string;
-  sig: string;
-  r0: string;
-  def: string;
-  win: string;
-  passive: string;
-  dD: string;
-  dF: string;
-  dSig: string;
-  tip: string;
   pattern: Pattern;
+  win: { name: string; blurb: string } | null;
+  powers: ArchPower[];
 }
 
-const ARCH: Record<ArchId, ArchDef> = {
-  dawn: {
-    label: "The Final Dawn", tag: "DOOMSDAY", accent: "#df5a2b", accent2: "#f0b53e", glyph: "candle",
-    actD: "Street Prophet", actF: "Stockpile Sermon", sig: "Prophecy Countdown", r0: "1.30", def: "0.80", win: "51%",
-    passive: "FEAR FEEDS US — +2% conversion per active front anywhere on the map (cap +25%).",
-    dD: "Plant a 30s fear-pressure pylon.", dF: "One district: your pressure ×3 for 12s.",
-    dSig: "Broadcast a 3:00 doomsday timer to the whole lobby.",
-    tip: "Spawn near College — you blitz, they churn. Never CRUSADE with an open home.", pattern: "crack",
-  },
-  radiant: {
-    label: "The Radiant Path", tag: "WELLNESS", accent: "#84a23c", accent2: "#c4dd72", glyph: "leaf",
-    actD: "Juice Cleanse", actF: "Retreat Weekend", sig: "Supplement Empire", r0: "0.80", def: "1.50", win: "49%",
-    passive: "THE GLOW — owned tiles gain retention the longer you hold them, up to +80%.",
-    dD: "Zero one district's dissent.", dF: "Radius love-bomb: 2.5× conversion, zero Heat.",
-    dSig: "Supplement Labs that quietly hook your neighbors.",
-    tip: "Old Town + Glow is near-unflippable. Win the games you don't fight.", pattern: "bloom",
-  },
-  circle: {
-    label: "The Prosperity Circle", tag: "M.L.M.", accent: "#e0a422", accent2: "#f3cf6a", glyph: "coin",
-    actD: "Seminar Blitz", actF: "Hostile Takeover", sig: "The Ledger", r0: "0.60", def: "0.90", win: "50%",
-    passive: "DOWNLINE — creep-flipped tiles pay 2× tithe, forever.",
-    dD: "+2,500 followers, instantly.", dF: "Buy a neutral landmark or income district outright.",
-    dSig: "Bank to the Ledger target for an Economic victory.",
-    tip: "Spawn on Downtown's approach. Keep Heat at zero and Scandal can't touch you.", pattern: "stripe",
-  },
-  visitors: {
-    label: "Visitors' Fellowship", tag: "U.F.O.", accent: "#4fa3ad", accent2: "#8fd6dd", glyph: "ufo",
-    actD: "Crop Circle", actF: "Radio Static", sig: "Saucer Landing", r0: "1.00", def: "1.00", win: "50%",
-    passive: "STARGAZERS — vision ×2; see every rival's Heat & Dissent without doctrine.",
-    dD: "Gift or trap a district with +30 susceptibility for everyone.", dF: "Knock an enemy Broadcast Tower offline for 20s.",
-    dSig: "Land a saucer chapel on ANY visible tile — even across water.",
-    tip: "Home is wherever the saucer parks. Snipe the Radio Tower early.", pattern: "stars",
-  },
+const DRESS: Record<string, { accent2: string; pattern: Pattern }> = {
+  dawn: { accent2: "#f0b53e", pattern: "crack" },
+  radiant: { accent2: "#c4dd72", pattern: "bloom" },
+  circle: { accent2: "#f3cf6a", pattern: "stripe" },
+  visitors: { accent2: "#8fd6dd", pattern: "stars" },
 };
 
-const ARCH_IDS: ArchId[] = ["dawn", "radiant", "circle", "visitors"];
+const BALANCE = loadBalance(rawBalance as RawBalance);
+const fmtUsd = (n: number): string => (n >= 1000 ? `$${(n / 1000).toFixed(n % 1000 ? 1 : 0)}k` : `$${n}`);
+
+function buildArch(id: ArchId): ArchDef {
+  const d = getArchetype(id);
+  const probe = newPlayer(1, id, BALANCE);
+  const SLOT: Record<string, number> = { primary: 0, secondary: 1, signature: 2 };
+  const powers: ArchPower[] = [...d.abilities]
+    .sort((x, y) => (SLOT[x.slot] ?? 3) - (SLOT[y.slot] ?? 3))
+    .map((ab) => {
+      const c = ab.cost(probe);
+      const parts = [c.usd ? fmtUsd(toInt(c.usd)) : "", c.faith ? `${toInt(c.faith)} Faith` : ""].filter(Boolean);
+      return { name: ab.name, blurb: ab.blurb, slot: ab.slot, price: parts.join(" + ") || "free" };
+    });
+  if (d.signature) powers.push({ name: d.signature.name, blurb: d.signature.blurb, slot: "signature", price: "once per match" });
+  const dress = DRESS[id] ?? { accent2: d.theme.accent, pattern: "stars" as Pattern };
+  return {
+    id,
+    label: d.theme.name,
+    tag: d.theme.short,
+    tagline: d.theme.tagline,
+    playstyle: d.theme.playstyle,
+    difficulty: d.theme.difficulty,
+    accent: d.theme.accent,
+    accent2: dress.accent2,
+    glyph: GLYPH[d.theme.glyph] ? d.theme.glyph : "star",
+    pattern: dress.pattern,
+    win: d.victory ? { name: d.victory.name, blurb: d.victory.blurb } : null,
+    powers,
+  };
+}
+
+const ARCH_IDS: ArchId[] = listArchetypes().map((d) => d.id);
+const ARCH_CACHE = new Map<ArchId, ArchDef>();
+function arch(id: ArchId): ArchDef {
+  let a = ARCH_CACHE.get(id);
+  if (!a) {
+    a = buildArch(hasArchetype(id) ? id : ARCH_IDS[0]!);
+    ARCH_CACHE.set(id, a);
+  }
+  return a;
+}
+
+/**
+ * Default pick = the most forgiving cult: lowest difficulty, then the quietest
+ * (lowest Heat coefficient — Heat is what gets a new player Exposed and
+ * picketed), then registry order.
+ */
+function defaultArch(): ArchId {
+  const heat = (id: ArchId): number => getArchetype(id).coeffs.heat;
+  let best = ARCH_IDS[0]!;
+  for (const id of ARCH_IDS) {
+    const d = arch(id).difficulty - arch(best).difficulty;
+    if (d < 0 || (d === 0 && heat(id) < heat(best))) best = id;
+  }
+  return best;
+}
 
 /** Selected archetype — drives the accent that re-dresses the whole menu. */
-let selectedArch: ArchId = "dawn";
+let selectedArch: ArchId = defaultArch();
 /** Re-dresses the shell (nav highlight + pattern overlay) after an arch pick. */
 let redressShell: (() => void) | null = null;
+
+const DIFF_LABEL = ["", "FORGIVING", "TACTICAL", "EXPERT"];
+const pips = (n: number, color: string): string =>
+  `<span title="Difficulty ${n}/3 — ${DIFF_LABEL[n] ?? ""}" style="display:inline-flex;gap:3px;align-items:center">${[1, 2, 3]
+    .map((i) => `<span style="width:8px;height:8px;background:${i <= n ? color : "transparent"};box-shadow:inset 0 0 0 1px ${color}"></span>`)
+    .join("")}<span style="font-family:'Press Start 2P',monospace;font-size:6px;letter-spacing:1px;color:${DIM};margin-left:4px">${DIFF_LABEL[n] ?? ""}</span></span>`;
 
 /** Per-archetype background pattern overlay (crack/bloom/stripe/stars). */
 function patternCss(a: ArchDef): string {
@@ -204,7 +253,7 @@ const tierBadge = (tier: string): string =>
   `<span style="font-family:'Press Start 2P',monospace;font-size:7px;letter-spacing:.5px;color:${TIER_COLORS[tier] ?? MUTED}">${esc(tier)}</span>`;
 
 const KEYS_LINE =
-  "KEYS — 1/2/3 stance · QWER ritual · D/F power · G signature · B/T/C/Y/U/H build · V van · ⇧C close front · Z cancel build · F8 surrender · ⏸ pause (solo) · Esc cancel";
+  "KEYS — right-click town: mission wheel (1/2/3 pick Spread/Tend/Crusade) · right-click rival: Expose / Strike · B commune · R recruitment drive · N buy land · D/F/G powers · 5–0 decrees · H dissent map · ⇧C recall · F8 surrender · ? help · Esc cancel";
 
 // per-accent button styles (ported from the prototype's renderVals)
 const soloCss = (a: ArchDef): string =>
@@ -241,15 +290,27 @@ export function showMenu(): void {
       #fk-menu ::-webkit-scrollbar-thumb{background:${BORDER};border:1px solid #6b563a}
       #fk-menu ::-webkit-scrollbar-track{background:${PANEL}}
       @keyframes fkBlink{50%{opacity:.3}}
-      #fk-menu .nav button{font-family:'Pixelify Sans',monospace;font-size:13px;letter-spacing:.5px;padding:8px 14px;color:#cdbf9c;background:transparent;border:0;box-shadow:none;cursor:pointer}
-      #fk-menu .nav button.on{color:${INK};font-weight:600;box-shadow:0 3px 0 ${SHADOW}}
-      #fk-menu input,#fk-menu select{background:#0e0a05;color:${CREAM};border:0;box-shadow:inset 0 0 0 1px ${BORDER};padding:5px 9px;font-family:'VT323',monospace;font-size:18px}
-      #fk-menu input:focus,#fk-menu select:focus{outline:none;box-shadow:inset 0 0 0 1px #6b563a}
+      #fk-menu .nav button{font-family:'Pixelify Sans',monospace;font-size:13px;letter-spacing:.5px;padding:8px 16px;color:#cdbf9c;background:transparent;border:0;box-shadow:none;cursor:pointer;transition:all .15s ease}
+      #fk-menu .nav button:hover{color:${CREAM};background:rgba(255,255,255,0.06)}
+      #fk-menu .nav button.on{color:${INK};font-weight:700;box-shadow:0 3px 0 ${SHADOW}}
+      #fk-menu input,#fk-menu select{background:#0e0a05;color:${CREAM};border:0;box-shadow:inset 0 0 0 1px ${BORDER};padding:6px 10px;font-family:'VT323',monospace;font-size:18px;border-radius:2px;transition:box-shadow .15s ease}
+      #fk-menu input:focus,#fk-menu select:focus{outline:none;box-shadow:inset 0 0 0 2px var(--fk-menu-acc, #e0a422)}
       #fk-menu select option{background:${PANEL_IN};color:${CREAM}}
-      #fk-menu .row{display:flex;gap:9px;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid ${ROWLINE};font-size:13px}
-      #fk-menu .buy{font-family:'Pixelify Sans',monospace;font-size:12px;padding:4px 10px;color:${CREAM};background:${PANEL_IN};box-shadow:inset 0 0 0 1px #6b563a,0 2px 0 ${SHADOW};border:0;cursor:pointer}
+      #fk-menu .row{display:flex;gap:9px;align-items:center;justify-content:space-between;padding:8px 4px;border-bottom:1px solid ${ROWLINE};font-size:13px}
+      #fk-menu .buy{font-family:'Pixelify Sans',monospace;font-size:12px;padding:5px 12px;color:${CREAM};background:${PANEL_IN};box-shadow:inset 0 0 0 1px #6b563a,0 2px 0 ${SHADOW};border:0;cursor:pointer;transition:all .12s}
+      #fk-menu .buy:hover{background:#36291a;color:#fff}
+      #fk-menu [data-arch]{transition:transform .12s, box-shadow .12s}
+      #fk-menu [data-arch]:hover{transform:translateY(-2px)}
+      #fk-menu #go:hover,#fk-menu #host:hover,#fk-menu #joinp:hover,#fk-menu #tut:hover{filter:brightness(1.08)}
+      @media(max-width:860px){
+        #fk-menu .arch-grid{grid-template-columns:repeat(2,1fr) !important}
+        #fk-menu .play-modes{grid-template-columns:1fr !important}
+      }
+      @media(max-width:540px){
+        #fk-menu .arch-grid{grid-template-columns:1fr !important}
+      }
     </style>
-    <div id="fk-pattern" style="${patternCss(ARCH[selectedArch])}"></div>
+    <div id="fk-pattern" style="${patternCss(arch(selectedArch))}"></div>
     <div style="position:relative;z-index:1;max-width:960px;margin:0 auto;padding:34px 18px 70px">
       <div style="text-align:center;margin-bottom:8px">
         <div style="font-family:'Press Start 2P',monospace;font-size:38px;color:${CREAM};text-shadow:4px 4px 0 #cf4b2c,8px 8px 0 #2a1d10">FLOCK</div>
@@ -271,7 +332,7 @@ export function showMenu(): void {
   const nav = div.querySelectorAll<HTMLButtonElement>(".nav button");
   let currentTab = "play";
   const dressNav = (): void => {
-    const accent = ARCH[selectedArch].accent;
+    const accent = arch(selectedArch).accent;
     nav.forEach((b) => {
       const on = b.dataset.tab === currentTab;
       b.classList.toggle("on", on);
@@ -288,7 +349,7 @@ export function showMenu(): void {
   redressShell = () => {
     dressNav();
     const pat = div.querySelector<HTMLDivElement>("#fk-pattern");
-    if (pat) pat.style.cssText = patternCss(ARCH[selectedArch]);
+    if (pat) pat.style.cssText = patternCss(arch(selectedArch));
   };
 
   // daily prophecy chip
@@ -329,43 +390,56 @@ async function render(tab: string, panel: HTMLDivElement): Promise<void> {
 // PLAY tab — archetype cards, loadout reveal, cult name, play options
 // ---------------------------------------------------------------------------
 
+const SLOT_KEY: Record<string, string> = { primary: "◆", secondary: "◆", signature: "★" };
 const loadoutHtml = (a: ArchDef): string => `
   <div style="margin:0 auto 22px;background:${PANEL};border:3px solid ${BORDER};box-shadow:0 4px 0 ${SHADOW};border-left:6px solid ${a.accent};padding:16px 18px;display:flex;gap:16px;align-items:flex-start">
     <div style="flex:none;width:62px;height:62px;display:flex;align-items:center;justify-content:center;background:${PANEL_IN};box-shadow:inset 0 0 0 2px ${a.accent}">${icon(a.glyph, a.accent, 34)}</div>
     <div style="flex:1;min-width:0">
       <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;line-height:1.2">
-        <span style="font-size:18px;font-weight:700;color:${a.accent};white-space:nowrap">${a.label}</span>
-        <span style="font-family:'Press Start 2P',monospace;font-size:7px;letter-spacing:1px;color:${DIM}">${a.tag}</span>
+        <span style="font-size:18px;font-weight:700;color:${a.accent};white-space:nowrap">${esc(a.label)}</span>
+        <span style="font-family:'Press Start 2P',monospace;font-size:7px;letter-spacing:1px;color:${DIM}">${esc(a.tag)}</span>
+        <span style="margin-left:auto">${pips(a.difficulty, a.accent)}</span>
       </div>
-      <div style="font-size:13px;color:#d8c8a6;margin-top:11px;line-height:1.4">${a.passive}</div>
+      <div style="font-family:'VT323',monospace;font-size:18px;color:${a.accent2};margin-top:6px;font-style:italic">“${esc(a.tagline)}”</div>
+      <div style="font-size:13px;color:#d8c8a6;margin-top:8px;line-height:1.4">${esc(a.playstyle)}</div>
+      ${
+        a.win
+          ? `<div style="margin-top:12px;padding:8px 10px;background:${PANEL_IN};box-shadow:inset 0 0 0 1px ${a.accent}">
+               <span style="font-family:'Press Start 2P',monospace;font-size:7px;letter-spacing:1px;color:${DIM}">YOUR WIN ROUTE ▸ </span>
+               <span style="font-weight:700;color:${a.accent2}">${esc(a.win.name)}</span>
+               <span style="color:#cdbf9c;font-size:12px"> — ${esc(a.win.blurb)}</span>
+               <div style="font-family:'VT323',monospace;font-size:14px;color:${DIM};margin-top:3px">…or Domination / Revelation like everyone. Meet any route, then survive a 45s public Ascension.</div>
+             </div>`
+          : ""
+      }
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px 18px;margin-top:12px;font-size:12px">
-        <div><span style="color:${a.accent};font-weight:700">◆ ${a.actD}</span> <span style="color:${MUTED}">— ${a.dD}</span></div>
-        <div><span style="color:${a.accent};font-weight:700">◆ ${a.actF}</span> <span style="color:${MUTED}">— ${a.dF}</span></div>
-        <div style="grid-column:span 2"><span style="color:${a.accent2};font-weight:700">★ ${a.sig}</span> <span style="color:${MUTED}">— ${a.dSig}</span></div>
+        ${a.powers
+          .map(
+            (p) =>
+              `<div${p.slot === "signature" ? ` style="grid-column:span 2"` : ""}><span style="color:${p.slot === "signature" ? a.accent2 : a.accent};font-weight:700">${SLOT_KEY[p.slot] ?? "◆"} ${esc(p.name)}</span> <span style="font-family:'VT323',monospace;font-size:15px;color:#9bbf6a">${esc(p.price)}</span> <span style="color:${MUTED}">— ${esc(p.blurb)}</span></div>`,
+          )
+          .join("")}
       </div>
-      <div style="margin-top:12px;font-family:'VT323',monospace;font-size:16px;color:${DIM};font-style:italic;border-top:1px dashed ${BORDER};padding-top:8px">▸ ${a.tip}</div>
     </div>
   </div>`;
 
 function renderPlay(panel: HTMLDivElement): void {
-  const a0 = ARCH[selectedArch];
+  const a0 = arch(selectedArch);
   const knob = (label: string, sel: string): string =>
     `<label style="display:flex;justify-content:space-between;align-items:center;gap:8px;font-size:12px;color:#cdbf9c">${label} ${sel}</label>`;
   panel.innerHTML = `
     <div style="font-family:'Press Start 2P',monospace;font-size:8px;letter-spacing:1px;color:${DIM};text-align:center;margin-bottom:6px">CHOOSE YOUR CONGREGATION</div>
-    <div style="font-family:'VT323',monospace;font-size:15px;color:#84a23c;text-align:center;margin-bottom:14px">★ New here? The Prosperity Circle is the most forgiving — low Heat, steady money. Or just hit TUTORIAL.</div>
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:0 auto 24px">
+    <div style="font-family:'VT323',monospace;font-size:15px;color:#84a23c;text-align:center;margin-bottom:14px">★ New here? ${esc(arch(defaultArch()).label)} is the most forgiving — or just hit TUTORIAL.</div>
+    <div class="arch-grid" style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:0 auto 24px">
       ${ARCH_IDS.map((id) => {
-        const a = ARCH[id];
+        const a = arch(id);
         return `<button data-arch="${id}" style="${cardCss(id === selectedArch, a)}">
           <div style="display:flex;justify-content:center;margin-bottom:10px">${icon(a.glyph, a.accent, 30)}</div>
           <div style="font-size:15px;font-weight:600;letter-spacing:.3px;line-height:1.15">${a.label}</div>
           <div style="font-family:'Press Start 2P',monospace;font-size:7px;letter-spacing:1px;opacity:.7;margin:8px 0 10px">${a.tag}</div>
-          <div style="display:flex;flex-direction:column;gap:3px;font-size:11px;color:${MUTED};text-align:left">
-            <div title="SPREAD — how fast this cult converts the town. Higher = more aggressive early game.">SPREAD <span style="float:right;color:#d8c8a6">${a.r0}</span></div>
-            <div title="DEFENSE — how hard your converts are to flip back. Higher = your territory sticks.">DEFENSE <span style="float:right;color:#d8c8a6">${a.def}</span></div>
-            <div title="WIN% — average win rate in balanced play. All four are tuned near 50%.">WIN% <span style="float:right;color:#9bbf6a">${a.win}</span></div>
-          </div>
+          <div style="display:flex;justify-content:center;margin-bottom:8px">${pips(a.difficulty, a.accent)}</div>
+          <div style="font-size:11px;color:${MUTED};line-height:1.3;min-height:28px">${esc(a.tagline)}</div>
+          ${a.win ? `<div style="margin-top:8px;font-family:'VT323',monospace;font-size:15px;color:${a.accent2}">★ wins by ${esc(a.win.name)}</div>` : ""}
         </button>`;
       }).join("")}
     </div>
@@ -377,9 +451,9 @@ function renderPlay(panel: HTMLDivElement): void {
       </div>
       <button id="tut" style="width:100%;margin-bottom:12px;display:flex;align-items:center;justify-content:center;gap:12px;padding:13px;border:0;cursor:pointer;font-family:'Pixelify Sans',monospace;color:#efe3c6;background:#241c12;box-shadow:0 4px 0 #060403,inset 0 0 0 2px #f0b53e">
         <span style="font-family:'Press Start 2P',monospace;font-size:10px;color:#f0b53e;letter-spacing:1px">🎓 TUTORIAL</span>
-        <span style="font-size:13px;color:#a08a64">a guided first match — offline, 3 minutes, the same for everyone</span>
+        <span style="font-size:13px;color:#a08a64">a guided first match — offline, at your own pace, the same for everyone</span>
       </button>
-      <div style="display:grid;grid-template-columns:1.15fr 1fr 1.2fr;gap:12px;width:100%;align-items:start">
+      <div class="play-modes" style="display:grid;grid-template-columns:1.15fr 1fr 1.2fr;gap:12px;width:100%;align-items:start">
         <button id="go" style="${soloCss(a0)}">
           <div style="font-size:18px;font-weight:700;letter-spacing:.5px">▶ SOLO</div>
           <div style="font-size:12px;opacity:.85;margin-top:4px">Drop into a bot match. Instant.</div>
@@ -405,17 +479,17 @@ function renderPlay(panel: HTMLDivElement): void {
         </div>
       </div>
       <div style="font-family:'VT323',monospace;font-size:15px;color:${DIM};max-width:640px;text-align:center">
-        click a glowing spot to found · click to convert · 1/2/3 stances · QWER rituals · D/F powers · G signature · V van · ⇧C close front · Z cancel build · F8 surrender · ⏸ pause (solo)
+        click a glowing ring to found · RIGHT-CLICK the town: send a mission (1/2/3 in the wheel) · RIGHT-CLICK a rival: Expose / Strike · B commune · R recruit · N land · D/F/G powers · ⇧C recall · ? help
       </div>
     </div>`;
 
   // archetype selection re-dresses the whole menu (cards, loadout, buttons, nav, pattern)
   const applyArch = (id: ArchId): void => {
     selectedArch = id;
-    const a = ARCH[id];
+    const a = arch(id);
     panel.querySelectorAll<HTMLButtonElement>("[data-arch]").forEach((b) => {
       const aid = b.dataset.arch as ArchId;
-      b.style.cssText = cardCss(aid === id, ARCH[aid]);
+      b.style.cssText = cardCss(aid === id, arch(aid));
     });
     (panel.querySelector("#fk-loadout") as HTMLDivElement).innerHTML = loadoutHtml(a);
     (panel.querySelector("#go") as HTMLButtonElement).style.cssText = soloCss(a);
@@ -452,6 +526,14 @@ function renderPlay(panel: HTMLDivElement): void {
     const s = getSettings();
     location.search = `${base()}&private=1&bots=${v("pv-bots")}&size=${v("pv-size")}&town=${v("pv-town")}&founding=${v("pv-founding")}&disableCouriers=${s.disableCouriers ? 1 : 0}&disableCPA=${s.disableCPA ? 1 : 0}&disableSchisms=${s.disableSchisms ? 1 : 0}`;
   };
+  // "Change cult" from the end screen lands here with the name kept
+  {
+    const q = new URLSearchParams(location.search);
+    const nmIn = panel.querySelector("#nm") as HTMLInputElement;
+    const qn = q.get("name");
+    if (qn) nmIn.value = qn;
+    if (q.get("pick")) panel.querySelector(".arch-grid")?.scrollIntoView({ block: "center" });
+  }
   (panel.querySelector("#nm") as HTMLInputElement).addEventListener("keydown", (e) => {
     if ((e as KeyboardEvent).key === "Enter") go();
   });
@@ -587,7 +669,7 @@ async function renderProfile(panel: HTMLDivElement): Promise<void> {
 
 function renderSettings(panel: HTMLDivElement): void {
   const s = getSettings();
-  const accent = ARCH[selectedArch].accent;
+  const accent = arch(selectedArch).accent;
   const toggleCss = (on: boolean): string =>
     on
       ? `font-family:'Press Start 2P',monospace;font-size:8px;padding:4px 8px;color:${INK};background:${accent};box-shadow:0 2px 0 ${SHADOW};border:0;cursor:pointer`
@@ -603,6 +685,12 @@ function renderSettings(panel: HTMLDivElement): void {
       toggle("colorblind", "Colorblind patterns", s.colorblind) +
       slider("sfxVolume", "SFX volume", s.sfxVolume) +
       slider("musicVolume", "Music volume", s.musicVolume) +
+      `<div class="row"><span>Livery <span style="color:${DIM}">(owned skins show in online matches)</span></span><span>${[
+        { id: "", name: "Seat colour" },
+        ...listSkins().filter((k) => k.slot === "livery"),
+      ]
+        .map((k) => `<button data-livery="${k.id}" style="${toggleCss(s.livery === k.id)};margin-left:4px">${k.name.toUpperCase()}</button>`)
+        .join("")}</span></div>` +
       `<div style="font-family:'Press Start 2P',monospace;font-size:7px;color:${MUTED};margin:12px 0 6px">GAMEPLAY (SIMPLIFICATION OVERRIDES)</div>` +
       toggle("disableCouriers", "Disable Couriers (Passive Tithe)", s.disableCouriers) +
       toggle("disableCPA", "Disable CPA Interventions", s.disableCPA) +
@@ -615,6 +703,14 @@ function renderSettings(panel: HTMLDivElement): void {
       const next = saveSettings({ [key]: !getSettings()[key] });
       b.textContent = next[key] ? "ON" : "OFF";
       b.style.cssText = toggleCss(next[key]);
+    };
+  });
+  panel.querySelectorAll<HTMLButtonElement>("[data-livery]").forEach((b) => {
+    b.onclick = () => {
+      saveSettings({ livery: b.dataset.livery ?? "" });
+      panel.querySelectorAll<HTMLButtonElement>("[data-livery]").forEach((o) => {
+        o.style.cssText = `${toggleCss(o === b)};margin-left:4px`;
+      });
     };
   });
   panel.querySelectorAll<HTMLInputElement>("[data-slider]").forEach((el) => {

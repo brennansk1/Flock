@@ -60,7 +60,7 @@ function scriptedTurns(count: number): Turn[] {
   for (let n = 0; n < count; n++) {
     const intents =
       n === 5
-        ? [{ t: IntentType.SET_STANCE, player: 1, stance: Stance.Crusade } as const]
+        ? [{ t: IntentType.DOCTRINE_PICK, player: 1, node: "B1" } as const]
         : [];
     turns.push({ n, intents: [...intents], seedSlice: (n * 2654435761) >>> 0 });
   }
@@ -82,8 +82,8 @@ test("same seed + same intents => identical StateHash", () => {
 
 test("different intents => different StateHash", () => {
   const base = runToHash(scriptedTurns(120));
-  const noStanceChange = scriptedTurns(120).map((t) => ({ ...t, intents: [] as Turn["intents"] }));
-  const divergent = runToHash(noStanceChange);
+  const noPick = scriptedTurns(120).map((t) => ({ ...t, intents: [] as Turn["intents"] }));
+  const divergent = runToHash(noPick);
   assert.notEqual(base, divergent, "a different intent stream should diverge");
 });
 

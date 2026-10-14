@@ -18,6 +18,8 @@ export interface Settings {
   disableCouriers: boolean;
   disableCPA: boolean;
   disableSchisms: boolean;
+  /** Equipped livery skin id ("" = seat colour). The server only honours owned skins. */
+  livery: string;
 }
 
 const KEY = "flock.settings";
@@ -30,6 +32,7 @@ const DEFAULTS: Settings = {
   disableCouriers: false,
   disableCPA: false,
   disableSchisms: false,
+  livery: "",
 };
 
 let current: Settings = load();

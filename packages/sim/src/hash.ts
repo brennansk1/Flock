@@ -108,9 +108,21 @@ export function hashState(s: SimState): string {
     f.u32(p.retentionDebuffTicks);
     f.u32(p.schismRiskTicks);
     f.fix(p.usdEarned);
-    f.u32(p.faithHoldTicks);
-    f.u32(p.channelTicks);
+    f.u32(p.soulsPermille);
+    f.u32(p.exposes);
+    f.str(p.ascendPath);
+    f.u32(p.ascendTicks);
     f.u32(p.parcels);
+    // v3 cohorts (push order is deterministic state)
+    f.u32(p.cohorts.length);
+    for (const c of p.cohorts) {
+      f.u32(c.target);
+      f.str(c.mode);
+      f.fix(c.mass);
+      f.u32(c.age);
+      f.byte(c.recalling ? 1 : 0);
+      f.u32(c.recallAge);
+    }
     f.str(p.doctrine.join(","));
     f.str(p.pactNode);
     f.u32(p.pactWith);
@@ -164,7 +176,7 @@ export function hashState(s: SimState): string {
   }
 
   // M1 systems: buildings, units, strikes, diplomacy, scandal, CPA.
-  f.byte(s.revelationMode ? 1 : 0);
+  f.str(s.winPath);
   f.byte(s.disableCouriers ? 1 : 0);
   f.byte(s.disableCPA ? 1 : 0);
   f.byte(s.disableSchisms ? 1 : 0);
@@ -291,15 +303,6 @@ export function hashState(s: SimState): string {
       f.u32(k);
       f.u32(rec[k]!);
     }
-  }
-
-  // Fronts (already kept in insertion order with sorted tile lists).
-  f.u32(s.fronts.length);
-  for (const fr of s.fronts) {
-    f.u32(fr.id);
-    f.u32(fr.player);
-    f.u32(fr.tiles.length);
-    for (const t of fr.tiles) f.u32(t);
   }
 
   // Conversion progress, iterated in sorted-key order for stability.

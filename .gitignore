@@ -5,8 +5,19 @@ coverage/
 *.log
 .DS_Store
 .env
-.env.local
+.env.*
+!.env.example
 *.tsbuildinfo
 .vite/
 shots/
 replays/
+QA gallery/
+qa_shots/
+QA_GALLERY.md
+scratch/
+
+# stray output of an old hardcoded Windows path in vehicle_spritesheet.mjs
+C:*
+
+# play-loop telemetry dump
+telemetry.json

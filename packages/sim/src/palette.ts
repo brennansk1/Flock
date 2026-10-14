@@ -6,12 +6,22 @@
  * Pattern redundancy is the colorblind-safety mechanism: Dawn=radiating-crack,
  * Radiant=gradient-bloom, Circle=pinstripe, Visitors=starfield.
  */
+import type { ArchetypeId } from "./archetypes/types.js";
 
 export type RGB = [number, number, number];
 
+// Memoized: hex literals are parsed inside per-pixel render loops (profiled
+// at ~5% CPU plus real GC pressure from fresh arrays). Callers never mutate
+// the returned triple, so a shared instance per literal is safe.
+const HEX_CACHE = new Map<string, RGB>();
 export function hexToRgb(hex: string): RGB {
-  const v = parseInt(hex.slice(1), 16);
-  return [(v >> 16) & 0xff, (v >> 8) & 0xff, v & 0xff];
+  let c = HEX_CACHE.get(hex);
+  if (!c) {
+    const v = parseInt(hex.slice(1), 16);
+    c = [(v >> 16) & 0xff, (v >> 8) & 0xff, v & 0xff];
+    HEX_CACHE.set(hex, c);
+  }
+  return c;
 }
 
 /** 24 high-contrast territory colors (§30); index = (playerId − 1) mod 24. */
@@ -39,7 +49,7 @@ export const NEUTRAL_BY_DISTRICT: readonly string[] = [
   "#2e6319", // 4: Old Town — dark sage green lawn
   "#bba577", // 5: Trailer — dry dirt lot
   "#c0b7ab", // 6: Commercial — concrete commercial tint
-  "#cbd0d4", // 7: Industrial — gravel gray
+  "#7d7871", // 7: Industrial — worn asphalt yard
   "#bcae8c", // 8: ResHigh — warm paver ring
 ];
 
@@ -74,8 +84,22 @@ function clampByte(n: number): number {
   return n < 0 ? 0 : n > 255 ? 255 : n | 0;
 }
 
+// Memoized per (color-instance, factor): shade() runs inside per-pixel loops
+// and was a steady GC source. hexToRgb returns shared instances, so the
+// WeakMap hit rate is high; ephemeral keys fall out with the GC.
+const SHADE_CACHE = new WeakMap<RGB, Map<number, RGB>>();
 export function shade(rgb: RGB, factor: number): RGB {
-  return [clampByte(rgb[0] * factor), clampByte(rgb[1] * factor), clampByte(rgb[2] * factor)];
+  let byF = SHADE_CACHE.get(rgb);
+  if (!byF) {
+    byF = new Map();
+    SHADE_CACHE.set(rgb, byF);
+  }
+  let c = byF.get(factor);
+  if (!c) {
+    c = [clampByte(rgb[0] * factor), clampByte(rgb[1] * factor), clampByte(rgb[2] * factor)];
+    byF.set(factor, c);
+  }
+  return c;
 }
 
 /** Deterministic per-pixel hash for starfield sparkle. */
@@ -85,7 +109,7 @@ function pixHash(x: number, y: number): number {
   return (h ^ (h >>> 16)) >>> 0;
 }
 
-export type Archetype = "dawn" | "radiant" | "circle" | "visitors";
+export type Archetype = ArchetypeId;
 
 /**
  * Archetype territory pattern (§30), evaluated per *pixel* of the rendered

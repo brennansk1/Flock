@@ -10,7 +10,7 @@
  *   School (elementary)  → Passive: stronger ambient spread
  *                          Active: Parent-Teacher Night (2x ambient creep for 30s)
  *   High School          → Passive: faster follower growth
- *                          Active: Pep Rally (+1,200 followers / overflow to tithe)
+ *                          Active: Pep Rally (+300 followers / overflow to tithe)
  *   Supermarket (grocery)→ Passive: your flock holds firmer
  *                          Active: Food Rationing (+35% retention for 25s)
  *   Church               → Passive: Faith climbs
@@ -26,6 +26,7 @@
  * Apostate scarred tiles (from bombs/raids) do not count toward control.
  */
 
+import { archCoeffs } from "./balance.js";
 import {
   NEUTRAL,
   Lot,
@@ -52,6 +53,14 @@ export const CIVIC_LOTS: readonly Lot[] = [
   Lot.HighSchool,
   Lot.Supermarket,
   Lot.Church,
+  // ECONOMIC ANCHORS (§2A mechanics, B1.4.20): every town archetype carries
+  // its own prize — the granary (or the cannery that §2A swaps in for it),
+  // the sawmill, the lighthouse. Not every anchor exists on every map; the
+  // HUD lists only what this town actually has.
+  Lot.GrainElevator,
+  Lot.Cannery,
+  Lot.Sawmill,
+  Lot.Lighthouse,
   Lot.Bank,
 ];
 
@@ -62,6 +71,10 @@ export const CIVIC_EFFECTS: Record<number, string> = {
   [Lot.HighSchool]: "youth recruitment — faster follower growth",
   [Lot.Supermarket]: "control the food — your flock holds firmer",
   [Lot.Church]: "the pulpit is yours — Faith climbs",
+  [Lot.GrainElevator]: "the harvest money flows through you — richer tithe",
+  [Lot.Cannery]: "the fish money flows through you — richer tithe",
+  [Lot.Sawmill]: "lumber at cost — cheaper commune upgrades",
+  [Lot.Lighthouse]: "the beacon draws seekers — farther compound outreach",
   [Lot.Bank]: "financial leverage — enhanced tithe & courier commerce",
 };
 
@@ -86,7 +99,7 @@ export const CIVIC_DECREES: Record<CivicDecreeId, CivicDecreeDef> = {
     name: "Town Curfew",
     lot: Lot.Sheriff,
     isLandmark: false,
-    costUsd: 10_000,
+    costUsd: 1_000,
     costFaith: 0,
     gainHeat: 10,
     cooldownTicks: 900, // 90s
@@ -98,19 +111,19 @@ export const CIVIC_DECREES: Record<CivicDecreeId, CivicDecreeDef> = {
     name: "Pep Rally",
     lot: Lot.HighSchool,
     isLandmark: false,
-    costUsd: 12_000,
+    costUsd: 1_200,
     costFaith: 0,
     gainHeat: 0,
     cooldownTicks: 1000, // 100s
     durTicks: 0, // instant
-    description: "Spawns +1,200 followers (overflow converted to $0.50 tithe).",
+    description: "Spawns +300 followers (overflow converted to $0.50 tithe).",
   },
   [CivicDecreeId.ParentTeacherNight]: {
     id: CivicDecreeId.ParentTeacherNight,
     name: "Parent-Teacher Night",
     lot: Lot.School,
     isLandmark: false,
-    costUsd: 6_000,
+    costUsd: 600,
     costFaith: 0,
     gainHeat: 0,
     cooldownTicks: 600, // 60s
@@ -122,7 +135,7 @@ export const CIVIC_DECREES: Record<CivicDecreeId, CivicDecreeDef> = {
     name: "Food Rationing",
     lot: Lot.Supermarket,
     isLandmark: false,
-    costUsd: 15_000,
+    costUsd: 1_500,
     costFaith: 15,
     gainHeat: 0,
     cooldownTicks: 1200, // 120s
@@ -146,7 +159,7 @@ export const CIVIC_DECREES: Record<CivicDecreeId, CivicDecreeDef> = {
     name: "Municipal Injunction",
     lot: Landmark.TownHall,
     isLandmark: true,
-    costUsd: 30_000,
+    costUsd: 3_000,
     costFaith: 0,
     gainHeat: 20,
     cooldownTicks: 1500, // 150s
@@ -158,7 +171,7 @@ export const CIVIC_DECREES: Record<CivicDecreeId, CivicDecreeDef> = {
     name: "Emergency Jam",
     lot: Landmark.RadioTower,
     isLandmark: true,
-    costUsd: 40_000,
+    costUsd: 4_000,
     costFaith: 0,
     gainHeat: 0,
     cooldownTicks: 1200, // 120s
@@ -215,6 +228,71 @@ export function computeCivicControl(s: SimState): Map<number, PlayerId> {
     }
   }
   return control;
+}
+
+/**
+ * Siege state per key-building type (v3 §3), for the HUD tug-of-war bars.
+ * Aggregates all instances of each lot type present on the map:
+ *   holder     — who controls it now (0 = uncontrolled / mostly neutral)
+ *   leader     — the player holding the most of its tiles (0 = none)
+ *   leaderFill — fraction 0..1 of the type's tiles the leader holds
+ *   contested  — >1 player holds tiles (the bar should flash)
+ * Only lot types actually present on the map get an entry.
+ */
+export interface SiegeBar {
+  lot: number;
+  holder: PlayerId;
+  leader: PlayerId;
+  leaderFill: number;
+  contested: boolean;
+}
+
+export function computeSiegeState(s: SimState): SiegeBar[] {
+  const w = s.world;
+  const watch = new Set<number>(CIVIC_LOTS);
+  const total = new Map<number, number>(); // lot → total tiles of that type
+  const per = new Map<number, Map<PlayerId, number>>(); // lot → owner → believer tiles
+  for (let t = 0; t < w.lot.length; t++) {
+    const lot = w.lot[t]!;
+    if (!watch.has(lot)) continue;
+    total.set(lot, (total.get(lot) ?? 0) + 1);
+    const owner = w.owner[t]!;
+    if (owner === NEUTRAL || w.state[t] !== TileState.Believer) continue;
+    let m = per.get(lot);
+    if (!m) {
+      m = new Map();
+      per.set(lot, m);
+    }
+    m.set(owner, (m.get(owner) ?? 0) + 1);
+  }
+  const control = computeCivicControl(s);
+  const out: SiegeBar[] = [];
+  for (const lot of CIVIC_LOTS) {
+    const tot = total.get(lot);
+    if (!tot) continue; // this town doesn't have this building
+    const m = per.get(lot);
+    let leader: PlayerId = 0;
+    let leaderN = 0;
+    let owners = 0;
+    if (m) {
+      for (const pid of [...m.keys()].sort((a, z) => a - z)) {
+        const n = m.get(pid)!;
+        if (n > 0) owners++;
+        if (n > leaderN) {
+          leaderN = n;
+          leader = pid;
+        }
+      }
+    }
+    out.push({
+      lot,
+      holder: control.get(lot) ?? 0,
+      leader,
+      leaderFill: leaderN / tot,
+      contested: owners > 1,
+    });
+  }
+  return out;
 }
 
 /** Does `pid` control the given civic lot? Convenience for the engines. */
@@ -298,7 +376,7 @@ export function executeCivicDecree(
   if (def.costUsd > 0) p.usd = sub(p.usd, fromInt(def.costUsd));
   if (def.costFaith > 0) p.faith = sub(p.faith, fromInt(def.costFaith));
   if (def.gainHeat > 0) {
-    p.heat = clamp(add(p.heat, mul(fromInt(def.gainHeat), b.archetypes[p.archetype].heat)), 0, HUNDRED);
+    p.heat = clamp(add(p.heat, mul(fromInt(def.gainHeat), archCoeffs(b, p.archetype).heat)), 0, HUNDRED);
   }
 
   // Set cooldown
@@ -312,7 +390,7 @@ export function executeCivicDecree(
   // Apply decree effects
   switch (decreeId) {
     case CivicDecreeId.PepRally: {
-      const toAdd = fromInt(1200);
+      const toAdd = fromInt(300);
       const available = sub(cap, p.followers);
       if (available > 0) {
         if (toAdd <= available) {
@@ -323,7 +401,7 @@ export function executeCivicDecree(
           p.usd = add(p.usd, mul(fromInt(overflow), fromInt(1) >> 1)); // $0.50 per follower
         }
       } else {
-        // completely at or over cap: all 1,200 converted to $0.50 tithe cash = $600
+        // completely at or over cap: all 300 converted to $0.50 tithe cash = $600
         p.usd = add(p.usd, fromInt(600));
       }
       break;
@@ -488,4 +566,5 @@ export function isEmergencyJamActive(s: SimState, player: PlayerId): boolean {
   }
   return false;
 }
+
 

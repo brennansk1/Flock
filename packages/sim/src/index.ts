@@ -9,6 +9,7 @@
 export * from "./fixed.js";
 export * from "./rng.js";
 export * from "./types.js";
+export * from "./archetypes/index.js";
 export * from "./intents.js";
 export * from "./balance.js";
 export * from "./hash.js";
@@ -28,10 +29,18 @@ export * from "./bots.js";
 export * from "./progression.js";
 export * from "./daily.js";
 export * from "./economy.js";
+export * from "./cohorts.js";
 export * from "./palette.js";
 export * from "./townRender.js";
 export * from "./gridRoads.js";
 export * from "./names.js";
 export * from "./civics.js";
+export * from "./victory.js";
+export * from "./skins.js";
 export * from "./townLife.js";
 export * from "./assetCatalog.js";
+export * from "./footprints.js";
+export { drawVehicle, VEHICLE_KINDS, vehicleSize, CAR_PAINT, householdVehicle, type VehicleKind } from "./render/vehicles.js";
+
+// Must stay last: registers built-in cults once every engine module is live.
+import "./archetypes/builtin.js";

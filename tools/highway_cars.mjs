@@ -78,7 +78,7 @@ const frame = renderTown(sim, {
   view: { x: 0, y: 1, w: 32, h: 14 },
 });
 
-const artifactsDir = "C:\\Users\\Brennan Kelley\\.gemini\\antigravity-cli\\brain\\5896231d-966e-47bf-8a08-6f888bf1f049";
+const artifactsDir = process.env.ARTIFACT_DIR || "./qa_shots";
 mkdirSync(artifactsDir, { recursive: true });
 mkdirSync("QA gallery", { recursive: true });
 

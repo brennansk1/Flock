@@ -89,42 +89,15 @@ function soloSim(): SimState {
     world,
     spawns: [{ id: 1, archetype: "dawn" }],
     timerTicks: 0, // untimed for kit tests
+    dominationPermille: 1000, // no Domination ascension in kit tests
   });
   step(s, { n: 0, intents: [{ t: IntentType.SPAWN, player: 1, tile: 12 * 24 + 12 }], seedSlice: 0 }, balance);
   s.players[0]!.followers = fromInt(1000); // classic dynamics for kit tests
   return s;
 }
 
-test("Sermon grants faith and respects its cooldown", () => {
-  const s = soloSim();
-  const p = s.players[0]!;
-  const f0 = toFloat(p.faith);
-  const sermon: Intent = { t: IntentType.RITUAL, player: 1, ritual: "sermon" };
-  run(s, 3, turnsOf({ [s.tick]: [sermon] }));
-  const f1 = toFloat(p.faith);
-  assert.ok(f1 > f0 + 10, `sermon should add ~12 faith (${f0} -> ${f1})`);
-
-  // immediate re-cast is blocked by cooldown
-  run(s, 3, turnsOf({ [s.tick]: [sermon] }));
-  assert.ok(toFloat(p.faith) < f1 + 5, "second sermon inside cooldown must not fire");
-});
-
-test("The Offering trades followers for faith and adds dissent + heat", () => {
-  const s = soloSim();
-  const p = s.players[0]!;
-  p.faith = fromInt(50);
-  const followers0 = toInt(p.followers);
-  const offering: Intent = {
-    t: IntentType.RITUAL,
-    player: 1,
-    ritual: "the_offering",
-    district: Districts.Suburbs,
-  };
-  run(s, 2, turnsOf({ [s.tick]: [offering] }));
-  assert.ok(toInt(p.followers) <= followers0 - 190, "200 followers poofed (cartoon halo)");
-  assert.ok(toFloat(p.faith) > 50, "net faith gain");
-  assert.ok(toFloat(p.heat) > 0, "offering generates heat");
-});
+// (Sermon + The Offering ritual tests removed — rituals ✂ cut in v3 M3.2b;
+//  Faith now buys doctrine directly, banked by Tend missions.)
 
 // ---------- Final Dawn kit ----------
 
@@ -136,10 +109,12 @@ test("Street Prophet pylon converts nearby tiles without a front", () => {
   const target = 4 * 24 + 4;
   const ability: Intent = { t: IntentType.ABILITY, player: 1, ability: "street_prophet", target };
   const tiles0 = p.ownedTiles;
+  const earned0 = toInt(p.usdEarned);
   run(s, 300, turnsOf({ [s.tick]: [ability] })); // pylon lives 30s
   assert.ok(p.ownedTiles > tiles0, "pylon pressure should flip neutral tiles around it");
   assert.equal(s.pylons.length, 0, "pylon expired");
-  assert.ok(toInt(p.usd) < 50_000, "pylon cost paid");
+  const spent = 50_000 + (toInt(p.usdEarned) - earned0) - toInt(p.usd);
+  assert.ok(Math.abs(spent - 1_500) <= 2, `pylon cost paid ($${spent})`);
 });
 
 /** Hand a player extra believer tiles (rows from the top) to pass thresholds. */
@@ -160,10 +135,11 @@ test("Prophecy Countdown: fulfilled when territory grows, punished when it stall
   // GROWTH case: declare, keep creeping (ambient creep grows territory) → rapture.
   const grow = soloSim();
   const gp = grow.players[0]!;
-  grantTiles(grow, 1, 60); // dev-scale declare threshold is 10% of populated (§11.1 KIT)
+  grantTiles(grow, 1, 140); // declare needs 25% of the town (STAGE1 §7)
   const declare: Intent = { t: IntentType.SIGNATURE, player: 1 };
+  run(grow, 1, turnsOf({})); // souls refresh at end of tick
   run(grow, 2, turnsOf({ [grow.tick]: [declare] }));
-  assert.equal(grow.prophecies.length, 1, "prophecy declared (dev-scale threshold)");
+  assert.equal(grow.prophecies.length, 1, "prophecy declared at 25% souls");
   assert.ok(toFloat(gp.heat) > 0, "declaration adds heat");
   const tilesAtDeclare = gp.ownedTiles;
   run(grow, 1801, turnsOf({})); // 3:00 timer + resolution tick
@@ -176,7 +152,7 @@ test("Prophecy Countdown: fulfilled when territory grows, punished when it stall
   // surrounding the blob with scars).
   const stall = soloSim();
   const sp = stall.players[0]!;
-  grantTiles(stall, 1, 60);
+  grantTiles(stall, 1, 140);
   // scar every remaining neutral tile: creep has nothing to flip → no growth
   const w = stall.world;
   for (let t = 0; t < w.owner.length; t++) {
@@ -187,7 +163,7 @@ test("Prophecy Countdown: fulfilled when territory grows, punished when it stall
   }
   // identical control twin that never declares — isolates the prophecy penalty
   const control = soloSim();
-  grantTiles(control, 1, 60);
+  grantTiles(control, 1, 140);
   const cw = control.world;
   for (let t = 0; t < cw.owner.length; t++) {
     if (cw.owner[t] === 0 && cw.state[t] === TileState.Neutral) {
@@ -196,6 +172,8 @@ test("Prophecy Countdown: fulfilled when territory grows, punished when it stall
     }
   }
 
+  run(stall, 1, turnsOf({}));
+  run(control, 1, turnsOf({}));
   run(stall, 2, turnsOf({ [stall.tick]: [declare] }));
   assert.equal(stall.prophecies.length, 1);
   const faithBefore = toFloat(sp.faith);
@@ -222,9 +200,15 @@ test("domination threshold ends the match with a winner", () => {
     timerTicks: 0,
   });
   step(s, { n: 0, intents: [{ t: IntentType.SPAWN, player: 1, tile: 8 * 16 + 8 }], seedSlice: 0 }, balance);
-  // spawn blob is ~29 tiles of 256 ≈ 11% > 10%
-  assert.equal(s.status, MatchStatus.Ended, "match should end on domination");
+  // spawn blob is ~29 tiles of 256 ≈ 11% > 10% → the Ascension countdown starts
+  assert.equal(s.status, MatchStatus.Live, "domination starts an Ascension, not an instant win");
+  assert.equal(s.players[0]!.ascendPath, "domination");
+  for (let n = 1; n <= balance.victory.ascendTicks + 1 && s.status === MatchStatus.Live; n++) {
+    step(s, { n, intents: [], seedSlice: n }, balance);
+  }
+  assert.equal(s.status, MatchStatus.Ended, "match should end once the countdown survives");
   assert.equal(s.winner, 1);
+  assert.equal(s.winPath, "domination");
 });
 
 test("timer expiry crowns the largest cult", () => {
@@ -256,4 +240,31 @@ test("timer expiry crowns the largest cult", () => {
   run(s, 35, turnsOf({}));
   assert.equal(s.status, MatchStatus.Ended, "timer should end the match");
   assert.equal(s.winner, 1, "largest cult wins the tiebreak");
+});
+
+test("radio_static (Visitors) sows dissent through enemy tiles in range (v3 retarget)", () => {
+  // The old effect knocked out Broadcast Towers, which no longer exist — this
+  // pins the retargeted behaviour so the ability can't silently become a no-op.
+  const world = createWorld(24, 24);
+  const s = createSim({
+    seed: 3,
+    balance,
+    world,
+    spawns: [{ id: 1, archetype: "visitors" }, { id: 2, archetype: "dawn" }],
+  });
+  const p1 = s.players[0]!;
+  p1.faith = fromInt(100);
+  p1.spawned = true;
+  const w = s.world;
+  const enemy = 12 * 24 + 12;
+  w.owner[enemy] = 2;
+  w.state[enemy] = TileState.Believer;
+  w.terrain[enemy] = Terrain.Citizen;
+  w.dissent[enemy] = 0;
+  step(
+    s,
+    { n: 0, intents: [{ t: IntentType.ABILITY, player: 1, ability: "radio_static", target: enemy }], seedSlice: 0 },
+    balance,
+  );
+  assert.ok(toFloat(w.dissent[enemy]!) > 0, `static should raise enemy dissent, got ${toFloat(w.dissent[enemy]!)}`);
 });

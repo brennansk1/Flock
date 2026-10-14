@@ -9,7 +9,9 @@
  * draws from the sim RNG, which lives in the hashed state.
  */
 
-import { add, sub, mul, div, clamp, min, fromInt, fromFloat, ONE, type Fixed } from "./fixed.js";
+import { archCoeffs } from "./balance.js";
+import { getArchetype } from "./archetypes/registry.js";
+import { add, sub, mul, div, clamp, min, fromInt, fromFloat, toInt, ONE, type Fixed } from "./fixed.js";
 import { nextU32, nextRange } from "./rng.js";
 import type { Balance } from "./balance.js";
 import {
@@ -19,6 +21,7 @@ import {
   Landmark,
   Lot,
   type AgentUnit,
+  type Cohort,
   type PlayerId,
   type PlayerState,
   type SimState,
@@ -32,19 +35,46 @@ import {
   isOperational,
   staffingRatio,
 } from "./buildings.js";
-import { heatGainMult, raidEffectMultAgainst, tryAbsorbMassApostasy, scarTicksFor } from "./doctrine.js";
+import { heatGainMult, raidEffectMultAgainst, tryAbsorbMassApostasy, scarTicksFor, hasDoctrine, strikeCostMult } from "./doctrine.js";
+import type { StrikeType } from "./intents.js";
+import { breakAscension } from "./victory.js";
 import { computeMonopolies, isEmergencyJamActive, controlsCivic, computeCivicControl } from "./civics.js";
 
 const TPS = 10;
 const HUNDRED = fromInt(100);
 
 export const STRIKE_DEFS = {
-  pamphlet_bomb: { cost: 400_000, chargeTicks: 30 * TPS, radius: 8, heat: 10 },
-  prime_time_expose: { cost: 900_000, chargeTicks: 60 * TPS, radius: 18, heat: 20 },
-  manifesto_drop: { cost: 1_600_000, chargeTicks: 90 * TPS, radius: 6, heat: 0 }, // heat→100
+  // Stage 1 rescale to the real economy (were $400k/$900k/$1.6M — never affordable).
+  pamphlet_bomb: { cost: 3_000, chargeTicks: 30 * TPS, radius: 8, heat: 10 },
+  prime_time_expose: { cost: 7_000, chargeTicks: 60 * TPS, radius: 18, heat: 20 },
+  manifesto_drop: { cost: 15_000, chargeTicks: 90 * TPS, radius: 6, heat: 0 }, // heat→100
 } as const;
 
 export const WARNING_TICKS = 10 * TPS; // §8: 10s incoming-warning banner
+
+/** Current strike price for `p` (Fixed): I3 −20%, Radio Tower −30% (§10/§12). */
+export function strikeCost(s: SimState, p: PlayerState, type: StrikeType): Fixed {
+  let cost = mul(fromInt(STRIKE_DEFS[type].cost), strikeCostMult(p));
+  if (ownsLandmark(s, p.id, Landmark.RadioTower)) cost = mul(cost, fromFloat(0.7));
+  return cost;
+}
+
+/** Why `p` can't strike `tile` with `type` right now ("" = it can). */
+export function strikeBlocker(s: SimState, p: PlayerState, tile: TileId, type: StrikeType): string {
+  if (!STRIKE_DEFS[type]) return "unknown strike";
+  if (tile < 0 || tile >= s.world.owner.length) return "no target";
+  const victim = s.world.owner[tile]!;
+  if (victim === NEUTRAL || victim === p.id) return "target a rival's ground";
+  if (p.usd < strikeCost(s, p, type)) return "not enough cash";
+  return "";
+}
+
+/** Heat at which the CPA starts picketing `p` (Town Hall 75, Town Machine 85, §12). */
+export function cpaHarassFloor(s: SimState, p: PlayerState, b: Balance): Fixed {
+  if (computeMonopolies(s, p.id).townMachine) return fromInt(85);
+  if (ownsLandmark(s, p.id, Landmark.TownHall)) return fromInt(75);
+  return b.heat.cpaHarass;
+}
 
 // ---------------------------------------------------------------- helpers
 
@@ -77,9 +107,23 @@ export function linePath(w: { width: number }, from: TileId, to: TileId): TileId
   return path;
 }
 
-export function gainHeatScaled(p: PlayerState, b: Balance, amount: number): void {
-  const gain = mul(mul(fromInt(amount), b.archetypes[p.archetype].heat), heatGainMult(p));
+/**
+ * Scrutiny (STAGE1 §4): the bigger your share of the town, the louder every
+ * action — ×1 up to 20% of souls, +0.2 per 10% beyond, capped ×1.6.
+ */
+export function scrutinyMult(p: PlayerState): Fixed {
+  const over = Math.min(600, Math.max(0, (p.soulsPermille - 200) * 2));
+  return add(ONE, div(fromInt(over), fromInt(1000)));
+}
+
+/** Heat gain in Fixed, scaled by archetype, doctrine (E3) and Scrutiny. */
+export function gainHeatFixed(p: PlayerState, b: Balance, amount: Fixed): void {
+  const gain = mul(mul(mul(amount, archCoeffs(b, p.archetype).heat), heatGainMult(p)), scrutinyMult(p));
   p.heat = clamp(add(p.heat, gain), 0, HUNDRED);
+}
+
+export function gainHeatScaled(p: PlayerState, b: Balance, amount: number): void {
+  gainHeatFixed(p, b, fromInt(amount));
 }
 
 function manhattan(w: { width: number }, a: TileId, t: TileId): number {
@@ -119,9 +163,8 @@ export function stepCouriers(s: SimState, b: Balance): void {
             b.economy.courierCap,
           );
           const ownerPl = s.players.find((pl) => pl.id === pid);
-          if (ownerPl?.archetype === "circle" && controlsCivic(computeCivicControl(s), Lot.Bank, pid)) {
-            usd = mul(usd, fromInt(3)); // Franchise Megacenter: triples courier cash
-          }
+          const courierMult = ownerPl ? getArchetype(ownerPl.archetype).passives.courierMult : undefined;
+          if (ownerPl && courierMult) usd = mul(usd, courierMult(s, ownerPl)); // e.g. Circle Franchise Megacenter ×3
           s.couriers.push({
             id: s.nextEntityId++,
             player: pid,
@@ -372,23 +415,68 @@ function executeRaid(s: SimState, a: AgentUnit, b: Balance): void {
   }
 }
 
-/** Publish a 100%-evidence scandal (§15.2). Returns true if it landed. */
-export function publishScandal(s: SimState, attacker: PlayerState, victimId: PlayerId, b: Balance): boolean {
-  const file = s.scandals.find((sc) => sc.attacker === attacker.id && sc.victim === victimId);
-  if (!file || file.published || file.evidence < HUNDRED) return false;
-  file.published = true;
-  s.recap.scandals.push({ attacker: attacker.id, victim: victimId, tick: s.tick });
-  gainHeatScaled(attacker, b, 10); // mud sticks to the thrower
+/** Expose tuning (STAGE1_DESIGN §5). */
+export const EXPOSE = {
+  minVictimHeat: 25,
+  /** I1 Rumor Mill lowers the gate. */
+  rumorMillMinHeat: 15,
+  baseCost: 4_000,
+  cooldown: 60 * TPS,
+  attackerHeat: 10,
+  dissent: 10,
+  faithLoss: 25,
+} as const;
 
+/** Current price for `attacker`'s next Expose (Fixed). I1 −40%. */
+export function exposeCost(attacker: PlayerState): Fixed {
+  const c = mul(fromInt(EXPOSE.baseCost), fromInt(1 + attacker.exposes));
+  return hasDoctrine(attacker, "I1") ? mul(c, fromFloat(0.6)) : c;
+}
+
+/** Why `attacker` can't expose `victim` right now ("" = it can). HUD reads this too. */
+export function exposeBlocker(s: SimState, attacker: PlayerState, victim: PlayerState | undefined): string {
+  if (!victim || !victim.alive || victim.id === attacker.id) return "no target";
+  const floor = hasDoctrine(attacker, "I1") ? EXPOSE.rumorMillMinHeat : EXPOSE.minVictimHeat;
+  if (victim.heat < fromInt(floor)) return `their Heat is under ${floor}`;
+  if ((attacker.cooldowns["expose"] ?? 0) > 0) return "cooling down";
+  if (attacker.usd < exposeCost(attacker)) return "not enough cash";
+  return "";
+}
+
+/**
+ * EXPOSE (scandal, rebuilt): publish a rival's dirty laundry. Gated on the
+ * VICTIM's Heat — loud cults are exposable, quiet ones aren't. Costs followers,
+ * Faith and calm, and resets any Ascension countdown. Returns true if it landed.
+ */
+export function publishScandal(s: SimState, attacker: PlayerState, victimId: PlayerId, b: Balance): boolean {
   const victim = s.players.find((pl) => pl.id === victimId);
-  if (!victim || !victim.alive) return true;
+  if (exposeBlocker(s, attacker, victim) !== "" || !victim) return false;
+  attacker.usd = sub(attacker.usd, exposeCost(attacker));
+  attacker.exposes++;
+  attacker.cooldowns["expose"] = EXPOSE.cooldown;
+  s.recap.scandals.push({ attacker: attacker.id, victim: victimId, tick: s.tick });
+  gainHeatScaled(attacker, b, EXPOSE.attackerHeat); // mud sticks to the thrower
   if (tryAbsorbMassApostasy(victim)) return true; // E4 UNSHAKEABLE
 
-  // lose clamp(Heat × 0.6, 5, 35)% of followers; ×1.5 vs Prosperity Circle
+  // lose clamp(Heat × 0.6, 5, 35)% of followers; archetype hook (Circle ×1.5);
+  // I2 Counter-Narrative halves the damage and protects the Ascension.
+  const counter = hasDoctrine(victim, "I2");
   let pct = clamp(mul(victim.heat, fromFloat(0.6)), fromInt(5), fromInt(35));
-  if (victim.archetype === "circle") pct = mul(pct, fromFloat(1.5));
+  const lossPct = getArchetype(victim.archetype).passives.scandalLossPct;
+  if (lossPct) pct = lossPct(pct);
+  if (counter) pct = pct >> 1;
+  const followersBefore = victim.followers;
   victim.followers = mul(victim.followers, sub(ONE, div(pct, HUNDRED)));
-  victim.faith = victim.faith > fromInt(25) ? sub(victim.faith, fromInt(25)) : 0;
+  const rec = s.recap.scandals[s.recap.scandals.length - 1];
+  if (rec) rec.followersLost = toInt(sub(followersBefore, victim.followers));
+  const faithLoss = fromInt(counter ? EXPOSE.faithLoss >> 1 : EXPOSE.faithLoss);
+  victim.faith = victim.faith > faithLoss ? sub(victim.faith, faithLoss) : 0;
+  const w = s.world;
+  const amt = fromInt(counter ? EXPOSE.dissent >> 1 : EXPOSE.dissent);
+  for (let t = 0; t < w.owner.length; t++) {
+    if (w.owner[t] === victim.id && w.state[t] === TileState.Believer) w.dissent[t] = min(add(w.dissent[t]!, amt), HUNDRED);
+  }
+  if (!counter) breakAscension(victim, b);
   return true;
 }
 
@@ -478,7 +566,7 @@ function pamphletImpact(
 
 /**
  * The Concerned Parents Association: targets only the single highest-Heat
- * player. Heat ≥ 60: picket lines on their busiest front every 60s. Heat ≥ 85:
+ * player. Heat ≥ 60: picket lines on their biggest mission every 60s. Heat ≥ 85:
  * a Deprogrammer Bus raids their highest-dissent district every 45s. Tuned to
  * slow, never to kill.
  */
@@ -500,16 +588,19 @@ export function stepCPA(s: SimState, b: Balance): void {
 
   // Town Hall owned: CPA ignores you below Heat 75 (§12)
   // Town Machine monopoly (Town Hall + Sheriff): raised to Heat 85!
-  const hasMachine = computeMonopolies(s, target.id).townMachine;
-  const hasTownHall = ownsLandmark(s, target.id, Landmark.TownHall);
-  const harassFloor = hasMachine ? fromInt(85) : hasTownHall ? fromInt(75) : b.heat.cpaHarass;
+  const harassFloor = cpaHarassFloor(s, target, b);
 
   if (target.heat >= harassFloor && s.tick >= s.cpaNextPicketTick) {
     s.cpaNextPicketTick = s.tick + 60 * TPS;
-    // busiest front: the target player's largest front; picket its first tiles
-    let busiest = s.fronts.filter((f) => f.player === target!.id).sort((a, z) => z.tiles.length - a.tiles.length)[0];
+    // busiest push (M2 retarget: pickets used to anchor on the largest front):
+    // the target's biggest deployed cohort — picket where the flock works.
+    // Ties resolve to the earlier slot; recalled cohorts are already leaving.
+    let busiest: Cohort | undefined;
+    for (const c of target.cohorts) {
+      if (!c.recalling && (!busiest || c.mass > busiest.mass)) busiest = c;
+    }
     const w = s.world;
-    const anchor = busiest?.tiles[0] ?? firstOwnedTile(s, target.id);
+    const anchor = busiest?.target ?? firstOwnedTile(s, target.id);
     if (anchor !== undefined && anchor >= 0) {
       for (let k = 0; k < 2; k++) {
         const off = k * 3;

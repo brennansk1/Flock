@@ -29,6 +29,8 @@ import {
   type Snapshot,
   type Turn,
   type MatchRecap,
+  type ArchetypeId,
+  type SkinLoadout,
 } from "@flock/sim";
 
 // Protocol message shapes (kept in sync with @flock/server/src/protocol.ts;
@@ -36,9 +38,11 @@ import {
 export interface WirePlayer {
   id: number;
   name: string;
-  archetype: "dawn" | "radiant" | "circle" | "visitors";
+  archetype: ArchetypeId;
   /** true for AI seats — used for the solo-pause affordance. */
   bot?: boolean;
+  /** Cosmetic loadout (render-only). */
+  skin?: SkinLoadout;
 }
 export interface WireAccount {
   id: string;

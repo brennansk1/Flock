@@ -65,13 +65,12 @@ function spawnClient(i) {
       const roll = Math.random();
       let intent;
       if (roll < 0.5) {
-        const tiles = Array.from({ length: 25 }, (_, k) => center + (k % 5) + ((k / 5) | 0) * w);
-        intent = { t: IntentType.OPEN_FRONT, player: playerId, tiles };
+        intent = { t: IntentType.MISSION_SEND, player: playerId, tile: center, permille: 400, mode: ["tend", "spread", "crusade"][(Math.random() * 3) | 0] };
       } else if (roll < 0.7) {
         intent = { t: IntentType.SET_STANCE, player: playerId, stance: ["tend", "spread", "crusade"][(Math.random() * 3) | 0] };
       } else if (roll < 0.85) {
-        // oversized garbage — the hardening must absorb it
-        intent = { t: IntentType.OPEN_FRONT, player: playerId, tiles: Array.from({ length: 5000 }, () => (Math.random() * 1e9) | 0) };
+        // garbage payload — the hardening must absorb it (bogus tile + absurd permille)
+        intent = { t: IntentType.MISSION_SEND, player: playerId, tile: (Math.random() * 1e9) | 0, permille: (Math.random() * 1e6) | 0, mode: "prayer" };
       } else {
         intent = { t: IntentType.BUILD, player: playerId, building: "compound", tile: center };
       }

@@ -4,12 +4,13 @@
  * next state — that is the lockstep contract.
  *
  * M0 systems in this file: state construction, intent application (stances,
- * spawns, fronts, compounds, rituals §9, Final Dawn kit §11.1), the per-tick
+ * spawns, missions, compounds, kit actives §11.1), the per-tick
  * economy/decay loop (§3), timed-effect countdowns, Prophecy resolution, and
  * the victory/elimination state machine (§18). Conversion resolution (§4)
  * lives in conversion.ts.
  */
 
+import { archCoeffs } from "./balance.js";
 import { add, sub, mul, div, clamp, min, max, fromInt, ONE, type Fixed } from "./fixed.js";
 import { seedRng, type RngState } from "./rng.js";
 import type { Balance } from "./balance.js";
@@ -23,6 +24,8 @@ import {
   Landmark,
   Lot,
   MatchStatus,
+  MAX_COHORTS,
+  type Cohort,
   type Building,
   type PlayerState,
   type SimState,
@@ -32,13 +35,15 @@ import {
   type DistrictId,
 } from "./types.js";
 import { resolveConversion } from "./conversion.js";
+import { cohortTransit, cohortArrived } from "./cohorts.js";
 import { carveDirtLane } from "./mapgen.js";
+import { refreshVictoryStats, stepAscension } from "./victory.js";
+import { getArchetype, findAbility, DAWN_KIT, RADIANT_KIT, CIRCLE_KIT, VISITORS_KIT } from "./archetypes/index.js";
 import { newPlayer } from "./player.js";
 import {
   BUILDING_DEFS,
   buildingCost,
   countBuildings,
-  freeBroadcastTower,
   vanCapacity,
   stepBuildings,
 } from "./buildings.js";
@@ -55,6 +60,8 @@ import {
   ownsLandmark,
   STRIKE_DEFS,
   WARNING_TICKS,
+  strikeCost,
+  strikeBlocker,
 } from "./entities.js";
 import {
   proposeAlliance,
@@ -62,7 +69,7 @@ import {
   breakAlliance,
   stepSchism,
 } from "./diplomacy.js";
-import { pickDoctrine, titheMult, ownDissentMult, loveBombCostMult, strikeCostMult, tryAbsorbMassApostasy } from "./doctrine.js";
+import { hasDoctrine, pickDoctrine, titheMult, ownDissentMult, loveBombCostMult, strikeCostMult, tryAbsorbMassApostasy } from "./doctrine.js";
 import {
   computeCivicControl,
   controlsCivic,
@@ -80,54 +87,23 @@ const FIFTY: Fixed = fromInt(50);
 const TPS = 10;
 
 /**
- * Hard caps on client-supplied array intents (§33 hardening). The sim is
- * defensive by construction, but unbounded arrays would let a hostile client
- * force O(n) work 20×/s; legitimate use is far below these. A click-front is
- * 25 tiles; a van path only needs its endpoints.
+ * Hard cap on client-supplied array intents (§33 hardening). The sim is
+ * defensive by construction, but an unbounded array would let a hostile client
+ * force O(n) work 20×/s; a van path only needs its endpoints. (MISSION_SEND is
+ * scalar-only — its permille payload is clamped where it applies.)
  */
-const MAX_FRONT_TILES = 128;
 const MAX_PATH_TILES = 1024;
 
-/** Ritual/ability tuning (§9, §11.1). ITVs; promote to balance.json when tuned. */
+/** Ability tuning (§11.1). ITVs; promote to balance.json when tuned.
+ *  (Rituals were cut in v3 M3.2b — Faith now buys doctrine directly.) */
 export const KIT = {
-  sermon: { cooldown: 30 * TPS, faithGain: 12, buffTicks: 20 * TPS },
-  festival: { cost: 25, cooldown: 120 * TPS, radius: 10, durTicks: 30 * TPS, heat: 8 },
-  offering: {
-    faithCost: 10,
-    followerCost: 200,
-    faithGain: 20,
-    cooldown: 90 * TPS,
-    dissent: 4,
-    heat: 5,
-  },
-  atonement: { cost: 20, cooldown: 180 * TPS, durTicks: 30 * TPS },
-  streetProphet: { cost: 12_000, cooldown: 45 * TPS, durTicks: 30 * TPS },
-  stockpileSermon: { cost: 30, cooldown: 90 * TPS, durTicks: 12 * TPS, afterDissent: 10 },
-  prophecy: {
-    minTiles: 1500,
-    /** dev-scale fallback: 10% of populated if the map is smaller than spec */
-    minShareOfPopulated: 0.1,
-    durTicks: 180 * TPS,
-    heat: 15,
-    winFaith: 30,
-    failFaith: 40,
-    failApostasyPct: 15,
-    failDissent: 20,
-    /** High-S band floor for the rapture flip */
-    highS: 65,
-    capShareOfMap: 0.12,
-    borderRange: 4,
-  },
-  // §11.2 Radiant Path
-  juiceCleanse: { cost: 20_000, cooldown: 60 * TPS },
-  retreat: { cost: 35_000, cooldown: 90 * TPS, radius: 8, durTicks: 25 * TPS },
-  // §11.3 Prosperity Circle
-  seminarBlitz: { cost: 60_000, cooldown: 75 * TPS, followers: 2_500 },
-  hostileAcquisition: { cost: 300_000, cooldown: 240 * TPS, maxTiles: 120 },
-  // §11.4 Visitors' Fellowship
-  cropCircle: { cost: 15_000, cooldown: 60 * TPS, durTicks: 60 * TPS },
-  radioStatic: { faithCost: 20, cooldown: 90 * TPS, radius: 12, durTicks: 20 * TPS },
-  saucerLanding: { cost: 25_000, cooldown: 150 * TPS, capBonus: 2_000 },
+  sermon: { faithGain: 12, buffTicks: 15 * TPS, cooldown: 30 * TPS },
+  // Archetype kits live with their cults (archetypes/kits.ts); re-exposed
+  // here for existing callers.
+  ...DAWN_KIT,
+  ...RADIANT_KIT,
+  ...CIRCLE_KIT,
+  ...VISITORS_KIT,
   agent: { cost: 6_000, maxAlive: 2 },
   van: { cost: 30_000 },
 } as const;
@@ -169,12 +145,10 @@ export function createSim(opts: {
   balance: Balance;
   world: World;
   spawns: PlayerSpawn[];
-  /** domination threshold in per-mille; default 720 (72%, S/M maps §1) */
+  /** Domination threshold in per-mille; default from balance (65%). 1000 disables. */
   dominationPermille?: number;
   /** match timer in ticks; default 12 min (S map §1); 0 = untimed */
   timerTicks?: number;
-  /** Revelation mode (§18/§19): alternate victory paths active */
-  revelationMode?: boolean;
   disableCouriers?: boolean;
   disableCPA?: boolean;
   disableSchisms?: boolean;
@@ -193,12 +167,10 @@ export function createSim(opts: {
     rng,
     world: opts.world,
     players: opts.spawns.map((s) => newPlayer(s.id, s.archetype, opts.balance)),
-    fronts: [],
-    nextFrontId: 1,
     progress: new Map(),
     populated,
     totalPop,
-    dominationPermille: opts.dominationPermille ?? 720,
+    dominationPermille: opts.dominationPermille ?? opts.balance.victory.dominationPermille,
     timerTicks: opts.timerTicks ?? 12 * 60 * TPS,
     status: MatchStatus.Live,
     winner: 0,
@@ -207,7 +179,7 @@ export function createSim(opts: {
     auras: [],
     prophecies: [],
     activeDecrees: [],
-    revelationMode: opts.revelationMode ?? false,
+    winPath: "",
     disableCouriers: opts.disableCouriers ?? false,
     disableCPA: opts.disableCPA ?? false,
     disableSchisms: opts.disableSchisms ?? false,
@@ -251,16 +223,14 @@ export function followerCap(p: PlayerState, b: Balance, s?: SimState): Fixed {
   return cap;
 }
 
-/** Ritual Faith cost after Fairground festival 50% (§12). */
-function ritualFaithCost(s: SimState, p: PlayerState, base: number, festival = false): Fixed {
-  let cost = fromInt(base);
-  if (festival && ownsLandmark(s, p.id, Landmark.Fairground)) cost = mul(cost, fp(0.5));
-  return cost;
-}
+/** The commune tops out at stage 5 (v3 §2). `p.compounds` IS the stage: 1 at
+ *  founding, up to COMMUNE_MAX_STAGE via UPGRADE_COMMUNE. */
+export const COMMUNE_MAX_STAGE = 5;
 
-/** Compound cost: $15,000 × 1.35^(existing compounds − 1); the first is free (§6). */
+/** Cost to raise the commune the NEXT stage: $15,000 × 1.35^(stage−1). Same
+ *  escalation the old multi-compound build used — reused as the money sink. */
 export function compoundCost(p: PlayerState): Fixed {
-  let cost = fromInt(15000);
+  let cost = fromInt(2000); // STAGE1 §6 rescale (was 15k — never affordable)
   const growth = fp(1.35);
   for (let i = 1; i < p.compounds; i++) cost = mul(cost, growth);
   return cost;
@@ -434,7 +404,6 @@ function applyRitual(s: SimState, p: PlayerState, b: Balance, intent: Intent): v
   if (intent.t !== IntentType.RITUAL) return;
   switch (intent.ritual) {
     case "sermon": {
-      // §9: must be in Tend/Spread; channel modeled as cooldown for M0.
       if (p.stance === Stance.Crusade || onCooldown(p, "sermon")) return;
       const hasCanopy = computeMonopolies(s, p.id).sacredCanopy;
       const faithGain = hasCanopy ? Math.floor(KIT.sermon.faithGain * 1.5) : KIT.sermon.faithGain;
@@ -444,259 +413,28 @@ function applyRitual(s: SimState, p: PlayerState, b: Balance, intent: Intent): v
       startCooldown(p, "sermon", KIT.sermon.cooldown);
       return;
     }
-    case "midnight_festival": {
-      const cost = ritualFaithCost(s, p, KIT.festival.cost, true); // Fairground 50% (§12)
-      if (onCooldown(p, "festival") || p.faith < cost) return;
-      const tile = intent.tile ?? -1;
-      if (tile < 0 || tile >= s.world.terrain.length) return;
-      p.faith = sub(p.faith, cost);
-      const radius = ownsLandmark(s, p.id, Landmark.Fairground)
-        ? Math.floor(KIT.festival.radius * 1.5) // Fairground +50% radius (§12)
-        : KIT.festival.radius;
-      s.auras.push({
-        player: p.id,
-        tile,
-        radius,
-        ticksLeft: KIT.festival.durTicks,
-        kind: "festival",
-      });
-      gainHeat(p, b, KIT.festival.heat);
-      startCooldown(p, "festival", KIT.festival.cooldown);
-      return;
-    }
-    case "the_offering": {
-      if (
-        onCooldown(p, "offering") ||
-        p.faith < fromInt(KIT.offering.faithCost) ||
-        p.followers < fromInt(KIT.offering.followerCost)
-      )
-        return;
-      // pay 10 Faith + 200 followers; gain +20 Faith (cartoon poof + halo, always)
-      p.faith = clamp(
-        add(sub(p.faith, fromInt(KIT.offering.faithCost)), fromInt(KIT.offering.faithGain)),
-        0,
-        HUNDRED,
-      );
-      p.followers = sub(p.followers, fromInt(KIT.offering.followerCost));
-      const district =
-        intent.district ?? (intent.tile !== undefined ? s.world.district[intent.tile]! : 0);
-      // B3 Curfews: own-action dissent −40% (§10); integer math keeps it exact
-      const dAmt = Math.floor((KIT.offering.dissent * toFloatlessPct(ownDissentMult(p))) / 100);
-      if (district > 0) addDistrictDissent(s.world, district, dAmt);
-      gainHeat(p, b, KIT.offering.heat);
-      startCooldown(p, "offering", KIT.offering.cooldown);
-      return;
-    }
-    case "day_of_atonement": {
-      if (onCooldown(p, "atonement") || p.faith < fromInt(KIT.atonement.cost)) return;
-      p.faith = sub(p.faith, fromInt(KIT.atonement.cost));
-      p.atonementTicks = KIT.atonement.durTicks;
-      startCooldown(p, "atonement", KIT.atonement.cooldown);
-      return;
-    }
   }
 }
 
 function applyAbility(s: SimState, p: PlayerState, b: Balance, intent: Intent): void {
   if (intent.t !== IntentType.ABILITY) return;
-  switch (intent.ability) {
-    case "street_prophet": {
-      // §11.1 Final Dawn active 1: fear-pressure pylon.
-      if (p.archetype !== "dawn") return;
-      if (onCooldown(p, "street_prophet") || p.usd < fromInt(KIT.streetProphet.cost)) return;
-      const t = intent.target ?? -1;
-      if (t < 0 || t >= s.world.terrain.length || s.world.terrain[t] !== Terrain.Citizen) return;
-      p.usd = sub(p.usd, fromInt(KIT.streetProphet.cost));
-      s.pylons.push({ player: p.id, tile: t, ticksLeft: KIT.streetProphet.durTicks });
-      startCooldown(p, "street_prophet", KIT.streetProphet.cooldown);
-      return;
-    }
-    case "stockpile_sermon": {
-      // §11.1 Final Dawn active 2: one contested district, pressure ×3 for 12s.
-      if (p.archetype !== "dawn") return;
-      if (onCooldown(p, "stockpile_sermon") || p.faith < fromInt(KIT.stockpileSermon.cost)) return;
-      const t = intent.target ?? -1;
-      if (t < 0 || t >= s.world.district.length) return;
-      const district = s.world.district[t]!;
-      if (district === 0) return;
-      p.faith = sub(p.faith, fromInt(KIT.stockpileSermon.cost));
-      s.districtBuffs.push({ player: p.id, district, ticksLeft: KIT.stockpileSermon.durTicks });
-      startCooldown(p, "stockpile_sermon", KIT.stockpileSermon.cooldown);
-      return;
-    }
-
-    case "juice_cleanse": {
-      // §11.2 Radiant active 1: zero one district's dissent.
-      if (p.archetype !== "radiant") return;
-      if (onCooldown(p, "juice_cleanse") || p.usd < fromInt(KIT.juiceCleanse.cost)) return;
-      const t = intent.target ?? -1;
-      if (t < 0 || t >= s.world.district.length) return;
-      const district = s.world.district[t]!;
-      if (district === 0) return;
-      p.usd = sub(p.usd, fromInt(KIT.juiceCleanse.cost));
-      const w = s.world;
-      for (let i = 0; i < w.district.length; i++) {
-        if (w.district[i] === district && w.owner[i] === p.id) w.dissent[i] = 0;
-      }
-      startCooldown(p, "juice_cleanse", KIT.juiceCleanse.cooldown);
-      return;
-    }
-
-    case "free_retreat_weekend": {
-      // §11.2 Radiant active 2: radius-8 love-bomb, zero Heat. E1 discounts.
-      if (p.archetype !== "radiant") return;
-      const cost = mul(fromInt(KIT.retreat.cost), loveBombCostMult(p));
-      if (onCooldown(p, "retreat") || p.usd < cost) return;
-      const t = intent.target ?? -1;
-      if (t < 0 || t >= s.world.terrain.length) return;
-      p.usd = sub(p.usd, cost);
-      s.auras.push({
-        player: p.id,
-        tile: t,
-        radius: KIT.retreat.radius,
-        ticksLeft: KIT.retreat.durTicks,
-        kind: "retreat",
-      });
-      startCooldown(p, "retreat", KIT.retreat.cooldown);
-      return;
-    }
-
-    case "seminar_blitz": {
-      // §11.3 Circle active 1: the only money→manpower conversion in the game.
-      if (p.archetype !== "circle") return;
-      if (onCooldown(p, "seminar_blitz") || p.usd < fromInt(KIT.seminarBlitz.cost)) return;
-      p.usd = sub(p.usd, fromInt(KIT.seminarBlitz.cost));
-      const cap = followerCap(p, b, s);
-      p.followers = min(add(p.followers, fromInt(KIT.seminarBlitz.followers)), cap);
-      startCooldown(p, "seminar_blitz", KIT.seminarBlitz.cooldown);
-      return;
-    }
-
-    case "hostile_acquisition": {
-      // §11.3 Circle active 2: buy a neutral sub-region (≤120 tiles) outright.
-      if (p.archetype !== "circle") return;
-      if (onCooldown(p, "hostile_acquisition") || p.usd < fromInt(KIT.hostileAcquisition.cost))
-        return;
-      const t = intent.target ?? -1;
-      const w = s.world;
-      if (t < 0 || t >= w.owner.length) return;
-      if (w.owner[t] !== NEUTRAL || w.terrain[t] !== Terrain.Citizen) return;
-      p.usd = sub(p.usd, fromInt(KIT.hostileAcquisition.cost));
-      // BFS neutral tiles of the target's district, capped
-      const district = w.district[t]!;
-      const queue = [t];
-      const seen = new Set<number>([t]);
-      let bought = 0;
-      while (queue.length > 0 && bought < KIT.hostileAcquisition.maxTiles) {
-        const cur = queue.shift()!;
-        if (w.owner[cur] === NEUTRAL && w.state[cur] === TileState.Neutral) {
-          w.owner[cur] = p.id;
-          w.state[cur] = TileState.Believer;
-          bought++;
-        }
-        const x = cur % w.width;
-        const y = (cur / w.width) | 0;
-        for (const n of [
-          y > 0 ? cur - w.width : -1,
-          x > 0 ? cur - 1 : -1,
-          x < w.width - 1 ? cur + 1 : -1,
-          y < w.height - 1 ? cur + w.width : -1,
-        ]) {
-          if (n < 0 || seen.has(n)) continue;
-          if (w.district[n] !== district || w.terrain[n] !== Terrain.Citizen) continue;
-          if (w.owner[n] !== NEUTRAL) continue;
-          seen.add(n);
-          queue.push(n);
-        }
-      }
-      p.ownedTiles += bought;
-      startCooldown(p, "hostile_acquisition", KIT.hostileAcquisition.cooldown);
-      return;
-    }
-
-    case "crop_circle": {
-      // §11.4 Visitors active 1: +30 S on a district, for EVERYONE (bait/gift/trap).
-      if (p.archetype !== "visitors") return;
-      if (onCooldown(p, "crop_circle") || p.usd < fromInt(KIT.cropCircle.cost)) return;
-      const t = intent.target ?? -1;
-      if (t < 0 || t >= s.world.district.length) return;
-      const district = s.world.district[t]!;
-      if (district === 0) return;
-      p.usd = sub(p.usd, fromInt(KIT.cropCircle.cost));
-      s.cropCircles.push({ district, ticksLeft: KIT.cropCircle.durTicks });
-      startCooldown(p, "crop_circle", KIT.cropCircle.cooldown);
-      return;
-    }
-
-    case "radio_static": {
-      // §11.4 Visitors active 2: enemy Broadcast Towers offline 20s.
-      if (p.archetype !== "visitors") return;
-      if (onCooldown(p, "radio_static") || p.faith < fromInt(KIT.radioStatic.faithCost)) return;
-      const t = intent.target ?? -1;
-      if (t < 0 || t >= s.world.owner.length) return;
-      p.faith = sub(p.faith, fromInt(KIT.radioStatic.faithCost));
-      const r2 = KIT.radioStatic.radius * KIT.radioStatic.radius;
-      const w = s.world;
-      const tx = t % w.width;
-      const ty = (t / w.width) | 0;
-      for (const bd of s.buildings) {
-        if (bd.player === p.id) continue;
-        if (bd.type !== "broadcast_tower") continue;
-        const bx = bd.tile % w.width;
-        const by = (bd.tile / w.width) | 0;
-        if ((bx - tx) * (bx - tx) + (by - ty) * (by - ty) <= r2) {
-          bd.disabledTicks = Math.max(bd.disabledTicks, KIT.radioStatic.durTicks);
-        }
-      }
-      startCooldown(p, "radio_static", KIT.radioStatic.cooldown);
-      return;
-    }
-
-    case "saucer_landing": {
-      // §11.4 Visitors SIGNATURE: satellite chapel on ANY tile, even across water.
-      if (p.archetype !== "visitors") return;
-      if (onCooldown(p, "saucer_landing") || p.usd < fromInt(KIT.saucerLanding.cost)) return;
-      const t = intent.target ?? -1;
-      const w = s.world;
-      if (t < 0 || t >= w.owner.length) return;
-      if (w.terrain[t] !== Terrain.Citizen || w.owner[t] !== NEUTRAL) return;
-      if (w.state[t] !== TileState.Neutral) return;
-      p.usd = sub(p.usd, fromInt(KIT.saucerLanding.cost));
-      w.owner[t] = p.id;
-      w.state[t] = TileState.Believer;
-      p.followers = add(p.followers, fromInt(w.pop[t]!)); // the household looks up
-      p.ownedTiles++;
-      s.buildings.push({
-        id: s.nextEntityId++,
-        player: p.id,
-        type: "satellite",
-        tile: t,
-        buildTicksLeft: 0,
-        disabledTicks: 0,
-      });
-      carveDirtLane(w, t); // pilgrims need a way in
-      startCooldown(p, "saucer_landing", KIT.saucerLanding.cooldown);
-      return;
-    }
-  }
+  const found = findAbility(intent.ability);
+  if (!found || found.arch !== p.archetype) return;
+  const a = found.def;
+  const cost = a.cost(p);
+  if (onCooldown(p, a.cooldownKey)) return;
+  if (cost.usd !== undefined && p.usd < cost.usd) return;
+  if (cost.faith !== undefined && p.faith < cost.faith) return;
+  const ctx = { s, p, b, target: intent.target ?? -1 };
+  if (!a.validate(ctx)) return;
+  if (cost.usd !== undefined) p.usd = sub(p.usd, cost.usd);
+  if (cost.faith !== undefined) p.faith = sub(p.faith, cost.faith);
+  a.effect(ctx);
+  startCooldown(p, a.cooldownKey, a.cooldownTicks);
 }
 
 function applySignature(s: SimState, p: PlayerState, b: Balance): void {
-  // §11.1 Final Dawn SIGNATURE — Prophecy Countdown. Other signatures land
-  // with their archetype kits (Radiant=Labs, Circle=Ledger, Visitors=Saucer).
-  if (p.archetype !== "dawn" || p.prophecyUsed) return;
-  const minTiles = Math.min(
-    KIT.prophecy.minTiles,
-    Math.max(1, Math.floor(s.populated * KIT.prophecy.minShareOfPopulated)),
-  );
-  if (p.ownedTiles < minTiles) return;
-  p.prophecyUsed = true;
-  gainHeat(p, b, KIT.prophecy.heat);
-  s.prophecies.push({
-    player: p.id,
-    snapshotPermille: Math.floor((p.ownedTiles * 1000) / Math.max(1, s.populated)),
-    ticksLeft: KIT.prophecy.durTicks,
-  });
+  getArchetype(p.archetype).signature?.apply(s, p, b);
 }
 
 /** Apply a single validated intent. Mutating, deterministic, no I/O. */
@@ -705,9 +443,8 @@ export function applyIntent(s: SimState, intent: Intent, b: Balance): void {
   if (!p || !p.alive) return;
   switch (intent.t) {
     case IntentType.SET_STANCE:
-      if (!isEmergencyJamActive(s, p.id)) {
-        p.stance = intent.stance;
-      }
+      // Retired (STAGE1 §2): the per-mission mode replaced the global stance.
+      // Kept in the protocol for old clients; deliberately a no-op.
       break;
 
     case IntentType.CIVIC_DECREE:
@@ -784,24 +521,41 @@ export function applyIntent(s: SimState, intent: Intent, b: Balance): void {
       break;
     }
 
-    case IntentType.OPEN_FRONT: {
-      // Commit toward a target region (§4.1). Tiles are length-capped (a hostile
-      // client must not be able to ship a giant array 20×/s, §33 rate limit),
-      // deduped, sorted, and bounds-checked; eligibility (adjacency,
-      // convertibility) is re-checked every tick by resolveConversion, so stale
-      // fronts are harmless.
+    case IntentType.MISSION_SEND: {
+      // v3 missions (DESIGN_MISSIONS.md §1): commit a slice of the flock to
+      // work the town around a target. Mass is CONSERVED — it leaves the
+      // home flock now and only returns when a recall completes. The inner
+      // circle (20‰ floor) can never deploy: one bad minute must be a
+      // setback, not an elimination.
+      if (!p.spawned || !p.alive) break;
       const w = s.world;
-      const tiles = [...new Set(intent.tiles.slice(0, MAX_FRONT_TILES))]
-        .filter((t) => t >= 0 && t < w.owner.length)
-        .sort((a, z) => a - z);
-      if (tiles.length === 0) break;
-      s.fronts.push({ id: s.nextFrontId++, player: p.id, tiles });
+      const tgt = intent.tile;
+      if (tgt < 0 || tgt >= w.terrain.length) break;
+      const mode = intent.mode;
+      if (mode !== Stance.Spread && mode !== Stance.Tend && mode !== Stance.Crusade) break;
+      if (p.cohorts.length >= MAX_COHORTS) break;
+      const pm = Math.max(
+        b.missions.minSendPermille,
+        Math.min(b.missions.maxSendPermille, intent.permille | 0),
+      );
+      const deployed = p.cohorts.reduce((a, c) => add(a, c.mass), 0 as Fixed);
+      const flockTotal = add(p.followers, deployed);
+      // integer permille, rounded DOWN — the inner circle holds exactly
+      const perMille = div(flockTotal, fromInt(1000));
+      const deployCap = mul(perMille, fromInt(1000 - b.missions.innerCirclePermille));
+      const headroom = sub(deployCap, deployed);
+      const mass = min(min(mul(perMille, fromInt(pm)), headroom), p.followers);
+      if (mass <= 0) break;
+      p.followers = sub(p.followers, mass);
+      p.cohorts.push({ target: tgt, mode, mass, age: 0, recalling: false, recallAge: 0 });
       break;
     }
 
-    case IntentType.CLOSE_FRONT: {
-      const idx = s.fronts.findIndex((f) => f.id === intent.front && f.player === p.id);
-      if (idx >= 0) s.fronts.splice(idx, 1);
+    case IntentType.MISSION_RECALL: {
+      const c = p.cohorts[intent.slot | 0];
+      if (!c || c.recalling) break;
+      c.recalling = true;
+      c.recallAge = 0;
       break;
     }
 
@@ -823,7 +577,7 @@ export function applyIntent(s: SimState, intent: Intent, b: Balance): void {
       const inWilderness = claimableTerrain(w.terrain[t]!) && w.property[t] === p.id;
       if (!onOwnedLot && !inWilderness) break;
       if (s.buildings.some((bd) => bd.tile === t)) break; // 1 per tile (§6)
-      const cost = buildingCost(s, p.id, type);
+      const cost = buildingCost(s, p.id, type, computeCivicControl(s), b); // sawmill discount (§2A)
       if (p.usd < cost) break;
       p.usd = sub(p.usd, cost);
       s.buildings.push({
@@ -848,6 +602,46 @@ export function applyIntent(s: SimState, intent: Intent, b: Balance): void {
       break;
     }
 
+    case IntentType.UPGRADE_COMMUNE: {
+      // v3 money→power loop (§2): pay to raise the commune one stage (1→5),
+      // lifting the flock cap via followerCap's per-stage term. No new
+      // building — the single founding commune grows in place.
+      if (!p.spawned || p.compounds >= COMMUNE_MAX_STAGE) break;
+      let cost = compoundCost(p);
+      // Sawmill takeover (§13 rev., v3 retarget): the old "cheaper construction"
+      // applied to buildings that no longer exist — lumber-at-cost now discounts
+      // building UP the commune, the one thing you still construct.
+      if (controlsCivic(computeCivicControl(s), Lot.Sawmill, p.id)) cost = mul(cost, b.civics.sawmillBuildMult);
+      if (p.usd < cost) break;
+      p.usd = sub(p.usd, cost);
+      p.compounds++;
+      break;
+    }
+
+    case IntentType.BUY_RECRUITS: {
+      // Prosperity Gospel (§2C): a recruitment drive — cash buys flock. Adds a
+      // fixed ‰ of the CURRENT flock, so the batch stays relevant as you grow
+      // and its cost rises with you (a save-then-spike lever). The price is a
+      // flat usd/recruit however you slice it, so no compounding exploit.
+      // Universal, but Circle's income edge funds it hardest — this is what
+      // finally makes `income` a live stat. Its instant-burst cousin is the
+      // Circle-only seminar_blitz ability.
+      if (!p.spawned) break;
+      const cap = followerCap(p, b, s);
+      const room = sub(cap, p.followers);
+      if (room <= 0) break; // already at the cap
+      // batch = ‰ of current flock, but never past the cap — and you only pay
+      // for what you actually get (no charging for clamped-off recruits).
+      let gained = div(mul(p.followers, fromInt(b.economy.recruitDrivePermille)), fromInt(1000));
+      if (gained <= 0) break;
+      if (gained > room) gained = room;
+      const cost = mul(gained, b.economy.recruitCostPer);
+      if (p.usd < cost) break;
+      p.usd = sub(p.usd, cost);
+      p.followers = add(p.followers, gained);
+      break;
+    }
+
     case IntentType.CANCEL_BUILD: {
       // 50% refund while still under construction (§6).
       const idx = s.buildings.findIndex(
@@ -856,7 +650,7 @@ export function applyIntent(s: SimState, intent: Intent, b: Balance): void {
       if (idx < 0) break;
       const bd = s.buildings[idx]!;
       // refund half of the *current* price tier — close enough, and simple
-      const refund = div(buildingCost(s, p.id, bd.type), fromInt(2));
+      const refund = div(buildingCost(s, p.id, bd.type, computeCivicControl(s), b), fromInt(2));
       if (bd.type === "compound" && p.compounds > 0) p.compounds--;
       s.buildings.splice(idx, 1);
       p.usd = add(p.usd, refund);
@@ -904,20 +698,19 @@ export function applyIntent(s: SimState, intent: Intent, b: Balance): void {
     }
 
     case IntentType.STRIKE: {
-      // §8: needs a free Broadcast Tower; pay up front; charge → warn → land.
+      // §8 strikes are a pure MONEY op in v3 (broadcast_tower cut, M3.3b) —
+      // no structure gate; pay up front; charge → warn → land.
       const def = STRIKE_DEFS[intent.strike];
       if (!def) break;
-      if (!freeBroadcastTower(s, p.id)) break;
       const w = s.world;
       const t = intent.target;
       if (t < 0 || t >= w.owner.length) break;
       const victim = w.owner[t]!;
       if (victim === NEUTRAL || victim === p.id) break;
-      let cost = mul(fromInt(def.cost), strikeCostMult(p)); // I3 −20% (§10)
-      if (ownsLandmark(s, p.id, Landmark.RadioTower)) cost = mul(cost, fp(0.7)); // §12
-      if (p.usd < cost) break;
+      if (strikeBlocker(s, p, t, intent.strike) !== "") break;
+      p.usd = sub(p.usd, strikeCost(s, p, intent.strike)); // (was never charged)
       const isDeepSpaceTransmitter =
-        p.archetype === "visitors" && ownsLandmark(s, p.id, Landmark.RadioTower);
+        getArchetype(p.archetype).passives.hidesStrikeWarning?.(s, p) ?? false;
       s.strikes.push({
         id: s.nextEntityId++,
         player: p.id,
@@ -996,9 +789,11 @@ function stepEconomy(s: SimState, b: Balance): void {
   const w = s.world;
   const civics = computeCivicControl(s); // key-building takeovers (§13 rev.)
 
-  // Per-owner aggregates over owned tiles: income coeff sum + dissent sum.
+  // Per-owner aggregates over owned tiles: income coeff sum + dissent sum +
+  // believer souls (v3: converted townsfolk recruit into the mobile flock).
   const incomeSum = new Map<PlayerId, Fixed>();
   const dissentSum = new Map<PlayerId, Fixed>();
+  const believerPop = new Map<PlayerId, Fixed>();
   for (let t = 0; t < w.owner.length; t++) {
     const o = w.owner[t]!;
     if (o === NEUTRAL || w.state[t] !== TileState.Believer) continue;
@@ -1008,28 +803,33 @@ function stepEconomy(s: SimState, b: Balance): void {
       (w.flags[t]! & TileFlag.Downline) !== 0 ? mul(dc.income, fromInt(2)) : dc.income;
     incomeSum.set(o, add(incomeSum.get(o) ?? 0, income));
     dissentSum.set(o, add(dissentSum.get(o) ?? 0, w.dissent[t]!));
+    believerPop.set(o, add(believerPop.get(o) ?? 0, fromInt(w.pop[t]!)));
   }
 
   for (const p of s.players) {
     if (!p.alive) continue;
 
-    // Followers — logistic growth (§3.1). faith_growth_mod = 0.8 + Faith/250.
+    // Followers grow from BELIEVERS (v3 §4): converted townsfolk recruit into
+    // the mobile flock — territory feeds the army, closing the core loop.
+    // recruits/s = (base + believerPop × per-believer) × faith/stance/civic mods.
+    // A small base keeps a young cult trickling before it holds ground; the cap
+    // (raised by commune stages, M3.3) is the ceiling.
     const cap = followerCap(p, b, s);
-    if (cap > 0) {
-      let faithGrowthMod = add(fp(0.8), div(p.faith, fromInt(250)));
-      // stance growth side-effects (§5): Tend +10%, CRUSADE −20%
-      if (p.stance === Stance.Tend) faithGrowthMod = mul(faithGrowthMod, fp(1.1));
-      else if (p.stance === Stance.Crusade) faithGrowthMod = mul(faithGrowthMod, fp(0.8));
-      const utilization = sub(ONE, div(p.followers, cap)); // (1 − F/cap)
-      let dF = mul(b.economy.followerGrowth, mul(p.followers, utilization));
-      dF = mul(dF, faithGrowthMod);
-      if (b.archetypes[p.archetype]?.growth) {
-        dF = mul(dF, b.archetypes[p.archetype].growth);
+    if (cap > 0 && p.followers < cap) {
+      let mod = add(fp(0.8), div(p.faith, fromInt(250))); // faith_growth_mod
+      if (p.stance === Stance.Tend) mod = mul(mod, fp(1.1)); // nurture recruits better
+      else if (p.stance === Stance.Crusade) mod = mul(mod, fp(0.8));
+      if (archCoeffs(b, p.archetype).growth) {
+        mod = mul(mod, archCoeffs(b, p.archetype).growth);
       }
       // High-school takeover: youth recruitment feeds the flock (§13 rev.)
-      if (controlsCivic(civics, Lot.HighSchool, p.id)) dF = mul(dF, b.civics.highschoolGrowthMult);
-      if (computeMonopolies(s, p.id).indoctrinationPipeline) dF = mul(dF, fp(1.20));
-      p.followers = clamp(add(p.followers, mul(dF, dt)), 0, cap);
+      if (controlsCivic(civics, Lot.HighSchool, p.id)) mod = mul(mod, b.civics.highschoolGrowthMult);
+      if (computeMonopolies(s, p.id).indoctrinationPipeline) mod = mul(mod, fp(1.20));
+      const recruits = add(
+        b.economy.baseRecruitsPerS,
+        mul(believerPop.get(p.id) ?? 0, b.economy.recruitsPerBeliever),
+      );
+      p.followers = clamp(add(p.followers, mul(mul(recruits, mod), dt)), 0, cap);
     }
 
     // Tithe (§3.2): $/sec = tithe_per_follower × F × income_avg × dissent_tax,
@@ -1043,8 +843,20 @@ function stepEconomy(s: SimState, b: Balance): void {
       dissentTax = sub(ONE, div(avgDissent, fromInt(200))); // 100 avg = half income
     }
     let tithePerSec = mul(mul(b.economy.tithePerFollower, p.followers), mul(incomeAvg, dissentTax));
-    tithePerSec = mul(tithePerSec, b.archetypes[p.archetype].income);
+    // Archetype territory income (e.g. Circle Franchise Fees): $/s per
+    // income-weighted believer tile — money that scales with land, not flock.
+    const feeRate = getArchetype(p.archetype).passives.territoryIncome;
+    if (feeRate) tithePerSec = add(tithePerSec, mul(mul(incomeSum.get(p.id) ?? 0, feeRate), dissentTax));
+    tithePerSec = mul(tithePerSec, archCoeffs(b, p.archetype).income);
     tithePerSec = mul(tithePerSec, titheMult(p)); // B1 Tithing Drill +10% (§10)
+    // Economic anchor (§2A mechanics, B1.4.20): whoever holds the town's
+    // granary — or the cannery that replaced it on the coast — skims the
+    // harvest money. One anchor per town; the mult applies once.
+    if (
+      controlsCivic(civics, Lot.GrainElevator, p.id) ||
+      controlsCivic(civics, Lot.Cannery, p.id)
+    )
+      tithePerSec = mul(tithePerSec, b.civics.anchorTitheMult);
     const tithe = mul(tithePerSec, dt);
     p.usd = add(p.usd, tithe);
     p.usdEarned = add(p.usdEarned, tithe);
@@ -1071,9 +883,9 @@ function stepEconomy(s: SimState, b: Balance): void {
 
     // Heat decay (§3.5) base −0.08/s; Town Hall extra −0.25/s (§12); crusade gain.
     let heat = p.heat;
-    if (p.stance === Stance.Crusade)
-      heat = add(heat, mul(mul(b.stances.crusade.heatPerS, b.archetypes[p.archetype].heat), dt));
     heat = sub(heat, mul(b.heat.decay, dt));
+    // I4 Official Story: the story holds while you're under the radar — 2× decay below 60.
+    if (hasDoctrine(p, "I4") && heat < b.heat.cpaHarass) heat = sub(heat, mul(b.heat.decay, dt));
     if (p.atonementTicks > 0) heat = sub(heat, mul(fp(0.35), dt)); // Apology vents Heat fast!
     if (ownsLandmark(s, p.id, Landmark.TownHall)) heat = sub(heat, mul(fp(0.25), dt));
     // Sheriff takeover: complaints get lost in the filing (§13 rev.)
@@ -1121,21 +933,32 @@ function stepEffects(s: SimState, b: Balance): void {
     if (p.judasTicks > 0) p.judasTicks--;
     if (p.retentionDebuffTicks > 0) p.retentionDebuffTicks--;
 
-    // Doctrinal victory progress (§18, Revelation): Faith pinned at 100 for
-    // 90s, then a 20s uninterrupted channel at an owned Megachurch.
-    if (s.revelationMode && p.alive) {
-      if (p.faith >= HUNDRED) {
-        p.faithHoldTicks++;
-        if (p.faithHoldTicks >= 90 * TPS && ownsLandmark(s, p.id, Landmark.Megachurch)) {
-          p.channelTicks++;
-        } else {
-          p.channelTicks = 0; // megachurch lost mid-channel = interrupted
+    // Cohort upkeep (v3 missions, M2 travel model): the sortie marches out
+    // at marchTicksPerTile from the nearest compound, works on arrival, and
+    // walks the same distance home on recall — friction both ways. Crusade
+    // cohorts pay attrition and stoke Heat while deployed.
+    if (p.cohorts.length > 0) {
+      const attr = fp(1 - b.missions.crusadeAttritionPermillePerS / 1000 / 10); // per tick
+      for (const c of p.cohorts) {
+        c.age++;
+        if (c.recalling) c.recallAge++;
+        if (!c.recalling && cohortArrived(s, p, c, b)) {
+          if (c.mode === Stance.Crusade) {
+            c.mass = mul(c.mass, attr); // the hard sell wears the flock down
+          } else if (c.mode === Stance.Tend) {
+            // Tend gathers the faithful (v3 §2): a working tend mission is the
+            // Faith engine — this is how you bank conviction to buy doctrine.
+            p.faith = clamp(add(p.faith, mul(b.missions.tendFaithPerS, b.dt)), 0, HUNDRED);
+          }
         }
-      } else {
-        p.faithHoldTicks = 0;
-        p.channelTicks = 0;
+      }
+      const done = (c: Cohort): boolean => c.recalling && c.recallAge >= cohortTransit(s, p, c, b);
+      if (p.cohorts.some(done)) {
+        for (const c of p.cohorts) if (done(c)) p.followers = add(p.followers, c.mass);
+        p.cohorts = p.cohorts.filter((c) => !done(c));
       }
     }
+
     for (const key of Object.keys(p.cooldowns).sort()) {
       const left = p.cooldowns[key]! - 1;
       if (left <= 0) delete p.cooldowns[key];
@@ -1270,79 +1093,35 @@ function checkVictory(s: SimState, b: Balance): void {
   }
 
   const contenders = s.players.filter((p) => p.alive && p.spawned);
+  const stats = refreshVictoryStats(s);
 
-  // (1) Domination threshold — measured in SOULS, not acreage. The game is
-  // about converting the town; tile share is only the fallback for popless
-  // test worlds.
-  if (s.totalPop > 0) {
-    const w = s.world;
-    const popByOwner = new Map<PlayerId, number>();
-    for (let t = 0; t < w.owner.length; t++) {
-      const o = w.owner[t]!;
-      if (o === NEUTRAL || w.state[t] !== TileState.Believer) continue;
-      popByOwner.set(o, (popByOwner.get(o) ?? 0) + w.pop[t]!);
-    }
-    for (const p of contenders) {
-      if ((popByOwner.get(p.id) ?? 0) * 1000 >= s.totalPop * s.dominationPermille) {
-        s.status = MatchStatus.Ended;
-        s.winner = p.id;
-        return;
-      }
-    }
-  } else {
-    for (const p of contenders) {
-      if (s.populated > 0 && p.ownedTiles * 1000 >= s.populated * s.dominationPermille) {
-        s.status = MatchStatus.Ended;
-        s.winner = p.id;
-        return;
-      }
-    }
-  }
-
-  // (2) Last cult standing (only meaningful once the lobby had rivals).
+  // Last cult standing (only meaningful once the lobby had rivals).
   if (contenders.length === 1 && s.players.filter((p) => p.spawned).length >= 2) {
     s.status = MatchStatus.Ended;
     s.winner = contenders[0]!.id;
+    s.winPath = "last_standing";
     return;
   }
 
-  // (3) [Revelation] Doctrinal: Faith 100 held 90s + 20s Megachurch channel (§18).
-  if (s.revelationMode) {
-    for (const p of contenders) {
-      if (p.channelTicks >= 20 * 10) {
-        s.status = MatchStatus.Ended;
-        s.winner = p.id;
-        return;
-      }
-    }
-  }
+  // Every other win is an Ascension: a met path held through a public
+  // countdown (victory.ts). Domination, Revelation and each cult's own path.
+  if (stepAscension(s, b, contenders, stats)) return;
 
-  // (4) [Revelation] Economic: The Ledger — bank ≥ map target (§11.3/§18).
-  if (s.revelationMode) {
-    const target = fromInt(1_200_000); // S-map target; M/L wire in with map sizes
-    for (const p of contenders) {
-      if (p.archetype === "circle" && p.usd >= target) {
-        s.status = MatchStatus.Ended;
-        s.winner = p.id;
-        return;
-      }
-    }
-  }
-
-  // (5) Timer expiry → highest tiles, then $ earned, then Faith (§1).
+  // Timer expiry → most souls, then cash, then Faith.
   if (s.timerTicks > 0 && s.tick >= s.timerTicks && contenders.length > 0) {
     let best = contenders[0]!;
     for (const p of contenders.slice(1)) {
       if (
-        p.ownedTiles > best.ownedTiles ||
-        (p.ownedTiles === best.ownedTiles && p.usd > best.usd) ||
-        (p.ownedTiles === best.ownedTiles && p.usd === best.usd && p.faith > best.faith)
+        p.soulsPermille > best.soulsPermille ||
+        (p.soulsPermille === best.soulsPermille && p.usd > best.usd) ||
+        (p.soulsPermille === best.soulsPermille && p.usd === best.usd && p.faith > best.faith)
       ) {
         best = p;
       }
     }
     s.status = MatchStatus.Ended;
     s.winner = best.id;
+    s.winPath = "timer";
   }
 }
 

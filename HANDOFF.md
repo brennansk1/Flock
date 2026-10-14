@@ -1,211 +1,196 @@
-# FLOCK — Engineering Handoff
+# FLOCK — Brownfield AI Handoff & Architecture Briefing
 
-_Last updated: 2026-06-13. This document is the single onboarding entry point for
-anyone picking up FLOCK. Read it top to bottom once; then keep
-[DESIGN.md](./DESIGN.md) (the spec), [DEPLOY.md](./DEPLOY.md) (ops), and
-[README.md](./README.md) (quickstart) open as references._
+> **Target Agent**: Claude Opus 5.5 (Claude Code Sandbox Environment)  
+> **Budget / Credit**: $250 allocated credit pool  
+> **Repository**: [brennansk1/Flock](https://github.com/brennansk1/Flock)  
+> **Role**: Lead Systems Architect & Game Director  
+> **Verification Gate**: `npm test` (135 tests + 75-world mapgen audit passing with 0 violations)
 
 ---
 
-## 1. What FLOCK is
+## 1. Executive Mission Briefing
 
-A browser-first competitive multiplayer **cult-builder** — `.io` territory
-strategy × Cult of the Lamb. You convert a realistic pixel small town
-("Mundane Falls, USA") rather than conquering it: hearts, pamphlets, and
-spirals, never violence. 8–20 players per match, ~10–20 minute games,
-asymmetric archetypes, lockstep-deterministic simulation.
+You are stepping into a working, highly tested TypeScript monorepo (~20k LOC) implementing **Flock**, a browser-first competitive multiplayer (.io) cult-building strategy game combining the territory tension of *OpenFront* / *Galcon* with the asymmetric faction flavor of *Cult of the Lamb*.
 
-The whole thing rides on **one invariant**: *same seed + same intents ⇒ same
-StateHash*, bit-identically on every client and the server. Everything else is
-built on top of that contract. **If you break it, the game is broken** — see §4.
+Your mission is to transition this brownfield codebase into a **commercially successful, highly marketable, and genuinely sellable indie game**. The game must be designed not just to function, but to sell: it needs spectator-friendly visual juice, intuitive UI/UX, deep retention loops, and an extensible architecture ready for live-ops monetization (cosmetic skins for vehicles/buildings/cultists and modular pluggable new cult archetypes).
 
-## 2. Current status (honest)
+---
 
-The **game logic, netcode, hosted-service layer, meta systems, and client UX are
-implemented and tested**. What remains before a public launch is **external
-infrastructure to provision and authored content (art/audio)** — not code. See
-§8 for the precise line.
+## 2. Core Mandates & Creative Authority
 
-- **Tests:** sim 60, server 10 (incl. a live-WebSocket lockstep smoke test) — all green.
-- **Build:** `npm run build` clean across all three packages.
-- **Verified live this cycle:** 12 concurrent WS clients fuzzing 1,600+ intents → **0 desyncs**; HTTP API; persistence; bot-league.
-- **~12k LOC** of TypeScript across sim/server/client.
+### 2.1 Total Creative Freedom & Autonomous Decision-Making Authority
+The user has granted you **complete creative freedom, extensive refactoring/redesign authority, and full decision-making responsibility**:
+* **Docs are a Launchpad, Not Rigid Rails**: Treat the existing planning documents in `docs/` as an informed baseline. You possess frontier reasoning capabilities across large codebases and are expected to exercise your own architectural judgment.
+* **Full Permission to Redesign Everything**: You have full license to redesign the **strategy menus, HUD layout, player input models, economic balance formulas, civics, combat systems, or underlying engine architecture** if you identify a more fun, elegant, or immersive solution. Do not feel bound by legacy UI components or current balance numbers.
+* **Make All Decisions Yourself (Do NOT Save Tasks or Choices for the User)**: You are the Game Director and Lead Architect. Make all technical, balance, architectural, and design decisions yourself. Do NOT ask the user to choose between options, do NOT present multiple-choice questionnaires, and do NOT leave design tasks pending for user decisions. Evaluate the tradeoffs, decide on the best approach, and implement it. The milestone checkpoint pauses are strictly for the user to monitor token/dollar spend and approve proceeding to the next stage, not to make micro-decisions on implementation details that you should decide.
 
-## 3. Repository layout
+### 2.2 The Five Non-Negotiable Anchors
+Whatever you refactor or redesign, you must honor five foundational pillars:
+1. **RTS Gameplay on an Authentic 1980s Town Map with Multiple Map Archetypes**: The core game MUST remain a real-time strategy (RTS) game played on a living map of an American small town in that authentic 1980s aesthetic (*Stranger Things* / Hawkins, Indiana era, ~1983–1986). It must support **multiple maps** (diverse procedural town archetypes, varied regional geographies, topographies, and layouts—such as farming communities, lakeside towns, desert settlements, mountain valleys, and coastal fishing ports—all sharing that cohesive 1980s small-town visual language).
+2. **The 1980s American Small-Town Aesthetic**: The game world must authentically evoke the nostalgic, slightly eerie charm of 1980s Americana with recognizable architecture, an 80s vehicle fleet, authentic natural environments, rich variants, and dynamic micro-animations.
+3. **Best Game Design Principles**: Deep strategic decision trees, asymmetric faction identities, anti-snowballing/anti-stalemate mechanics, transparent telegraphing, high replayability, and strong retention.
+4. **Token-Efficient Execution**: Programmatic bulk sprite authoring in code, Dual-Harness Visual QA (Studio Blank Slate vs. In-Situ Map Crops), and pausing at stage checkpoints.
+5. **100% Lockstep Determinism**: All simulation math must remain bit-identical across clients (zero floating-point divergence, zero unseeded PRNG, zero network desyncs). `npm test` must always pass cleanly.
 
-TypeScript monorepo, npm workspaces. Node 22.
+### 2.3 Subagent Concurrency & Delegation Guardrails
+When delegating tasks to subagents in Claude Code:
+* **Max 2 Concurrent Subagents**: You may spawn a **maximum of 2 subagents at any given time**. Never exceed 2 active subagents simultaneously to maintain token budget control and oversight.
+* **Strict Domain Separation (Zero File Overlap)**: Subagents must operate on completely distinct files, packages, and architectural surfaces (e.g., Subagent 1 on `packages/sim/` and Subagent 2 on `packages/client/`). They must **never** edit or write to the same files concurrently, eliminating race conditions and merge conflicts.
+* **No Recursive Delegation**: Subagents must be explicitly instructed **never to spawn subagents of their own**. All delegation is strictly single-tier (Parent Lead Agent $\to$ Worker Subagent).
+
+### 2.4 Commercial Viability & Extensible Monetization Architecture (Marketability, Skins & New Cults)
+Flock is being built not as a raw tech demo, but as a **commercially viable, highly marketable, sellable indie strategy title** that can sustain long-term player interest and commercial expansion:
+* **Marketable & Streamable Gameplay**:
+  * The game must have immediate visual punch and "spectator clarity" (crisp animations, recognizable 1980s town elements, dramatic front clashes, viral recap cards).
+  * Onboarding and UX must be friction-free: an intuitive strategy menu and responsive HUD that makes complex asymmetric RTS mechanics instantly understandable to new players.
+* **Pluggable Cosmetic Skin Architecture**:
+  * The architecture must cleanly decouple cosmetic visual identifiers (vehicle liveries, van decals, commune compound architecture, cultist attire/robes, flag banners) from simulation logic.
+  * Cosmetics must be cosmetic-only: they must never alter simulation math or introduce network desyncs. The client renderer should accept player skin loadouts seamlessly.
+* **Modular Cult Archetype Registry (DLC & Expansion Ready)**:
+  * Do NOT hardcode cult behaviors in monolithic switch-statements across the codebase.
+  * Structure cult archetypes around a modular registry interface (`ArchetypeDefinition`: passives, signature rituals/abilities, doctrine affinity trees, and visual themes).
+  * This ensures the codebase can easily scale post-launch by dropping in new cult archetypes (expansions, seasonal DLC, themed updates) with zero friction.
+
+### 2.5 Token Optimization & Context Hygiene Protocol
+Claude Code resends conversation history (including tool outputs and file reads) on every turn. To preserve the $250 credit pool and maintain peak reasoning:
+* **Context Compaction at Stage Boundaries**: At each milestone boundary, after verifying `npm test` and outputting the Milestone Checkpoint Card, recommend running `/compact` or starting fresh before the next stage. This sheds accumulated terminal outputs and file views, resetting context costs while preserving architectural continuity.
+* **Surgical Tool Outputs (No Noisy Log Dumps)**: Avoid piping huge raw logs or entire files into conversation. Use targeted commands and slice viewings.
+* **Subagent Context Shielding**: When deep exploratory auditing is needed across many files or benchmark runs, delegate to a worker subagent (max 2 concurrently) so the raw file reads stay isolated in the subagent's sandbox without bloating your main session context.
+
+### 2.6 Leveraging Frontier Reasoning: The "Plan -> Self-Critique -> Execute" Workflow
+Opus achieves its highest engineering output when applying deliberate reasoning before executing code:
+* **Pre-Implementation Self-Critique**: Before modifying code for major refactors (menus, economy, combat, or worldgen), spend deliberate thinking time critiquing your plan:
+  * *Does this introduce any hidden floating-point math or unseeded PRNG that breaks lockstep determinism?*
+  * *Is this UI/HUD change intuitive for a first-time player, or does it add unnecessary cognitive friction?*
+  * *Does this mechanic risk runaway snowballing or stalemate in late-game matches?*
+  * *Is this implementation extensible for future cosmetics or cult DLC?*
+* **Formal Structural Thinking**: Frame internal designs with structured XML tags (`<architecture_decision>`, `<tradeoffs_evaluated>`, `<risk_mitigation>`).
+* **Decisive Autonomous Execution**: Once your self-critique confirms the design is sound, make code changes boldly, run `npm test` to verify, and advance the stage.
+
+---
+
+## 3. Strategic Priority Hierarchy
 
 ```
-packages/sim     @flock/sim    Deterministic core — runs identically client & server
-packages/server  @flock/server Node match host: lobby, workers, persistence, auth, API
-packages/client  @flock/client Vite + PixiJS web client: renderer, prediction, HUD, menus
-tools/                         Headless dev/QA scripts (screenshots, balance, soak, sprites)
-DESIGN.md  DEPLOY.md  README.md  HANDOFF.md(this)  balance.json(tuning, hot-patchable)
++-------------------------------------------------------------------------+
+| PRIORITY #1: Strategy, Menus & Core Gameplay Overhaul                   |
+| - Deeper strategic decision trees & asymmetric faction identities       |
+| - Modernized, intuitive strategy menu & reactive HUD controls           |
+| - Robust anti-snowballing, comeback mechanics & clear win conditions     |
+| - Seamless player onboarding & high retention loops                     |
++-------------------------------------------------------------------------+
+                                    |
+                                    v
++-------------------------------------------------------------------------+
+| PRIORITY #2: 1980s Small-Town Worldgen, Bulk Sprites & Living Town      |
+| - Hawkins-era Americana (~1983-1986) morphology & recognizable landmarks |
+| - Strict Urban Placement Grammar (frontage, driveways, zoning buffers)  |
+| - Visual Variants per building & vehicle (no clone-stamp uniformity)    |
+| - Deterministic Dynamic Micro-Animations (rivers, lights, smoke, bikes) |
++-------------------------------------------------------------------------+
 ```
 
-### `@flock/sim` (the deterministic core — fixed-point only, no floats in sim scope)
-| File | Role |
-|---|---|
-| `fixed.ts` | Q16.16 fixed-point math (the only number type in sim scope) |
-| `rng.ts` | Seeded xoshiro RNG (all randomness flows through the turn stream) |
-| `types.ts` | `SimState`, `World` (struct-of-arrays), enums (Terrain/Lot/Stance/…) |
-| `intents.ts` | The Intent protocol (discriminated union) + `Turn` |
-| `sim.ts` | `createSim`/`step`/`applyIntent`, the per-tick loop, `KIT` (ability table) |
-| `conversion.ts` | The combat system (§4): fronts, pressure, flips, attrition |
-| `hash.ts` | `hashState` — the lockstep StateHash (the CI gate) |
-| `snapshot.ts` | `toSnapshot`/`fromSnapshot` — join/resync codec |
-| `mapgen.ts` | Seeded map: districts, grid roads, river, farms, landmarks, naming |
-| `gridRoads.ts` | Axis-aligned street-grid road network (blocks, named streets, cul-de-sacs) |
-| `civics.ts` | Key-building takeover engine (police/schools/grocery/church effects) |
-| `names.ts` `nameData.ts` | World naming: faker-generated corpora + seeded/pure pickers |
-| `buildings.ts` `doctrine.ts` `diplomacy.ts` `entities.ts` `player.ts` | M1 systems (§6/§10/§16/§7) |
-| `bots.ts` | 3 bot tiers (Drifter/Sect/Established Church) — pure, unit-tested |
-| `recap.ts` `recapCard.ts` | Match recap data + the 1080×1350 share-card renderer (§25) |
-| `ranked.ts` `progression.ts` `daily.ts` `economy.ts` | META (outside lockstep): Glicko-2, XP/relics, Daily Prophecy, store |
-| `palette.ts` `townRender.ts` | Shared pixel renderer (SimState → RGBA), identical on client & headless |
+---
 
-### `@flock/server`
-| File | Role |
-|---|---|
-| `index.ts` | Entry: HTTP (`/health` + REST API) + WS upgrade + auth handshake |
-| `lobby.ts` | **LobbyDirector**: many concurrent matches, routing, `persistMatch` |
-| `matchWorker.ts` | One match's authoritative 10 Hz lockstep loop |
-| `store.ts` | `Store` interface + `InMemoryStore` + durable `JsonFileStore` |
-| `auth.ts` | Guest identities + HMAC sessions + pluggable `AuthProvider` |
-| `moderation.ts` | Leetspeak-aware name/chat filter |
-| `congregations.ts` | Clans (§24): membership + weekly best-10 ladder |
-| `metrics.ts` | Structured JSON logging + counters/gauges |
-| `protocol.ts` | Wire message types (client↔server) |
+## 4. Key Engineering & Design Specs
 
-### `@flock/client`
-| File | Role |
-|---|---|
-| `main.ts` | Boot, PixiJS app, input wiring, founding hints, FTUE, recap overlay |
-| `net.ts` | Connect, **client-side prediction + reconciliation**, resync, auth/token |
-| `render.ts` | `MapRenderer`: camera (zoom→LOD, pan), fog, screen↔tile, minimap camera API |
-| `hud.ts` | The full in-match HUD (§27): rails, costs, minimap, drama feed, help |
-| `menu.ts` | Lobby menu consuming the REST API (play/leaderboard/store/clans/profile/settings) |
-| `settings.ts` | Accessibility prefs (reduced-motion/mute/colorblind), persisted |
+Before modifying code, familiarize yourself with the canonical documentation suite:
 
-## 4. THE DETERMINISM CONTRACT — read before touching `@flock/sim`
+| Document | Path | Core Contents |
+| :--- | :--- | :--- |
+| **Engineering Constitution** | [`CLAUDE.md`](./CLAUDE.md) | Governing rules, creative freedom mandate, dual-QA spriting, cost checkpoint protocol. |
+| **Master Asset Catalog** | [`docs/ASSETS.md`](./docs/ASSETS.md) | Complete inventory of all 121 assets, animation modes, frames, 1980s visual signatures, variants, and code links. |
+| **Procedural Worldgen** | [`docs/WORLDGEN.md`](./docs/WORLDGEN.md) | 10-stage mapgen pipeline, town archetypes, seasonal palettes, §6.4 Urban Placement Grammar, §8.2 Variants, §8.3 Micro-Animations. |
+| **Master Game Design** | [`docs/GAME_DESIGN.md`](./docs/GAME_DESIGN.md) | Ground-truth economic formulas, 4 cult archetypes, BITE doctrines, combat front resolution, Heat escalation. |
+| **SDD & Modernization Roadmap** | [`docs/ROADMAP_SDD.md`](./docs/ROADMAP_SDD.md) | 5-stage budgeted roadmap, $250 credit allocation, REASONS canvas, §4 Bulk Sprite & Dual-QA strategy. |
+| **Systems Architecture** | [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) | Monorepo layout, 100ms lockstep wire protocol, dual-sim prediction, Glicko-2 ratings, developer tooling harness. |
+| **Curated Visual Audit** | [`docs/VISUAL_AUDIT.md`](./docs/VISUAL_AUDIT.md) | Benchmark visual gallery across archetypes, seasons, and day/night cycles. |
 
-The sim must produce an identical `StateHash` from the same seed + intents on
-every machine and browser. Therefore, inside **sim scope** (anything that runs
-in `step()`/`applyIntent()` and feeds `hashState`):
+---
 
-- **No floats.** All math is Q16.16 via `fixed.ts`. (Mapgen and `townRender`/
-  `recapCard` are the *cosmetic boundary* — they use floats and are **not**
-  hashed. Don't import them into the tick loop.)
-- **No `Math.random` / `Date` / wall-clock.** Randomness only via the seeded
-  RNG, fed through `Turn.seedSlice`.
-- **Iterate deterministically.** Sorted keys where order affects results
-  (hashing, flips). `ProgressMap` is keyed `tile*1024 + attackerId`.
-- **META modules are exempt** (`ranked/progression/daily/economy`): they score
-  *finished* matches, never run in the loop, so plain float arithmetic is fine.
+## 5. Token-Efficient Bulk Sprite Authoring & Dual-QA Pipeline
 
-The gate is `packages/sim/test/determinism.test.ts` + the server
-`lockstep.smoke.ts`. CI runs them on every push. **If they fail, stop and fix
-before anything else.** The fastest way to introduce a desync is a stray float
-or unsorted iteration in the tick path.
+To generate and polish large asset suites with high visual quality while conserving your token budget:
 
-## 5. How to run, test, build
+1. **Declarative Programmatic Authoring (No Conversational Dumps)**:
+   * Write compact character matrices and procedural rendering logic directly in [`packages/sim/src/townRender.ts`](./packages/sim/src/townRender.ts) and [`packages/sim/src/palette.ts`](./packages/sim/src/palette.ts).
+   * **Never dump large raw ASCII or coordinate blocks into chat context.** Keep code edits surgical and modular.
+2. **Dual-Harness Visual QA**:
+   * **Harness A (Studio View / Blank Slate)**: Run `node tools/spritesheet.mjs` or `node tools/generate_catalog_inspection.mjs`. Renders new assets in an isolated grid on dark slate (`#181512`) at $8\times$ zoom with 1px grid guides. Inspect via your image viewing tool to verify silhouette readability, contrast, and 1px panel seams in isolation.
+   * **Harness B (In-Situ View / Procedural Map Context)**: Run `node tools/generate_curated_suite.mjs` on benchmark seeds (11, 42, 77) across seasons. Crop focal zones (Downtown Square, High School Campus, Suburban Cul-de-Sacs, Rail Siding, Waterways) to verify that buildings sit naturally on roads, align with sidewalks/curb cuts, respect zoning buffers, and blend into seasonal foliage.
+3. **Automated Fast-Fail Invariant Linting**:
+   * Run `npm test` to verify pixel dimensions, palette color mappings, and physical setback rules (no non-exempt structures on water, 6-tile zoning buffer) before image generation, preventing token waste on buggy iterations.
+4. **Themed Batch Execution**:
+   * Execute in themed batches (Vehicles $\to$ Downtown/Commercial $\to$ Residential/School $\to$ Industrial/Rural $\to$ Hydrology/Foliage).
 
-```bash
-npm install
-npm run build                 # all three packages
-npm test                      # determinism gate + sim(60) + server(10)
+---
 
-# dev
-FLOCK_SECRET=dev-secret-please-change npm run dev:server
-npm run dev:client            # http://localhost:5173  (open two tabs for multiplayer)
+## 6. Developer Tooling Suite (CLI Scripts in `tools/`)
 
-# production-shaped stack
-FLOCK_SECRET=$(openssl rand -hex 24) docker compose -f deploy/docker-compose.yml up --build
-```
+You have access to a rich suite of headless Node.js CLI tools in `tools/`, and **full permission to create new custom tools in `tools/` as you go**:
 
-Per-package: `npm run build -w @flock/sim` / `-w @flock/server` / `-w @flock/client`.
+| Tool Script | Execution Command | Purpose |
+| :--- | :--- | :--- |
+| `tools/audit_mapgen.mjs` | `node tools/audit_mapgen.mjs` | 75-world automated invariant audit across all 5 archetypes. |
+| `tools/generate_curated_suite.mjs` | `node tools/generate_curated_suite.mjs` | Generates 17 high-res benchmark PNG images into `docs/assets/curated/`. |
+| `tools/generate_catalog_inspection.mjs` | `node tools/generate_catalog_inspection.mjs` | Dual-view studio (blank slate) and in-game map crop for catalog assets. |
+| `tools/spritesheet.mjs` | `node tools/spritesheet.mjs` | Renders live building, lot, and landmark sprites on isolated dark slate. |
+| `tools/vehicle_spritesheet.mjs` | `node tools/vehicle_spritesheet.mjs` | Renders vehicle silhouettes, directions, and color variants. |
+| `tools/botleague.mjs` | `node tools/botleague.mjs 200` | Headless 200+ match tournament runner testing win-rate parity. |
+| `tools/soak.mjs` | `node tools/soak.mjs 20 15` | Headless 20-client lockstep stress tester detecting desyncs. |
+| `tools/mapmetrics.mjs` | `node tools/mapmetrics.mjs farm 96` | Computes Shannon entropy of zoning, road connectivity ratios, parcel metrics. |
+| `tools/create_animated_town_gif.mjs` | `node tools/create_animated_town_gif.mjs` | Assembles multi-frame animated GIFs of living town activity. |
+| `tools/recapcard.mjs` | `node tools/recapcard.mjs` | Generates 1080×1350 post-match social recap cards. |
+| `tools/xbrowser_determinism.mjs` | `node tools/xbrowser_determinism.mjs` | Verifies bit-identical simulation StateHash across JS runtimes. |
 
-### Tooling (`tools/`, all headless — no browser needed)
-| Script | Purpose |
-|---|---|
-| `screenshots.mjs` | Render map frames of a simulated bot match → `shots/` |
-| `recapcard.mjs` | Render a sample Recap Card PNG |
-| `botleague.mjs [matches] [players] [world]` | Balance: per-archetype win-rate drift (§40/§41). `MAXTICKS` env caps match length |
-| `soak.mjs [clients] [seconds] [url]` | Load/desync soak vs a running server (asserts desync SLA) |
-| `units.mjs` | Preview the procedural unit sprites + auras |
-| `spritesheet.mjs` | Render every building/landmark/lot icon in a grid for art QA |
-| `gen_names.py` | Python faker → regenerates `packages/sim/src/nameData.ts` corpora |
+---
 
-## 6. Conventions & gotchas
+## 7. Cost Self-Awareness & Stage Checkpoint Protocol
 
-- **Branch discipline:** development happens on `claude/cool-cerf-5ktjrd`;
-  `main` mirrors it. Don't push to other branches without explicit instruction.
-- **Commits:** imperative subject + a body explaining *why*; reference design
-  sections (§N). Keep model/agent identifiers out of commit messages.
-- **`exactOptionalPropertyTypes` + `noUncheckedIndexedAccess` are ON.** Array/
-  record index access is `T | undefined` — assert (`x!`) or guard. For DOM
-  element caches, declare named properties + an index signature (see `hud.ts`
-  `ElCache`) so reads are definite.
-- **XSS:** all user-sourced text (names, chat, clan names) is `esc()`-escaped
-  before `innerHTML` on the client, and names have `<>` stripped server-side.
-  Keep both when adding UI that shows user content.
-- **Rendering is not the sim.** `townRender.ts`/`recapCard.ts` changes never
-  affect determinism — safe to iterate on visuals freely.
-- **Input hardening:** array intents are length-capped (`MAX_FRONT_TILES`,
-  `MAX_PATH_TILES` in `sim.ts`). Any new client-array intent must be capped too.
+You do not have intrinsic real-time awareness of dollar spend in the sandbox. Therefore, **you must execute work in distinct stages and pause for user feedback**:
 
-## 7. What's implemented (by design section)
+* **Mandatory Checkpoint**: At the conclusion of each planned milestone/stage:
+  1. Halt tool execution.
+  2. Verify all tests pass (`npm test`).
+  3. Output a **Stage Checkpoint Card**:
+     ```markdown
+     --- MILESTONE CHECKPOINT: [Stage Name] ---
+     - Summary of Completed Work: [Key features / refactors completed]
+     - Verification: npm test passing (100% Invariants Met: 135 tests + 75 worlds)
+     - Estimated Stage Token Spend: ~$XX (Remaining estimated credit: ~$YY)
+     - Next Planned Stage: [Description of Stage N+1]
+     > Awaiting confirmation. Please share current Claude Code balance and reply 'PROCEED' or provide priority adjustments.
+     ```
+  4. Wait for the user's prompt before initiating the next stage. This keeps the $250 credit pool under strict user control.
 
-- **M0 core:** fixed-point, RNG, Intent protocol, StateHash, snapshot; conversion
-  (§4), economy (§3), mapgen (§2), match flow + victory (§18), lockstep (§33).
-- **M1 gameplay:** all buildings (§6), units (§7), PvP trio raids/scandal/court
-  (§13/§15), strikes (§8), diplomacy + schism (§16), full doctrine tree (§10),
-  all 4 archetype kits (§11), CPA (§17), 3 bot tiers (§21).
-- **Client & UX:** prediction+reconciliation (§33), fog (§14), full HUD with live
-  costs/affordability/cooldowns/minimap/drama-feed/help (§27/§28), loading &
-  lobby screens, FTUE coachmark (§26), settings & accessibility (§28),
-  founding spawn-pick (§18), Recap Card (§25).
-- **Hosted service:** LobbyDirector + many concurrent matches (§32), persistence
-  (§34), auth/guests/sessions (§26), moderation (§30), desync→resync (§33),
-  REST API + `/health`, structured logs/metrics.
-- **Meta loop:** ranked Glicko-2 (§20), XP/relic progression (§22), Daily Prophecy
-  (§23), Congregations + ladder (§24), earn/spend economy + free rotation (§36).
-- **Visuals:** procedural pixel art for terrain, houses, ~20 lot buildings,
-  building + landmark icons, unit sprites, conversion auras, Recap Card.
+---
 
-## 8. What remains before public launch — external, not game logic
+## 8. Five-Stage Budgeted Execution Plan
 
-Each has its seam already in code; the production side needs provisioning or
-authored assets. (Fuller version with "how each plugs in" is in DEPLOY.md §"Before a public launch".)
+Refer to [`docs/ROADMAP_SDD.md`](./docs/ROADMAP_SDD.md) for full task breakdowns:
 
-1. **Datastore** — implement `Store` against Postgres + object storage (JSON adapter is dev-only).
-2. **OAuth providers** — implement `AuthProvider.verify` for Google/Discord/email; secrets via env. (Guest + sessions already work.)
-3. **TLS / ingress** — terminate `wss://` at the LB; nginx sample ships no certs.
-4. **Horizontal scale** — production split is one pinned worker *process* per match over IPC (seam in place).
-5. **Cross-browser determinism CI** — CI runs Node only; add headless Chromium + Firefox runs of the gate.
-6. **Telemetry & dashboards** — wire `metrics.ts`/`log` to real sinks; build the §41 KPI dashboard.
-7. **Moderation pipeline** — replace the seed blocklist with a maintained, locale-aware list + human review.
-8. **Legal/compliance** — ToS, privacy policy, GDPR/account deletion, age gating.
-9. **Payment gateway** — behind the money-priced recap-frame items (relic/shard items already work).
-10. **Content (artist/composer work):** audio (§31) and the ~40 frame-by-frame sprite animations (§30 — walk cycles, tile-flip sparkle, victory rapture). The renderer is procedural and QA'd for a professional read, but authored animation/audio can't be generated in code.
-11. **Playtest validation** of balance (run `botleague.mjs` nightly; tune `balance.json`) and M/L maps.
+* **Stage 1 ($60 budget) — Strategy, Menus & Core Gameplay Overhaul (Priority #1)**:
+  * Complete redesign of strategy menus, HUD layout, and input responsiveness.
+  * Asymmetric cult depth, counter-play telegraphing, anti-snowballing mechanics.
+  * Win condition clarity, tutorial/onboarding hooks, and competitive pacing.
+* **Stage 2 ($55 budget) — 1980s Worldgen, Placement Grammar & Micro-Animations (Priority #2)**:
+  * Urban Placement Grammar: strict frontage to streets, driveways with curb cuts, backyards in perimeter blocks, zoning separation buffers.
+  * Deterministic dynamic micro-animations (river ripples, ocean surf foam, police lights, bus hazards, radio beacons, winter chimney smoke, grazing livestock, stepping residents and BMX bikes).
+* **Stage 3 ($45 budget) — Bulk Asset Spriting & Dual-QA Pipeline**:
+  * Implement full 121-asset catalog variants and 1980s Hawkins signatures.
+  * Dual-QA inspection via Studio View (`tools/spritesheet.mjs`) and In-Situ View (`tools/generate_curated_suite.mjs`).
+* **Stage 4 ($45 budget) — GOAP Bot AI & Meta Systems Overhaul**:
+  * Goal-Oriented Action Planning (GOAP) bot brains with asymmetric playstyles.
+  * Progression meta, Daily Prophecies, recap card generation, lobby polish.
+* **Stage 5 ($45 budget) — Commercial Polish, Performance & Production Hardening**:
+  * 60 FPS client rendering optimization, soak testing (0 desyncs over 100k ticks), tournament balance verification via `tools/botleague.mjs`.
 
-## 9. Suggested next steps (highest leverage first)
+---
 
-1. **Playtest** the current build (`npm run dev:*`, two tabs) — the UX loop is
-   complete; humans are the missing verifier the sandbox couldn't be.
-2. **Postgres `Store` adapter** + schema — unlocks real persistence/ranked.
-3. **Cross-browser determinism CI** — protects the core invariant on real browsers.
-4. **Balance pass** via the bot-league once playtests flag outliers.
-5. **In-match chat input** (server `sendChat` + relay already exist; only the
-   input box is unbuilt — left out to avoid keybind-focus conflicts).
-6. **Live ability (D/F/G) costs** on the HUD (builds/rituals already show them).
-7. Commission **audio + sprite animation**; the render/event seams are ready.
+## 9. First Action Upon Boot
 
-## 10. Key risks to watch
-
-- **Determinism drift** (a float/`Date` sneaking into sim scope) — the #1 risk;
-  cross-browser CI is the missing guard.
-- **Snapshot size on join** for large maps — measure/compress before L-maps.
-- **Balance** — untuned by real play; the bot-league exists but hasn't been run at scale.
-- **Recap renderer cost at scale** — render on share-tap, not match-end, beyond the PNG.
+When starting your session:
+1. Run `npm test` to verify the baseline test suite (`135 / 135` tests passing + `75 / 75` world mapgen audit passing with 0 violations).
+2. Review [`docs/ROADMAP_SDD.md`](./docs/ROADMAP_SDD.md) §2 (Stage 1 Specification) and [`docs/GAME_DESIGN.md`](./docs/GAME_DESIGN.md).
+3. State your decided **Stage 1 Architectural & Gameplay Execution Plan** (outlining the exact decisions you have made as Game Director for the menu, HUD, and strategy overhaul—do NOT ask the user to pick between design options or save tasks for them).
+4. Pause, report repository health, and await the user's initial confirmation to begin execution.

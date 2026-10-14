@@ -22,6 +22,9 @@ import { Terrain, Biome, Landmark, Lot, type World, type DistrictCoeffs } from "
 import { traceGridRoads } from "./gridRoads.js";
 import { pickTownName, type Street } from "./names.js";
 import { createWorld } from "./sim.js";
+import { tidyAgriculture, ensureFarmsteadsWork, layoutFarmBelt, type BeltStyle } from "./farmPlan.js";
+import { buildPier, enforceFootprints, placeLandmarkCompound, ensureAdjacentParking, pruneLandlockedParking, tidySatellites, placeParks, placeBallField, placeCemetery, placeSubstation, ensureSchoolGrounds, placeTrailerPark, platAlleys, parkBeside } from "./townPlan.js";
+import { platCourthouseSquare, placeHighSchoolCampus, platMainStreet, courthouseCentre, fronts, RESIDENTIAL_DISTRICTS } from "./townPlan.js";
 
 /** Deterministic position hash for walk jitter (no rng thread needed). */
 function pixHash32(x: number, y: number, z: number): number {
@@ -128,6 +131,53 @@ export type BiomeName = "desert" | "forest" | "autumn";
  */
 export type TownType = "farm" | "oceanside" | "desert" | "mountain" | "lakeside";
 
+/**
+ * Town morphology per archetype (Stage 2): how the plat is shaped before any
+ * building goes down. sx/sy scale the footprint test (bigger = narrower on
+ * that axis); `shore` pushes the town toward one map edge so the coast (or
+ * lake) is its edge; `gapAdd` widens blocks.
+ */
+interface TownForm {
+  sx: number;
+  sy: number;
+  gapAdd: number;
+  /** 0 = centred; ±1 = the town hugs the east/west side (oceanside shoreline). */
+  shore: number;
+}
+function townForm(kind: TownType, rng: RngState): TownForm {
+  switch (kind) {
+    case "mountain":
+      return { sx: 0.8, sy: 2.0, gapAdd: 0, shore: 0 }; // long, narrow valley town
+    case "desert":
+      return { sx: 1, sy: 1.25, gapAdd: 1, shore: 0 }; // wide, sparse blocks
+    case "oceanside":
+      return { sx: 1, sy: 1.2, gapAdd: 0, shore: nextRange(rng, 2) === 0 ? -1 : 1 };
+    case "lakeside":
+      return { sx: 1, sy: 1.35, gapAdd: 0, shore: 0 };
+    default:
+      return { sx: 1, sy: 1.35, gapAdd: 0, shore: 0 };
+  }
+}
+/** Farm-belt character per town type (Stage 2b). */
+function beltStyle(kind: TownType, rng: RngState): BeltStyle {
+  const fringeMap = nextRange(rng, 2) === 0; // some maps keep a wide unfarmed fringe round town
+  switch (kind) {
+    case "desert":
+      return { density: 0, pivots: 0, fringe: 0, waterSetback: 3, valleyHalf: 0 }; // pivots via tidyAgriculture
+    case "mountain":
+      return { density: 0.35, pivots: 0, fringe: 3, waterSetback: 2, valleyHalf: 14 };
+    case "oceanside":
+      return { density: 0.3, pivots: 0, fringe: fringeMap ? 8 : 4, waterSetback: 3, valleyHalf: 0 }; // a fishing town: a few truck farms
+    case "lakeside":
+      return { density: 0.8, pivots: 1, fringe: fringeMap ? 8 : 4, waterSetback: 3, valleyHalf: 0 };
+    default:
+      return { density: 1, pivots: 2 + nextRange(rng, 2), fringe: fringeMap ? 9 : 4, waterSetback: 3, valleyHalf: 0 };
+  }
+}
+
+/** Per-archetype rng salt so a seed yields a different town per type (farm stays classic). */
+const TYPE_SALT: Record<TownType, number> = { farm: 0, oceanside: 0x0ce4, desert: 0xde5e, mountain: 0x3a17, lakeside: 0x1a4e };
+
 /** Map-generation options — the user-configurable knobs (§2 rev. 3). */
 export interface MapOpts {
   /**
@@ -148,16 +198,19 @@ export function generateWorld(seed: number, width: number, height: number, opts:
     // golden-ratio stride keeps every (seed, attempt) rng stream distinct —
     // a plain `+ attempt` salt collides across adjacent seeds and, with the
     // radius cap flattening rScale, can produce bit-identical towns.
-    const rng = seedRng(seed ^ ((0x6d61_7067 + Math.imul(attempt, 0x9e37_79b9)) | 0));
+    const townType: TownType = opts.townType ?? "farm";
+    const rng = seedRng((seed ^ Math.imul(TYPE_SALT[townType], 0x85eb_ca6b) ^ ((0x6d61_7067 + Math.imul(attempt, 0x9e37_79b9)) | 0)) | 0);
     w = createWorld(width, height);
     w.districtCoeffs = districtCoeffTable();
     w.terrain.fill(Terrain.Grass); // the whole map starts as open country
     w.townName = pickTownName(rng); // a fresh fake town, every seed
 
-    const town = layoutHighwaysAndTown(w, rng, rScale);
+    const form = townForm(townType, rng);
+    const town = layoutHighwaysAndTown(w, rng, rScale, form);
     layoutRail(w, rng, town); // the railroad the town was built on (§2 rev. 5)
+    zoneRailIndustry(w, town); // the works follow the tracks (Stage 2 zoning v3)
+    if (townType === "lakeside") placeTownLake(w, rng, town); // the town wraps its lake
     // archetype (§2A): desert/mountain towns sit inside a dominant biome
-    const townType: TownType = opts.townType ?? "farm";
     const dominant =
       townType === "desert" ? Biome.Desert : townType === "mountain" ? Biome.Forest : -1;
     paintBiomes(w, rng, town, opts.biomes ?? ["desert", "forest", "autumn"], dominant);
@@ -167,8 +220,8 @@ export function generateWorld(seed: number, width: number, height: number, opts:
     // parcels — fields wrap around standing timber, not the reverse (QA S1-B)
     placeNature(w, rng, town, riverPath);
     if (riverPath) connectLakesToRiver(w, riverPath); // no disconnected lakes
-    layoutFarms(w, rng, town);
-    fillFarmBelt(w, rng, town); // contiguous working farmland, not islands
+    // FARM BELT v3 (Stage 2b): section roads, farmsteads on them, fields behind
+    layoutFarmBelt(w, rng, town, beltStyle(townType, rng));
     placeTownBuildings(w, rng, town);
     placeDocks(w, rng, town);
     // RAIL SPUR (§5): a stub track branches from the main line into the
@@ -203,54 +256,21 @@ export function generateWorld(seed: number, width: number, height: number, opts:
         }
       }
     }
-    // TRAILER COURT (§6): the fringe isn't just scattered singles — one
-    // proper court: a short dirt lane off a street with trailers flanking it
-    {
-      let courtDone = false;
-      for (let t = 0; t < w.terrain.length && !courtDone; t++) {
-        if (w.district[t] !== Districts.Trailer || w.terrain[t] !== Terrain.Citizen) continue;
-        const x = t % width;
-        const y = (t / width) | 0;
-        if (x < 6 || y < 6 || x >= width - 6 || y >= height - 6) continue;
-        // a road to hang the court off?
-        let roadDir = 0;
-        if (w.terrain[t - width] === Terrain.Road) roadDir = 1; // court runs south
-        else if (w.terrain[t + width] === Terrain.Road) roadDir = -1; // runs north
-        if (roadDir === 0) continue;
-        // room for a 4-tile lane with clear flanks?
-        let clear = true;
-        for (let s = 0; s < 4 && clear; s++) {
-          const ly = y + roadDir * s;
-          for (const lx of [x - 1, x, x + 1]) {
-            const n = ly * width + lx;
-            if (n < 0 || n >= w.terrain.length) { clear = false; break; }
-            const tr = w.terrain[n];
-            if (tr !== Terrain.Grass && tr !== Terrain.Citizen && tr !== Terrain.Field) clear = false;
-          }
-        }
-        if (!clear) continue;
-        for (let s = 0; s < 4; s++) {
-          const ly = y + roadDir * s;
-          w.terrain[ly * width + x] = Terrain.Dirt; // the court lane
-          for (const lx of [x - 1, x + 1]) {
-            const n = ly * width + lx;
-            w.terrain[n] = Terrain.Citizen;
-            w.district[n] = Districts.Trailer;
-            if (w.lot[n] === 0) w.pop[n] = 3; // a trailer household
-          }
-        }
-        courtDone = true;
-      }
-    }
+    // TRAILER PARK (Stage 2b): one proper loop-lane park on the fringe
+    placeTrailerPark(w, town);
     // §2A: the archetype reshapes geography/economy; "farm" skips entirely
     if (townType !== "farm") applyTownArchetype(w, rng, town, townType, riverPath);
     // §2A oceanside: the harbor, not the elevator, anchors the economy —
-    // the grain elevator (and its boxcars) yields to a second cannery house
+    // the grain elevator yields to a rail-side cold-storage warehouse (the
+    // cannery itself stands on its pier — the waterfront pass)
     if (townType === "oceanside") {
       for (let t = 0; t < w.terrain.length; t++) {
-        if (w.lot[t] === Lot.GrainElevator) w.lot[t] = Lot.Cannery;
+        if (w.lot[t] === Lot.GrainElevator) w.lot[t] = Lot.Warehouse;
       }
     }
+    // FARM PLAN (Stage 2): fields on cleared land, never in the woods;
+    // farmyards cleared; desert towns irrigate with center pivots
+    tidyAgriculture(w, rng, townType === "desert", riverPath);
     // QUARRY SCAR (§11): one gravel pit gouged into deep country, off-road
     for (let attempt = 0; attempt < 40; attempt++) {
       const qx = 8 + nextRange(rng, width - 16);
@@ -292,7 +312,9 @@ export function generateWorld(seed: number, width: number, height: number, opts:
     connectRoadComponents(w); // stitch orphan road islands into the main grid
     pruneRoadStubs(w); // erase whatever still leads nowhere
     pruneAllDeadEnds(w); // …including dirt lanes and orphaned spurs
-    rollLots(w, rng);
+    platAlleys(w); // deep residential blocks get a mid-block alley
+    enforceFootprints(w); // every building at its real size (footprints.ts)
+    rollLots(w, rng, townType === "desert");
     enforceRoadFrontage(w); // houses FRONT the street; interiors are yards
     infillToFloor(w, rng); // yards become modest homes until the pop floor holds
     enforceZoningBuffer(w); // guarantee >= 6 tiles between industrial and schools/churches
@@ -302,15 +324,70 @@ export function generateWorld(seed: number, width: number, height: number, opts:
     const floors = popFloors(width, height);
     if (countPopulated(w) >= floors.tiles && countTotalPop(w) >= floors.pop) break;
   }
+  enforceFootprints(w, true); // every building at full size; relocate what can't grow
   enforceZoningBuffer(w);
-  enforceCivicParkingAdjacency(w);
   enforceHydrologicalSetback(w);
+  enforceFootprints(w, true); // the setback may have trimmed one
+  enforceCivicParkingAdjacency(w);
+  ensureAdjacentParking(w); // …and the lot is right beside the building
+  ensureFarmsteadsWork(w); // setbacks can take a farm's last field
+  tidySatellites(w); // playgrounds / ball fields stay with their school, pastures with a barn
+  ensureSchoolGrounds(w); // …and every school keeps its playground and ball field; the town its chapel
+  ensureAdjacentParking(w); // a chapel placed just now gets its lot too
+  pruneIsolatedRoads(w);
+  pruneLandlockedParking(w); // growth or a pruned road can strand a lot remnant
+  enforceRoadFrontage(w); // a pruned road can orphan a house: it becomes a yard
+  // late passes (footprints, setbacks) can dip below the floor: top it up
+  infillToFloor(w, seedRng(seed ^ 0x51ed_f100));
+  capPopulation(w);
   return w;
 }
 
 /**
- * Enforce minimum 6-tile distance between industrial structures and schools/churches.
+ * Population CEILING (Stage 2): full street frontage makes some towns much
+ * denser than the pacing math assumes. Households shrink one resident at a
+ * time (largest districts first, raster order — deterministic) until the
+ * town is within +12% of its floor, so every town type plays at one pace.
  */
+function capPopulation(w: World): void {
+  const cap = Math.round((popFloors(w.width, w.height).pop * 112) / 100);
+  let excess = countTotalPop(w) - cap;
+  for (let floor = 12; floor >= 3 && excess > 0; floor--) {
+    for (let t = 0; t < w.terrain.length && excess > 0; t++) {
+      if (w.terrain[t] !== Terrain.Citizen || w.lot[t] !== 0 || w.pop[t]! <= floor) continue;
+      w.pop[t] = w.pop[t]! - 1;
+      excess--;
+    }
+  }
+}
+
+/**
+  * Prune isolated road tiles that have 0 orthogonal path neighbors.
+  */
+function pruneIsolatedRoads(w: World): void {
+  const road = (x: number, y: number): boolean =>
+    x >= 0 && y >= 0 && x < w.width && y < w.height && w.terrain[y * w.width + x] === Terrain.Road;
+  const path = (x: number, y: number): boolean =>
+    road(x, y) ||
+    (x >= 0 && y >= 0 && x < w.width && y < w.height && w.terrain[y * w.width + x] === Terrain.Dirt);
+  for (let y = 0; y < w.height; y++) {
+    for (let x = 0; x < w.width; x++) {
+      if (!road(x, y)) continue;
+      const orth =
+        (path(x + 1, y) ? 1 : 0) +
+        (path(x - 1, y) ? 1 : 0) +
+        (path(x, y + 1) ? 1 : 0) +
+        (path(x, y - 1) ? 1 : 0);
+      if (orth === 0) {
+        w.terrain[y * w.width + x] = Terrain.Grass;
+      }
+    }
+  }
+}
+
+/**
+  * Enforce minimum 6-tile distance between industrial structures and schools/churches.
+  */
 function enforceZoningBuffer(w: World): void {
   const { width, height } = w;
   const industrialTiles: number[] = [];
@@ -339,28 +416,15 @@ function enforceZoningBuffer(w: World): void {
           w.district[ind] = Districts.Commercial;
         }
         if (w.lot[ind] === Lot.Factory || w.lot[ind] === Lot.Warehouse) {
+          // Stage 2: the works too close to a school becomes offices as a
+          // whole building (per-tile relocation scattered 1-tile factories)
           const kind = w.lot[ind];
-          let relocated = false;
-          for (let t = 0; t < w.terrain.length && !relocated; t++) {
-            if (w.terrain[t] !== Terrain.Citizen || w.lot[t] !== 0) continue;
-            const tx = t % width;
-            const ty = (t / width) | 0;
-            const farFromAll = sensitiveTiles.every((s) => {
-              const sx = s % width;
-              const sy = (s / width) | 0;
-              return Math.max(Math.abs(tx - sx), Math.abs(ty - sy)) >= 6;
-            });
-            if (farFromAll) {
-              w.lot[t] = kind;
-              w.pop[t] = w.pop[ind] || 4;
-              w.district[t] = Districts.Industrial;
-              w.lot[ind] = 0;
-              w.pop[ind] = 0;
-              relocated = true;
-            }
-          }
-          if (!relocated) {
-            w.lot[ind] = Lot.Office;
+          const st = [ind];
+          while (st.length) {
+            const c = st.pop()!;
+            if (w.lot[c] !== kind) continue;
+            w.lot[c] = Lot.Office;
+            for (const n of [c - 1, c + 1, c - width, c + width]) if (n >= 0 && n < w.lot.length && w.lot[n] === kind) st.push(n);
           }
         }
       }
@@ -397,6 +461,19 @@ function enforceCivicParkingAdjacency(w: World): void {
     [-1, 0],
   ];
 
+  const touchesRoad = (tile: number): boolean => {
+    const rx = tile % width;
+    const ry = (tile / width) | 0;
+    for (const [dx, dy] of dirs) {
+      const nx = rx + dx;
+      const ny = ry + dy;
+      if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+        if (w.terrain[ny * width + nx] === Terrain.Road) return true;
+      }
+    }
+    return false;
+  };
+
   for (const lotKind of CIVIC_AND_COMMERCIAL_LOTS) {
     const tiles: number[] = [];
     for (let t = 0; t < w.lot.length; t++) {
@@ -423,7 +500,7 @@ function enforceCivicParkingAdjacency(w: World): void {
 
     if (!hasAdjacentParking) {
       let carved = false;
-      // Pass 1: empty yards, grass, fields, dirt yards
+      // Pass 1: empty yards, grass, fields, dirt yards that touch a road
       for (const t of tiles) {
         if (carved) break;
         const x = t % width;
@@ -434,7 +511,7 @@ function enforceCivicParkingAdjacency(w: World): void {
           if (nx < 1 || ny < 1 || nx >= width - 1 || ny >= height - 1) continue;
           const nt = ny * width + nx;
           const tr = w.terrain[nt];
-          if ((tr === Terrain.Citizen && w.lot[nt] === 0) || tr === Terrain.Grass || tr === Terrain.Field || tr === Terrain.Dirt) {
+          if (((tr === Terrain.Citizen && w.lot[nt] === 0) || tr === Terrain.Grass || tr === Terrain.Field || tr === Terrain.Dirt) && touchesRoad(nt)) {
             w.terrain[nt] = Terrain.Citizen;
             if (w.district[nt] === 0) w.district[nt] = w.district[t]!;
             w.lot[nt] = Lot.Parking;
@@ -445,7 +522,7 @@ function enforceCivicParkingAdjacency(w: World): void {
         }
       }
 
-      // Pass 2: adjacent non-keystone citizen lot (pave an adjacent residential lot)
+      // Pass 2: adjacent non-keystone citizen lot (pave an adjacent residential lot) that touches a road
       if (!carved) {
         for (const t of tiles) {
           if (carved) break;
@@ -458,7 +535,8 @@ function enforceCivicParkingAdjacency(w: World): void {
             const nt = ny * width + nx;
             const tr = w.terrain[nt];
             const nLot = w.lot[nt] ?? 0;
-            if (tr === Terrain.Citizen && !CIVIC_AND_COMMERCIAL_LOTS.includes(nLot)) {
+            // Stage 2: only an open lot (or a storefront) gives way — never another building
+            if (tr === Terrain.Citizen && (nLot === 0 || nLot === Lot.Shop) && w.landmark[nt] === 0 && touchesRoad(nt)) {
               w.lot[nt] = Lot.Parking;
               w.pop[nt] = 0;
               carved = true;
@@ -468,7 +546,7 @@ function enforceCivicParkingAdjacency(w: World): void {
         }
       }
 
-      // Pass 3: Across-the-street neighbor (2 tiles away across road or diagonal)
+      // Pass 3: Across-the-street neighbor (2 tiles away across road) that touches a road
       if (!carved) {
         const acrossOffsets: [number, number][] = [
           [0, 2],
@@ -491,7 +569,7 @@ function enforceCivicParkingAdjacency(w: World): void {
             const nt = ny * width + nx;
             const tr = w.terrain[nt];
             const nLot = w.lot[nt] ?? 0;
-            if ((tr === Terrain.Citizen && !CIVIC_AND_COMMERCIAL_LOTS.includes(nLot)) || tr === Terrain.Grass || tr === Terrain.Dirt) {
+            if (((tr === Terrain.Citizen && (nLot === 0 || nLot === Lot.Shop) && w.landmark[nt] === 0) || tr === Terrain.Grass || tr === Terrain.Dirt) && touchesRoad(nt)) {
               w.terrain[nt] = Terrain.Citizen;
               if (w.district[nt] === 0) w.district[nt] = w.district[t]!;
               w.lot[nt] = Lot.Parking;
@@ -503,8 +581,8 @@ function enforceCivicParkingAdjacency(w: World): void {
         }
       }
 
-      // Pass 4: Multi-tile institution: convert one adjacent tile of the cluster to on-site parking
-      if (!carved && tiles.length > 1) {
+      // Pass 4: Multi-tile institution: convert one adjacent tile of the cluster to on-site parking if it touches a road
+      if (!carved && tiles.length > 1 && false) { // Stage 2: never cut the building below its footprint
         for (let i = 0; i < tiles.length && !carved; i++) {
           const t1 = tiles[i]!;
           const x1 = t1 % width;
@@ -513,13 +591,64 @@ function enforceCivicParkingAdjacency(w: World): void {
             const t2 = tiles[j]!;
             const x2 = t2 % width;
             const y2 = (t2 / width) | 0;
-            if (Math.abs(x1 - x2) + Math.abs(y1 - y2) === 1) {
+            if (Math.abs(x1 - x2) + Math.abs(y1 - y2) === 1 && touchesRoad(t2)) {
               w.lot[t2] = Lot.Parking;
               w.pop[t2] = 0;
               carved = true;
             }
           }
         }
+      }
+
+      // Pass 5: Carve parking on adjacent land and connect to road with carveRoadLane
+      if (!carved) {
+        for (const t of tiles) {
+          if (carved) break;
+          const x = t % width;
+          const y = (t / width) | 0;
+          for (const [ox, oy] of dirs) {
+            const nx = x + ox;
+            const ny = y + oy;
+            if (nx < 1 || ny < 1 || nx >= width - 1 || ny >= height - 1) continue;
+            const nt = ny * width + nx;
+            const tr = w.terrain[nt];
+            if ((tr === Terrain.Citizen && w.lot[nt] === 0) || tr === Terrain.Grass || tr === Terrain.Field || tr === Terrain.Dirt) {
+              w.terrain[nt] = Terrain.Citizen;
+              if (w.district[nt] === 0) w.district[nt] = w.district[t]!;
+              w.lot[nt] = Lot.Parking;
+              w.pop[nt] = 0;
+              carveRoadLane(w, nt);
+              carved = true;
+              break;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Prune any parking lot components that do not touch any road
+  const seenPark = new Set<number>();
+  for (let t = 0; t < w.lot.length; t++) {
+    if (w.lot[t] !== Lot.Parking || seenPark.has(t)) continue;
+    const component: number[] = [];
+    const queue = [t];
+    seenPark.add(t);
+    while (queue.length) {
+      const c = queue.pop()!;
+      component.push(c);
+      for (const n of [c - 1, c + 1, c - width, c + width]) {
+        if (n < 0 || n >= w.lot.length || seenPark.has(n)) continue;
+        if (w.lot[n] === Lot.Parking) {
+          seenPark.add(n);
+          queue.push(n);
+        }
+      }
+    }
+    const touches = component.some((c) => touchesRoad(c));
+    if (!touches) {
+      for (const c of component) {
+        w.lot[c] = 0;
       }
     }
   }
@@ -537,7 +666,10 @@ function enforceHydrologicalSetback(w: World): void {
     lot === Lot.Dam ||
     lot === Lot.Lighthouse ||
     lot === Lot.Cannery ||
-    lot === Lot.Sawmill;
+    lot === Lot.Sawmill ||
+    lot === Lot.Powerhouse ||
+    lot === Lot.Jetty ||
+    lot === Lot.Lighthouse;
 
   const dirs: [number, number][] = [
     [-1, 0],
@@ -654,7 +786,17 @@ function layoutRail(w: World, rng: RngState, town: TownShape): void {
         if (tr === Terrain.Grass || tr === Terrain.Field || (tr === Terrain.Citizen && w.lot[t] === 0))
           w.terrain[t] = Terrain.Rail;
       }
-      carveDirtLane(w, buildY * width + sx0);
+      carveRoadLane(w, buildY * width + sx0);
+      if (depot > 0) {
+        const parkY = buildY + side;
+        if (parkY >= 0 && parkY < height) {
+          const pt = parkY * width + (sx0 + 2);
+          w.terrain[pt] = Terrain.Citizen;
+          w.district[pt] = Districts.Industrial;
+          w.lot[pt] = Lot.Parking;
+          w.pop[pt] = 0;
+        }
+      }
       if (elev > 0 && depot > 0) break;
     }
   }
@@ -679,7 +821,9 @@ function paintBiomes(
   // biome — one mega-blob covers the whole countryside; the town core and a
   // working margin around it stay temperate (the oasis/valley the town holds).
   if (dominant >= 0) {
-    const clear = town.r + 5;
+    // a desert town is a desert town — only the irrigated core (the square,
+    // Main St) stays green; a mountain valley keeps its whole floor
+    const clear = dominant === Biome.Desert ? Math.round((town.r * 45) / 100) : town.r + 5;
     for (let y = 1; y < height - 1; y++) {
       for (let x = 1; x < width - 1; x++) {
         const ddx = x - town.cx;
@@ -1087,56 +1231,58 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
   };
 
   const D = Districts;
+  // TOWN PLAN v3 (Stage 2): the Courthouse Square claims its block and the
+  // high-school campus its edge-of-town superblock before anything else
+  const square = platCourthouseSquare(w, town);
+  const campus = placeHighSchoolCampus(w, rng, town);
   // KEYSTONES first — placed as expansive multi-tile parcels paired with parking lots!
-  keystone(Lot.Supermarket, 2, 2, [D.Commercial, D.Downtown], 14, 1); // 2x2 grocery store + 2x1 parking lot
+  keystone(Lot.Supermarket, 3, 2, [D.Commercial, D.Downtown], 14, 1); // 2x2 grocery store + 2x1 parking lot
   keystone(Lot.Sheriff, 2, 1, [D.Downtown, D.Commercial], 6, 1); // 2x1 police station + 2x1 cruiser parking
-  keystone(Lot.HighSchool, 2, 2, [D.College, D.Suburbs, D.ResHigh], 20, 1, Lot.BallField, 2, 2); // 2x2 academic + 2x1 parking + 2x2 athletic field
-  keystone(Lot.School, 2, 2, [D.College, D.Suburbs, D.ResHigh], 16, 1, Lot.Playground, 1, 2); // 2x2 elementary + 2x1 parking + 1x2 playground
-  keystone(Lot.Church, 2, 2, [D.OldTown, D.Suburbs, D.Downtown], 8, 1, Lot.Cemetery, 2, 1); // 2x2 church + 1x2 parking + 2x1 cemetery
+  if (!campus) keystone(Lot.HighSchool, 4, 2, [D.College, D.Suburbs, D.ResHigh], 20, 1, Lot.BallField, 2, 2); // fallback: in-town 3x2 + parking + diamond
+  keystone(Lot.School, 3, 2, [D.College, D.Suburbs, D.ResHigh], 16, 1, Lot.Playground, 1, 2); // 2x2 elementary + 2x1 parking + 1x2 playground
+  keystone(Lot.Church, 2, 2, [D.OldTown, D.Suburbs, D.Downtown], 8, 1); // (the cemetery is on the town edge — placeCemetery) // 2x2 church + 1x2 parking + 2x1 cemetery
   keystone(Lot.FireStation, 2, 2, [D.Downtown, D.Commercial], 8, 1); // 2x2 firehouse + 2x1 response apron
-  keystone(Lot.GasStation, 2, 1, [D.Commercial, D.Trailer], 4, 0);
+  keystone(Lot.GasStation, 2, 2, [D.Commercial, D.Trailer], 4, 0);
 
-  // Downtown: civic core. Every real Main Street has a town hall, offices, bank, post office.
-  stampParcel(Lot.Office, 2, 2, 2, 1, "south", D.Downtown, 16);
-  stamp(Lot.Bank, 1, 1, D.Downtown, 6);
-  stamp(Lot.PostOffice, 1, 1, D.Downtown, 5);
-  stamp(Lot.Diner, 1, 1, D.Downtown, 6);
+  keystone(Lot.Office, 2, 2, [D.Downtown, D.Commercial], 10, 1);
+  keystone(Lot.Bank, 2, 2, [D.Downtown, D.Commercial], 6, 1);
+  keystone(Lot.PostOffice, 2, 2, [D.Downtown, D.Commercial], 5, 1);
+  keystone(Lot.Diner, 2, 1, [D.Downtown, D.Commercial, D.OldTown], 6, 1);
   for (let i = 0; i < 4; i++) stamp(Lot.Shop, 1, 1, D.Downtown, 4 + nextRange(rng, 3));
-  // the town green: a civic square in the heart of downtown
-  stamp(Lot.Park, 2, 2, D.Downtown, 1, 90);
+  // (the town green is now the Courthouse Square — townPlan.ts)
+  if (!square) stamp(Lot.Park, 2, 2, D.Downtown, 1, 90);
 
   // Commercial strip: cinema, motel, diner, shops along Main Street
-  stampParcel(Lot.Cinema, 2, 2, 2, 1, "south", D.Commercial, 10);
-  stampParcel(Lot.Motel, 2, 2, 2, 1, "south", D.Commercial, 8);
-  stamp(Lot.Diner, 1, 1, D.Commercial, 6);
-  stamp(Lot.Office, 2, 1, D.Commercial, 10);
+  keystone(Lot.Cinema, 2, 2, [D.Commercial, D.Downtown], 10, 1);
+  stampParcel(Lot.Motel, 3, 1, 3, 1, "south", D.Commercial, 8) || stampParcel(Lot.Motel, 2, 1, 2, 1, "south", D.Commercial, 8);
+  stamp(Lot.Diner, 2, 1, D.Commercial, 6);
+  stamp(Lot.Office, 2, 2, D.Commercial, 10);
   for (let i = 0; i < 6; i++) stamp(Lot.Shop, 1, 1, D.Commercial, 4 + nextRange(rng, 3));
 
   // Industrial quarter: the works — 2x2 factory + warehouses + truck yard
-  stampParcel(Lot.Factory, 2, 2, 2, 1, "south", D.Industrial, 16);
+  keystone(Lot.Factory, 3, 2, [D.Industrial, D.Trailer], 16, 1);
   keystone(Lot.Warehouse, 2, 2, [D.Industrial, D.Trailer, D.Commercial], 8, 1);
   stamp(Lot.Warehouse, 2, 1, D.Industrial, 6);
   stamp(Lot.GasStation, 1, 1, D.Industrial, 3);
-  stamp(Lot.Substation, 1, 1, D.Industrial, 1);
+  if (!placeSubstation(w, town)) stamp(Lot.Substation, 2, 2, D.Industrial, 1);
 
   // College quarter
-  stamp(Lot.Library, 1, 1, D.College, 5);
+  keystone(Lot.Library, 2, 2, [D.College, D.Downtown, D.Suburbs], 5, 1);
   stamp(Lot.Shop, 1, 1, D.College, 4);
-  stamp(Lot.BallField, 2, 2, D.College, 1, 70);
 
   // Old Town: chapel + diner + the old churchyard
-  stamp(Lot.Chapel, 1, 1, D.OldTown, 4);
-  stamp(Lot.Diner, 1, 1, D.OldTown, 5);
-  stamp(Lot.Cemetery, 2, 2, D.OldTown, 1, 70);
+  stamp(Lot.Chapel, 1, 2, D.OldTown, 4);
+  stamp(Lot.Diner, 2, 1, D.OldTown, 5);
 
   // Suburbs (low-density): corner shops, a second church, parks, playground
   stamp(Lot.Shop, 1, 1, D.Suburbs, 4);
-  stamp(Lot.Church, 1, 2, D.Suburbs, 5);
-  stamp(Lot.Park, 2, 2, D.Suburbs, 1, 80);
-  stamp(Lot.Playground, 1, 1, D.Suburbs, 1, 70);
-  stamp(Lot.Playground, 1, 1, D.ResHigh, 1, 70);
-  stamp(Lot.Park, 1, 1, D.College, 1);
-  stamp(Lot.WaterTower, 1, 1, D.Suburbs, 2);
+  stamp(Lot.Church, 2, 2, D.Suburbs, 5);
+  // Stage 2b: parks on neighbourhood street corners + the schoolyard,
+  // the ball field beside a school, the cemetery on the edge of town
+  placeParks(w);
+  placeBallField(w);
+  placeCemetery(w, town);
+  stamp(Lot.WaterTower, 2, 2, D.Suburbs, 2);
 
   // PARSONAGE (§7): every church keeps its house next door — the first
   // orthogonal empty Citizen lot beside a church becomes a full household
@@ -1175,7 +1321,7 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
   // gas stations along the highway, outside town
   let placedGas = 0;
   for (let attempt = 0; attempt < 200 && placedGas < 2; attempt++) {
-    const x = nextRange(rng, width);
+    const x = 3 + nextRange(rng, width - 6);
     const y = town.highwayY + (nextRange(rng, 2) === 0 ? -1 : 2);
     if (y < 0 || y >= w.height) continue;
     const ddx = x - town.cx;
@@ -1190,23 +1336,37 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
     placedGas++;
   }
 
+  // Helper: does tile touch a road?
+  const touchesRoad = (tile: number): boolean => {
+    const rx = tile % width;
+    const ry = (tile / width) | 0;
+    const dirs: [number, number][] = [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+    ];
+    for (const [dx, dy] of dirs) {
+      const nx = rx + dx;
+      const ny = ry + dy;
+      if (nx >= 0 && nx < width && ny >= 0 && ny < w.height) {
+        if (w.terrain[ny * width + nx] === Terrain.Road) return true;
+      }
+    }
+    return false;
+  };
+
   // PARKING LOTS: big commercial/civic boxes get an adjacent asphalt apron —
   // converts one neighboring house lot, giving the building padding + a lot.
   const wantsParking = new Set<number>([
     Lot.Supermarket,
-    Lot.Office,
-    Lot.Factory,
-    Lot.Bank,
-    Lot.FireStation,
     Lot.School,
     Lot.HighSchool,
-    Lot.Sheriff,
     Lot.Cinema,
-    Lot.Warehouse,
-    Lot.Motel,
+    Lot.FireStation,
+    Lot.Factory,
     Lot.Church,
-    Lot.Chapel,
-    Lot.Library,
+    Lot.Bank,
     Lot.Diner,
     Lot.Depot,
   ]);
@@ -1228,7 +1388,7 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
     ] as [number, number][]) {
       if (nx < 0 || ny < 0 || nx >= width || ny >= w.height) continue;
       const n = ny * width + nx;
-      if (w.terrain[n] === Terrain.Citizen && w.lot[n] === 0) {
+      if (w.terrain[n] === Terrain.Citizen && w.lot[n] === 0 && touchesRoad(n)) {
         w.lot[n] = Lot.Parking;
         w.pop[n] = 0;
         parkCount.set(key, (parkCount.get(key) ?? 0) + 1);
@@ -1277,7 +1437,7 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
     }
     if (hasParking) continue;
 
-    // Carve parking adjacent to the first available tile of this lot
+    // Carve parking adjacent to the first available tile of this lot that touches road
     let carved = false;
     for (const anchor of lotTiles) {
       if (carved) break;
@@ -1292,13 +1452,78 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
         if (nx < 1 || ny < 1 || nx >= width - 1 || ny >= w.height - 1) continue;
         const n = ny * width + nx;
         const tr = w.terrain[n];
-        if ((tr === Terrain.Citizen && w.lot[n] === 0) || tr === Terrain.Grass) {
+        if (((tr === Terrain.Citizen && w.lot[n] === 0) || tr === Terrain.Grass) && touchesRoad(n)) {
           w.terrain[n] = Terrain.Citizen;
           if (w.district[n] === 0) w.district[n] = w.district[anchor]!;
           w.lot[n] = Lot.Parking;
           w.pop[n] = 0;
           carved = true;
           break;
+        }
+      }
+    }
+  }
+
+  // Post-pass: Prune any parking lot components that do not touch any road
+  const seenPark = new Set<number>();
+  for (let t = 0; t < w.lot.length; t++) {
+    if (w.lot[t] !== Lot.Parking || seenPark.has(t)) continue;
+    const component: number[] = [];
+    const queue = [t];
+    seenPark.add(t);
+    while (queue.length) {
+      const c = queue.pop()!;
+      component.push(c);
+      for (const n of [c - 1, c + 1, c - width, c + width]) {
+        if (n < 0 || n >= w.lot.length || seenPark.has(n)) continue;
+        if (w.lot[n] === Lot.Parking) {
+          seenPark.add(n);
+          queue.push(n);
+        }
+      }
+    }
+    const touches = component.some((c) => touchesRoad(c));
+    if (!touches) {
+      for (const c of component) {
+        w.lot[c] = 0;
+      }
+    }
+  }
+
+  // Civic Institution Buffering: Convert residential lots immediately flanking large civic
+  // anchors into expanded parking aprons or landscaped green plazas so houses don't sit against institutions
+  const majorCivicAnchors = new Set<number>([
+    Lot.Supermarket,
+    Lot.HighSchool,
+    Lot.School,
+    Lot.Library,
+    Lot.Cinema,
+    Lot.FireStation,
+    Lot.Factory,
+    Lot.Bank,
+  ]);
+  for (let t = 0; t < w.lot.length; t++) {
+    const lotVal = w.lot[t];
+    if (lotVal === undefined || !majorCivicAnchors.has(lotVal)) continue;
+    const ax = t % width;
+    const ay = (t / width) | 0;
+    for (const [nx, ny] of [
+      [ax + 1, ay],
+      [ax - 1, ay],
+      [ax, ay + 1],
+      [ax, ay - 1],
+    ] as [number, number][]) {
+      if (nx < 1 || ny < 1 || nx >= width - 1 || ny >= w.height - 1) continue;
+      const n = ny * width + nx;
+      // If immediate neighbor is an ordinary residential house (Terrain.Citizen with no lot assignment)
+      if (w.terrain[n] === Terrain.Citizen && w.lot[n] === 0) {
+        // If it touches a road, expand the parking apron; otherwise convert to a landscaped park/plaza
+        if (touchesRoad(n)) {
+          w.lot[n] = Lot.Parking;
+          w.pop[n] = 0;
+        } else {
+          w.lot[n] = Lot.Park;
+          w.pop[n] = 1;
         }
       }
     }
@@ -1327,6 +1552,8 @@ function placeTownBuildings(w: World, rng: RngState, town: TownShape): void {
       }
     }
   }
+  // MAIN STREET + square frontage: continuous storefronts, rear parking
+  platMainStreet(w, rng, square, (t) => isHighwayTile(w, t));
 }
 
 /**
@@ -1366,6 +1593,10 @@ interface TownShape {
   r: number;
   highwayY: number;
   highwayX: number;
+  /** -1 = the works (industry, rail siding) sit at the west end of Main St; +1 = east. */
+  indSide: number;
+  /** oceanside: which edge the town fronts (±1), 0 otherwise. */
+  shore: number;
 }
 
 /**
@@ -1391,12 +1622,26 @@ function applyTownArchetype(
 
   if (kind === "oceanside") {
     // ---- OCEAN (§2A): a sea along the roomier map edge, wavy coastline ----
-    const side = town.cx <= width / 2 ? 1 : -1;
+    const side = town.shore !== 0 ? town.shore : town.cx <= width / 2 ? 1 : -1;
+    // Stage 2: the town FRONTS the sea — the coast runs just past the plat's
+    // shore-side edge (the beach + Shore Drive are the town's edge)
     let coastBase = side === 1 ? width - 9 - nextRange(rng, 4) : 9 + nextRange(rng, 4);
+    if (town.shore !== 0) {
+      // find the plat's sea-side edge (town districts only) and put the
+      // surf 5 tiles past it: 2 of sand, the boardwalk, Shore Drive
+      let edge = side === 1 ? 0 : width;
+      for (let t = 0; t < w.terrain.length; t++) {
+        if (w.terrain[t] !== Terrain.Citizen || w.district[t] === 0 || w.district[t] === Districts.Trailer) continue;
+        if (Math.abs(((t / width) | 0) - town.cy) > town.r) continue;
+        const x = t % width;
+        edge = side === 1 ? Math.max(edge, x) : Math.min(edge, x);
+      }
+      coastBase = side === 1 ? Math.min(width - 3, edge + 5) : Math.max(2, edge - 5);
+    }
     // the river becomes the ESTUARY: if it runs on the sea's side, the coast
     // advances past it so the channel reads as drowned river mouth, not a
     // second waterway cluttering the beach
-    if (riverPath) {
+    if (riverPath && town.shore === 0) {
       let riverExtent = riverPath[0]!;
       for (const cx of riverPath)
         riverExtent = side === 1 ? Math.min(riverExtent, cx) : Math.max(riverExtent, cx);
@@ -1411,7 +1656,8 @@ function applyTownArchetype(
     const p1 = nextRange(rng, 628) / 100;
     const coastX: number[] = [];
     for (let y = 0; y < height; y++) {
-      const wobble = 2.5 * Math.sin(0.07 * y + p1) + 1.4 * Math.sin(0.19 * y);
+      const amp = town.shore !== 0 ? 0.5 : 1; // a town waterfront is a gentler bay
+      const wobble = amp * (2.5 * Math.sin(0.07 * y + p1) + 1.4 * Math.sin(0.19 * y));
       coastX.push(Math.round(coastBase + side * wobble));
     }
     for (let y = 0; y < height; y++) {
@@ -1440,6 +1686,38 @@ function applyTownArchetype(
         }
       }
     }
+    // SHORE DRIVE + BOARDWALK (Stage 2): where the town meets the beach, a
+    // street runs along the shore (3 tiles in) and a plank boardwalk (Path on
+    // the ocean biome) along the sand — the town's sea-facing edge.
+    if (town.shore !== 0) {
+      const nearTown = (y: number, x: number): boolean => {
+        for (let k = 0; k <= 8; k++) {
+          const xx = x - side * k;
+          if (xx < 0 || xx >= width) break;
+          if (w.terrain[y * width + xx] === Terrain.Citizen) return true;
+        }
+        return false;
+      };
+      let prevRx = -1;
+      for (let y = 1; y < height - 1; y++) {
+        const cx = coastX[y]!;
+        const rx = cx - side * 3;
+        if (rx < 1 || rx >= width - 1 || !nearTown(y, rx)) {
+          prevRx = -1;
+          continue;
+        }
+        // where the shoreline jogs, the drive jogs with it — orthogonally
+        const from = prevRx < 0 ? rx : Math.min(prevRx, rx);
+        const to = prevRx < 0 ? rx : Math.max(prevRx, rx);
+        for (let xx = from; xx <= to; xx++) {
+          const rt = y * width + xx;
+          if (w.terrain[rt] === Terrain.Grass || w.terrain[rt] === Terrain.Field) w.terrain[rt] = Terrain.Road;
+        }
+        prevRx = rx;
+        const bt = y * width + (cx - side);
+        if (w.terrain[bt] === Terrain.Grass) w.terrain[bt] = Terrain.Path;
+      }
+    }
     // one road becomes THE pier: keep the highway stub 4 tiles into the surf,
     // trim every other road/rail dead into open water
     const pierY = town.highwayY;
@@ -1456,27 +1734,44 @@ function applyTownArchetype(
         w.biome[t] = Biome.Ocean;
       }
     }
-    // lighthouse on a shore point north of the pier
-    for (let y = Math.max(4, pierY - 18); y < pierY - 4; y++) {
-      const x = coastX[y]! - side;
-      if (x < 2 || x >= width - 2) continue;
-      const t = y * width + x;
-      if (w.terrain[t] === Terrain.Grass) {
-        plantLot(t, Lot.Lighthouse, Districts.None, 1);
-        break;
-      }
+    // Stage 2b: A FISHING TOWN'S WATERFRONT
+    const sea = side; // piers run out toward the sea
+    const rootAt = (y: number): number => coastX[y]! - sea; // the beach / boardwalk tile
+    // THE LIGHTHOUSE out on its stone jetty: 3 jetty stones, then the
+    // lighthouse on a built-up pad (1×2 along the jetty) — Cape Cod style
+    for (let k = 0; k < height; k++) {
+      const y = k < 16 ? pierY - 8 - k : (pierY + 8 + (k - 16)) % height;
+      if (y < 4 || y >= height - 4) continue;
+      const rx = rootAt(y);
+      if (rx < 2 || rx >= width - 2) continue;
+      // the pad tiles must be open sea too
+      const p1 = y * width + rx + sea * 4;
+      const p2 = y * width + rx + sea * 5;
+      if (p2 < 0 || p2 >= w.terrain.length || w.terrain[p1] !== Terrain.Lake || w.terrain[p2] !== Terrain.Lake) continue;
+      if (buildPier(w, rx, y, sea, 0, 3, Lot.Jetty) < 0) continue;
+      for (const t of [p1, p2]) { w.terrain[t] = Terrain.Citizen; w.district[t] = Districts.Trailer; w.lot[t] = Lot.Lighthouse; w.pop[t] = 1; }
+      break;
     }
-    // cannery + fish docks working the shore south of the pier
-    let cannery = 0;
-    for (let y = pierY + 3; y < Math.min(height - 4, pierY + 20) && cannery < 2; y++) {
-      const x = coastX[y]! - side * (2 + cannery);
+    // THE CANNERY on the shore south of the pier, with its own working pier
+    for (let y = pierY + 4; y < Math.min(height - 5, pierY + 22); y++) {
+      const x = coastX[y]! - sea * 3;
       if (x < 2 || x >= width - 2) continue;
       const t = y * width + x;
-      if (w.terrain[t] === Terrain.Grass) {
-        plantLot(t, cannery === 0 ? Lot.Cannery : Lot.Dock, Districts.Trailer, 2);
-        carveDirtLane(w, t);
-        cannery++;
-      }
+      if (w.terrain[t] !== Terrain.Grass) continue;
+      plantLot(t, Lot.Cannery, Districts.Industrial, 3);
+      carveDirtLane(w, t);
+      buildPier(w, rootAt(y), y, sea, 0, 5, Lot.Dock);
+      break;
+    }
+    // FISHING PIERS along the town waterfront + one marina with slips
+    let piers = 0;
+    for (const dyp of [6, -5, 12, -13, 18]) {
+      if (piers >= 3) break;
+      const y = pierY + dyp;
+      if (y < 4 || y >= height - 5) continue;
+      const rx = rootAt(y);
+      if (rx < 2 || rx >= width - 2) continue;
+      if (buildPier(w, rx, y, sea, 0, piers === 0 ? 5 : 4, Lot.Dock, piers === 0) >= 0) piers++;
     }
     return;
   }
@@ -1506,39 +1801,93 @@ function applyTownArchetype(
         w.terrain[t] = pixHash32(t % width, (t / width) | 0, 77) % 3 === 0 ? Terrain.Woods : Terrain.Grass;
     }
     // the sawmill: beside the rail line at a woods edge, with a log yard
-    for (let t = 0; t < w.terrain.length; t++) {
-      if (w.terrain[t] !== Terrain.Rail) continue;
-      const x = t % width;
-      const y = (t / width) | 0;
-      if (x < 6 || x >= width - 6) continue;
-      const ddx = x - town.cx;
-      if (Math.abs(ddx) < town.r + 4) continue; // outside town
-      const below = t + width;
-      const below2 = t + width * 2;
-      if (below2 >= w.terrain.length) continue;
-      let woodsNear = false;
-      for (let dx = -4; dx <= 4 && !woodsNear; dx++) {
-        const n = below + dx;
-        if (n >= 0 && n < w.terrain.length && w.terrain[n] === Terrain.Woods) woodsNear = true;
+    let milled = false;
+    for (const strict of [true, false]) {
+      if (milled) break;
+      for (let t = 0; t < w.terrain.length && !milled; t++) {
+        if (w.terrain[t] !== Terrain.Rail) continue;
+        const ddx = (t % width) - town.cx;
+        if (strict && Math.abs(ddx) < town.r + 4) continue; // outside town
+        for (const dir of strict ? [1] : [1, -1]) {
+          const site = t + dir * width;
+          const yard = site + dir * width;
+          if (site < 0 || yard < 0 || site + 1 >= w.terrain.length || yard >= w.terrain.length) continue;
+          const buildable = (n: number): boolean =>
+            w.terrain[n] === Terrain.Grass || (!strict && w.terrain[n] === Terrain.Woods);
+          if (!buildable(site) || !buildable(site + 1)) continue;
+          if (strict) {
+            let woodsNear = false;
+            for (let dx = -4; dx <= 4 && !woodsNear; dx++) {
+              const n = site + dx;
+              if (n >= 0 && n < w.terrain.length && w.terrain[n] === Terrain.Woods) woodsNear = true;
+            }
+            if (!woodsNear) continue;
+          }
+          plantLot(site, Lot.Sawmill, Districts.None, 2);
+          plantLot(site + 1, Lot.Sawmill, Districts.None, 2);
+          if (w.terrain[yard] === Terrain.Grass || w.terrain[yard] === Terrain.Woods)
+            w.terrain[yard] = Terrain.Dirt; // the log yard
+          carveDirtLane(w, site);
+          milled = true;
+          break;
+        }
       }
-      if (!woodsNear) continue;
-      if (w.terrain[below] !== Terrain.Grass || w.terrain[below + 1] !== Terrain.Grass) continue;
-      plantLot(below, Lot.Sawmill, Districts.None, 2);
-      plantLot(below + 1, Lot.Sawmill, Districts.None, 2);
-      if (w.terrain[below2] === Terrain.Grass) w.terrain[below2] = Terrain.Dirt; // the log yard
-      carveDirtLane(w, below);
-      break;
+    }
+    raiseRidges(w, rng, town); // Stage 2: the valley walls are rock
+    // Stage 2b: timber country runs on its mills — 2 more sawmills where the
+    // valley floor meets the woods, each on a road with a log deck
+    let mills = 0;
+    for (let attempt = 0; attempt < 600 && mills < 2; attempt++) {
+      const t = nextRange(rng, w.terrain.length);
+      const x = t % width, y = (t / width) | 0;
+      if (x < 4 || y < 4 || x >= width - 5 || y >= height - 5) continue;
+      if (w.terrain[t] !== Terrain.Grass || w.terrain[t + 1] !== Terrain.Grass) continue;
+      if ((x - town.cx) ** 2 + (y - town.cy) ** 2 < (town.r + 3) ** 2) continue;
+      let woods = 0;
+      for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 4; dx++) if (w.terrain[(y + dy) * width + x + dx] === Terrain.Woods) woods++;
+      if (woods < 8) continue;
+      let far = true;
+      for (let q = 0; q < w.lot.length && far; q++) if (w.lot[q] === Lot.Sawmill && Math.abs((q % width) - x) + Math.abs(((q / width) | 0) - y) < 14) far = false;
+      if (!far || nearestRoad(w, t, 8) < 0) continue;
+      plantLot(t, Lot.Sawmill, Districts.Industrial, 2);
+      plantLot(t + 1, Lot.Sawmill, Districts.Industrial, 2);
+      carveDirtLane(w, t);
+      mills++;
+    }
+    return;
+  }
+
+  if (kind === "desert") {
+    // ---- MESA COUNTRY (Stage 2): sandstone buttes out in the open desert ----
+    let mesas = 0;
+    const want = 4 + nextRange(rng, 3); // Stage 2b: more of them, and bigger
+    for (let attempt = 0; attempt < 60 && mesas < want; attempt++) {
+      const bx = 6 + nextRange(rng, width - 12);
+      const by = 6 + nextRange(rng, height - 12);
+      const ddx = bx - town.cx;
+      const ddy = by - town.cy;
+      if (ddx * ddx + ddy * ddy < (town.r + 8) * (town.r + 8)) continue;
+      organicBlob(w, rng, bx, by, 3 + nextRange(rng, 6), Terrain.Rock, (t) => rockable(w, t));
+      mesas++;
+    }
+    // a BUTTES RANGE along the map edge farthest from town (the mountains on
+    // the horizon of every desert town)
+    const top = town.cy > height / 2;
+    const p1 = nextRange(rng, 628) / 100;
+    for (let x = 1; x < width - 1; x++) {
+      const depth = 4 + Math.round(2.5 * Math.sin(0.13 * x + p1) + 1.5 * Math.sin(0.31 * x));
+      for (let k = 0; k < depth; k++) {
+        const y = top ? 1 + k : height - 2 - k;
+        const t = y * width + x;
+        if (rockable(w, t)) { w.terrain[t] = Terrain.Rock; w.district[t] = 0; }
+      }
     }
     return;
   }
 
   if (kind === "lakeside") {
     // ---- THE LAKE TOWN (§2A): a big water body right at the town's edge ----
-    const side = town.cx <= width / 2 ? 1 : -1;
-    const lakeR = 14 + nextRange(rng, 5);
-    const lx = town.cx + side * (town.r + lakeR - 2);
-    const ly = town.cy + (nextRange(rng, 2) === 0 ? -1 : 1) * nextRange(rng, 6);
-    organicBlob(w, rng, Math.max(16, Math.min(width - 17, lx)), Math.max(16, Math.min(height - 17, ly)), lakeR, Terrain.Lake);
+    // (the lake itself is stamped before the town is built — placeTownLake)
     if (riverPath) connectLakesToRiver(w, riverPath);
 
     // Hydrological buffer invariant: ensure 1-tile grass margin between water and crops/buildings
@@ -1591,7 +1940,188 @@ function applyTownArchetype(
         cabins++;
       }
     }
+    // Stage 2b: a MARINA (2-wide deck with slips) and a small DOCK off the
+    // town shore, where the water runs out open and deep enough
+    let built = 0;
+    for (let t = 0; t < w.terrain.length && built < 2; t++) {
+      if (w.terrain[t] !== Terrain.Grass && !(w.terrain[t] === Terrain.Citizen && w.lot[t] === 0)) continue;
+      const x = t % width, y = (t / width) | 0;
+      if ((x - town.cx) ** 2 + (y - town.cy) ** 2 > (town.r + 8) ** 2) continue;
+      for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) {
+        if (buildPier(w, x, y, dx, dy, built === 0 ? 4 : 3, Lot.Dock, built === 0) >= 0) { built++; break; }
+      }
+    }
     return;
+  }
+}
+
+/** Open country a ridge/mesa may claim: never roads, rail, water, town or landmarks (or their edges). */
+function rockable(w: World, t: number): boolean {
+  const tr = w.terrain[t];
+  if (tr !== Terrain.Grass && tr !== Terrain.Field && tr !== Terrain.Orchard && tr !== Terrain.Pasture && tr !== Terrain.Woods) return false;
+  if (w.landmark[t] !== 0) return false;
+  const x = t % w.width;
+  const y = (t / w.width) | 0;
+  for (let oy = -1; oy <= 1; oy++) {
+    for (let ox = -1; ox <= 1; ox++) {
+      const nx = x + ox;
+      const ny = y + oy;
+      if (nx < 0 || ny < 0 || nx >= w.width || ny >= w.height) continue;
+      const n = ny * w.width + nx;
+      const nt = w.terrain[n];
+      if (nt === Terrain.Road || nt === Terrain.Dirt || nt === Terrain.Rail || nt === Terrain.Lake || nt === Terrain.Citizen || w.landmark[n] !== 0) return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * MOUNTAIN VALLEY (Stage 2): two rock ridges wall the town in along its long
+ * axis. Per column the valley floor spans the town's own extent plus a
+ * margin (a minimum floor where the town ends); beyond it comes a forest
+ * skirt, then 7–14 tiles of Rock, then forested high country. Roads, rail
+ * and water are never rocked — they read as passes and gorges.
+ */
+function raiseRidges(w: World, rng: RngState, town: TownShape): void {
+  const { width, height } = w;
+  const top = new Int32Array(width).fill(town.cy - 6);
+  const bot = new Int32Array(width).fill(town.cy + 6);
+  for (let t = 0; t < w.terrain.length; t++) {
+    if (w.terrain[t] !== Terrain.Citizen || w.district[t] === 0) continue;
+    const x = t % width;
+    const y = (t / width) | 0;
+    if (y < top[x]!) top[x] = y;
+    if (y > bot[x]!) bot[x] = y;
+  }
+  // smooth the valley walls so ridges don't trace every lot
+  const sm = (a: Int32Array, pick: (p: number, q: number) => number): Int32Array => {
+    const o = new Int32Array(width);
+    for (let x = 0; x < width; x++) {
+      let v = a[x]!;
+      for (let k = -4; k <= 4; k++) {
+        const xx = x + k;
+        if (xx >= 0 && xx < width) v = pick(v, a[xx]!);
+      }
+      o[x] = v;
+    }
+    return o;
+  };
+  const T = sm(top, Math.min);
+  const B = sm(bot, Math.max);
+  const p1 = nextRange(rng, 628) / 100;
+  const p2 = nextRange(rng, 628) / 100;
+  for (let x = 0; x < width; x++) {
+    const n1 = Math.round(2 * Math.sin(0.11 * x + p1) + 1.5 * Math.sin(0.27 * x + p2));
+    const thick = 14 + Math.round(4 * Math.sin(0.09 * x + p2));
+    for (let y = 0; y < height; y++) {
+      const t = y * width + x;
+      const dN = T[x]! - 3 + n1 - y; // tiles north of the valley floor
+      const dS = y - (B[x]! + 3 - n1); // tiles south of it
+      const d = Math.max(dN, dS);
+      if (d <= 0) continue;
+      // Stage 2b: a wide, ragged transition — forest skirt, then woods and
+      // rock outcrops mixing (scree), then the bare ridge
+      const edge = 4 + ((x * 7 + y * 13) % 3); // ragged rock line
+      if (d <= 2) {
+        if (rockable(w, t) && w.terrain[t] !== Terrain.Woods && nextRange(rng, 100) < 55) {
+          w.terrain[t] = Terrain.Woods; // forest skirt on the lower slopes
+          w.district[t] = 0;
+        }
+      } else if (d <= edge) {
+        if (rockable(w, t)) {
+          const roll = nextRange(rng, 100);
+          const rockOdds = ((d - 2) * 100) / (edge - 1); // rock thickens up the slope
+          w.terrain[t] = roll < rockOdds * 0.6 ? Terrain.Rock : roll < 85 ? Terrain.Woods : w.terrain[t]!;
+          w.district[t] = 0;
+        }
+      } else if (d > 2 + thick) {
+        // high country beyond the crest: timber
+        if (rockable(w, t) && w.terrain[t] !== Terrain.Woods && nextRange(rng, 100) < 70) {
+          w.terrain[t] = Terrain.Woods;
+          w.district[t] = 0;
+        }
+      } else {
+        if (rockable(w, t)) {
+          w.terrain[t] = Terrain.Rock;
+          w.district[t] = 0;
+          w.lot[t] = 0;
+          w.pop[t] = 0;
+        }
+      }
+    }
+  }
+}
+
+/**
+ * LAKESIDE (Stage 2): the lake is laid down before any building, overlapping
+ * the town's edge so the plat wraps its shore — blocks and side streets it
+ * covers become water (the highway survives as a causeway).
+ */
+function placeTownLake(w: World, rng: RngState, town: TownShape): void {
+  const { width, height } = w;
+  // towns stretch along Main St, so the lake hugs the town's LONG side
+  const side = nextRange(rng, 2) === 0 ? -1 : 1; // -1 north, +1 south
+  const lx = town.cx + nextRange(rng, Math.max(1, (town.r * 2) / 3) | 0) - ((town.r / 3) | 0);
+  let edge = town.cy;
+  for (let x = lx - 3; x <= lx + 3; x++) {
+    for (let y = 0; y < height; y++) {
+      if (x < 0 || x >= width) continue;
+      if (w.terrain[y * width + x] !== Terrain.Citizen) continue;
+      edge = side === 1 ? Math.max(edge, y) : Math.min(edge, y);
+    }
+  }
+  const lakeR = Math.max(9, Math.round(Math.min(width, height) * 0.14)) + nextRange(rng, 4);
+  const wasRoad = new Uint8Array(w.terrain.length);
+  for (let t = 0; t < w.terrain.length; t++) if (w.terrain[t] === Terrain.Road) wasRoad[t] = 1;
+  const ly = Math.max(lakeR, Math.min(height - lakeR - 1, edge + side * Math.round(lakeR * 0.45)));
+  organicBlob(w, rng, Math.max(lakeR, Math.min(width - lakeR - 1, lx)), ly, lakeR, Terrain.Lake, (t) => {
+    const tr = w.terrain[t];
+    if (tr === Terrain.Rail) return false;
+    if (tr === Terrain.Road) return !isHighwayTile(w, t);
+    return tr === Terrain.Grass || tr === Terrain.Field || tr === Terrain.Citizen || tr === Terrain.Dirt || tr === Terrain.Woods || tr === Terrain.Orchard || tr === Terrain.Pasture;
+  });
+  // BRIDGES (Stage 2b): a street the lake cut is carried across the gap
+  // (≤ 8 tiles of water) on a bridge — never left as two dead stubs
+  for (const horiz of [true, false]) {
+    const outer = horiz ? height : width;
+    const inner = horiz ? width : height;
+    for (let o = 1; o < outer - 1; o++) {
+      let i = 1;
+      while (i < inner - 1) {
+        const t = horiz ? o * width + i : i * width + o;
+        if (!(wasRoad[t] && w.terrain[t] === Terrain.Lake)) { i++; continue; }
+        let j = i;
+        const at = (k: number): number => (horiz ? o * width + k : k * width + o);
+        while (j < inner - 1 && wasRoad[at(j)] && w.terrain[at(j)] === Terrain.Lake) j++;
+        const before = at(i - 1);
+        const after = at(j);
+        if (j - i <= 8 && w.terrain[before] === Terrain.Road && w.terrain[after] === Terrain.Road)
+          for (let k = i; k < j; k++) { const q = at(k); w.terrain[q] = Terrain.Road; w.lot[q] = 0; w.pop[q] = 0; }
+        i = j + 1;
+      }
+    }
+  }
+  // a road corner the lake cut diagonally gets a short bridge tile, so no
+  // street touches another only at a corner across the water
+  for (let y = 0; y < height - 1; y++)
+    for (let x = 0; x < width - 1; x++) {
+      const a = y * width + x, b = a + 1, c = a + width, d = c + 1;
+      const R = (t: number): boolean => w.terrain[t] === Terrain.Road;
+      const L = (t: number): boolean => w.terrain[t] === Terrain.Lake && w.lot[t] === 0;
+      if (R(a) && R(d) && !R(b) && !R(c)) { if (L(b)) w.terrain[b] = Terrain.Road; else if (L(c)) w.terrain[c] = Terrain.Road; }
+      if (R(b) && R(c) && !R(a) && !R(d)) { if (L(a)) w.terrain[a] = Terrain.Road; else if (L(d)) w.terrain[d] = Terrain.Road; }
+    }
+  // BEACHES: the town-facing shore is sand, not grass right to the water
+  for (let t = 0; t < w.terrain.length; t++) {
+    if (w.terrain[t] !== Terrain.Grass) continue;
+    const x = t % width, y = (t / width) | 0;
+    if ((x - town.cx) ** 2 + (y - town.cy) ** 2 > (town.r + 10) ** 2) continue;
+    let wet = false;
+    for (let dy = -2; dy <= 2 && !wet; dy++) for (let dx = -2; dx <= 2 && !wet; dx++) {
+      const n = (y + dy) * width + x + dx;
+      if (n >= 0 && n < w.terrain.length && Math.abs(dx) + Math.abs(dy) <= 2 && w.terrain[n] === Terrain.Lake) wet = true;
+    }
+    if (wet) w.biome[t] = Biome.Ocean;
   }
 }
 
@@ -1604,9 +2134,9 @@ function applyTownArchetype(
  * street is named. Lots only appear with street access, so blocks fill in
  * along the grid the way a county plat map reads.
  */
-function layoutHighwaysAndTown(w: World, rng: RngState, rScale = 1): TownShape {
+function layoutHighwaysAndTown(w: World, rng: RngState, rScale: number, form: TownForm): TownShape {
   const { width, height } = w;
-  const cx = (width >> 1) + nextRange(rng, 9) - 4;
+  let cx = (width >> 1) + nextRange(rng, 9) - 4;
   const cy = (height >> 1) + nextRange(rng, 9) - 4;
   // town radius scales up if a seed underpopulates (generateWorld retries),
   // but stays capped so the countryside around it never disappears.
@@ -1614,6 +2144,11 @@ function layoutHighwaysAndTown(w: World, rng: RngState, rScale = 1): TownShape {
   // — room for cults to place compounds and assets strategically.
   const base = Math.min(width, height) * 0.28 * rScale;
   const r = Math.max(16, Math.min(Math.floor(Math.min(width, height) * 0.32), Math.floor(base)));
+  // a shore town hugs its coast: the sea edge of the plat sits ~6 tiles in
+  if (form.shore !== 0) {
+    // …and the sea takes the far side of the map: a real coastal strip
+    cx = (width >> 1) - form.shore * Math.round(width * 0.1);
+  }
 
   // lumpy boundary: 12 spokes, radius 0.62r–1.05r, cosine-interpolated
   const SPOKES = 12;
@@ -1629,8 +2164,8 @@ function layoutHighwaysAndTown(w: World, rng: RngState, rScale = 1): TownShape {
   };
   // towns stretch along their highway: squash the north–south axis
   const inTown = (x: number, y: number): boolean => {
-    const dx = x - cx;
-    const dy = (y - cy) * 1.35;
+    const dx = (x - cx) * form.sx;
+    const dy = (y - cy) * form.sy;
     const d = Math.sqrt(dx * dx + dy * dy);
     return d <= radiusAt(Math.atan2(dy, dx));
   };
@@ -1638,7 +2173,7 @@ function layoutHighwaysAndTown(w: World, rng: RngState, rScale = 1): TownShape {
   // the crossing sits OFF the town's center (#14) — real grids grow lopsided
   const highwayY = cy + nextRange(rng, 5) - 2;
   const highwayX = cx + (nextRange(rng, 2) === 0 ? -1 : 1) * (2 + nextRange(rng, 5));
-  const streets: Street[] = traceGridRoads(w, rng, { cx, cy, r, highwayY, highwayX, inTown });
+  const streets: Street[] = traceGridRoads(w, rng, { cx, cy, r, highwayY, highwayX, inTown, gapAdd: form.gapAdd, xReach: (r * 1.25) / form.sx });
   w.streets = streets;
 
   // quarter lobes get random compass directions
@@ -1676,8 +2211,9 @@ function layoutHighwaysAndTown(w: World, rng: RngState, rScale = 1): TownShape {
 
       const dx = x - cx;
       const dy = y - cy;
-      const d = Math.sqrt(dx * dx + dy * dy * 1.8);
-      const edge = d / radiusAt(Math.atan2(dy * 1.35, dx));
+      const edge =
+        Math.sqrt(dx * form.sx * (dx * form.sx) + dy * form.sy * (dy * form.sy)) /
+        radiusAt(Math.atan2(dy * form.sy, dx * form.sx));
       
       let nearHighway = false;
       for (let oy = -2; oy <= 2 && !nearHighway; oy++) {
@@ -1687,32 +2223,70 @@ function layoutHighwaysAndTown(w: World, rng: RngState, rScale = 1): TownShape {
         if (w.terrain[nt] === Terrain.Road && isHighwayTile(w, nt)) nearHighway = true;
       }
 
-      // Zoning Suitability Pass
-      const highwayAccessScore = nearHighway ? 100 : 0;
-      const centerProximityScore = Math.max(0, 100 - (d / (r * 0.5)) * 100);
-      const edgeProximityScore = edge * 100;
-      
-      const isIndustrialTarget = nearHighway && indSide * dx > r * 0.5;
-
-      if (isIndustrialTarget) {
+      // ZONING v3 (Stage 2) — how a 1980s county-seat town actually sorts
+      // itself, from the courthouse out:
+      //   Downtown  — the blocks around the square (near the Main St ×
+      //               county-route crossing) and Main St a block or two out
+      //   Commercial— the highway strip toward the town entrances
+      //               (supermarket, gas, motel, diner) on the non-works side
+      //   Industrial— the highway end on the works side (the rail siding
+      //               joins it after layoutRail — zoneRailIndustry)
+      //   ResHigh   — a single ring of flats/rooming houses hugging downtown
+      //   OldTown   — the pre-war grid around the core
+      //   Suburbs   — the post-war ring beyond it; one lobe is the College
+      //               (school) quarter
+      //   Trailer   — the far fringe, on the works side / along the highway
+      const hdx = x - highwayX;
+      const hdy = y - highwayY;
+      const coreD2 = hdx * hdx + hdy * hdy * 2; // blocks run long on Main St
+      const coreR = Math.max(5, (r * 26) / 100);
+      const worksSide = indSide * dx > 0;
+      if (nearHighway && worksSide && indSide * dx > r * 0.5) {
         w.district[t] = Districts.Industrial;
-      } else if (highwayAccessScore > 50 && centerProximityScore > 60) {
+      } else if (coreD2 <= coreR * coreR || (nearHighway && Math.abs(hdx) <= coreR * 1.6)) {
         w.district[t] = Districts.Downtown;
-      } else if (highwayAccessScore > 50 && centerProximityScore > 30) {
+      } else if (nearHighway) {
         w.district[t] = Districts.Commercial;
-      } else if (centerProximityScore > 40) {
-        w.district[t] = Districts.ResHigh; // Buffer ring
-      } else if (edgeProximityScore > 84) {
+      } else if (coreD2 <= coreR * coreR * 1.8) {
+        w.district[t] = Districts.ResHigh;
+      } else if (edge < 0.62) {
+        w.district[t] = Districts.OldTown;
+      } else if (edge > 0.86 && (worksSide || Math.abs(y - highwayY) <= 6)) {
         w.district[t] = Districts.Trailer;
       } else {
         const sector = sectorOf(dx, dy);
-        w.district[t] =
-          sector === 0 ? Districts.OldTown : sector === 1 ? Districts.College : Districts.Suburbs;
+        w.district[t] = sector === 1 ? Districts.College : Districts.Suburbs;
       }
     }
   }
 
-  return { cx, cy, r, highwayY, highwayX };
+  return { cx, cy, r, highwayY, highwayX, indSide, shore: form.shore };
+}
+
+/**
+ * Zoning v3: industry lines the railroad on the works side of town — lots
+ * within 2 tiles of the track (outside the downtown core) become the
+ * Industrial quarter, so the elevator, warehouses and factory share the
+ * siding instead of scattering. The school/church buffer is enforced later.
+ */
+function zoneRailIndustry(w: World, town: TownShape): void {
+  const { width, height } = w;
+  for (let t = 0; t < w.terrain.length; t++) {
+    if (w.terrain[t] !== Terrain.Citizen || w.district[t] === Districts.Downtown) continue;
+    const x = t % width;
+    const y = (t / width) | 0;
+    if (town.indSide * (x - town.cx) < (town.r * 15) / 100) continue;
+    let nearRail = false;
+    for (let oy = -2; oy <= 2 && !nearRail; oy++) {
+      for (let ox = -2; ox <= 2 && !nearRail; ox++) {
+        const nx = x + ox;
+        const ny = y + oy;
+        if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+        if (w.terrain[ny * width + nx] === Terrain.Rail) nearRail = true;
+      }
+    }
+    if (nearRail) w.district[t] = Districts.Industrial;
+  }
 }
 
 /** A road tile that's part of the 2-lane highway (has a parallel road row). */
@@ -2010,7 +2584,12 @@ function orthogonalizePaths(w: World): void {
     w.terrain[t] === Terrain.Field ||
     w.terrain[t] === Terrain.Orchard ||
     w.terrain[t] === Terrain.Pasture;
+  // last resort (Stage 2 shore/lake towns): an unbuilt town lot gives way
+  const plainLot = (t: number): boolean =>
+    w.terrain[t] === Terrain.Citizen && w.lot[t] === 0 && w.landmark[t] === 0;
   const fill = (t: number, a: number, b: number): void => {
+    w.lot[t] = 0;
+    w.pop[t] = 0;
     w.terrain[t] =
       w.terrain[a] === Terrain.Road && w.terrain[b] === Terrain.Road
         ? Terrain.Road
@@ -2026,11 +2605,15 @@ function orthogonalizePaths(w: World): void {
       if (isPath(a) && isPath(d) && !isPath(b) && !isPath(c)) {
         if (passable(b)) fill(b, a, d);
         else if (passable(c)) fill(c, a, d);
+        else if (plainLot(b)) fill(b, a, d);
+        else if (plainLot(c)) fill(c, a, d);
       }
       // ↙ : b & c are path, a & d open
       if (isPath(b) && isPath(c) && !isPath(a) && !isPath(d)) {
         if (passable(a)) fill(a, b, c);
         else if (passable(d)) fill(d, b, c);
+        else if (plainLot(a)) fill(a, b, c);
+        else if (plainLot(d)) fill(d, b, c);
       }
     }
   }
@@ -2228,6 +2811,30 @@ export function carveDirtLane(w: World, from: number): void {
   }
 }
 
+export function carveRoadLane(w: World, from: number): void {
+  const target = nearestRoad(w, from, 40);
+  if (target < 0) return;
+  const x0 = from % w.width;
+  const y0 = (from / w.width) | 0;
+  const x1 = target % w.width;
+  const y1 = (target / w.width) | 0;
+  const paint = (x: number, y: number): void => {
+    const t = y * w.width + x;
+    const tr = w.terrain[t];
+    if (tr === Terrain.Grass || tr === Terrain.Field || tr === Terrain.Orchard || tr === Terrain.Pasture || tr === Terrain.Dirt) {
+      w.terrain[t] = Terrain.Road;
+    }
+  };
+  const xFirst = ((from * 2654435761) >>> 0) % 2 === 0;
+  if (xFirst) {
+    for (let x = x0; x !== x1; x += Math.sign(x1 - x0)) paint(x, y0);
+    for (let y = y0; y !== y1; y += Math.sign(y1 - y0)) paint(x1, y);
+  } else {
+    for (let y = y0; y !== y1; y += Math.sign(y1 - y0)) paint(x0, y);
+    for (let x = x0; x !== x1; x += Math.sign(x1 - x0)) paint(x, y1);
+  }
+}
+
 export function nearestRoad(w: World, from: number, maxR: number): number {
   const x0 = from % w.width;
   const y0 = (from / w.width) | 0;
@@ -2337,6 +2944,17 @@ function carveRiver(w: World, rng: RngState, town: TownShape): number[] | null {
       w.terrain[t] = Terrain.Lake;
       w.lot[t] = Lot.Dam;
     }
+  }
+  // Stage 2b: a proper dam has its POWERHOUSE on the bank at the abutment,
+  // and a road in to it
+  for (const dir of [1, -1]) {
+    const x0 = dir === 1 ? cx_dam + 3 : cx_dam - 4;
+    const t0 = y_dam * width + x0;
+    if (x0 < 2 || x0 + 1 >= width - 2) continue;
+    if (w.terrain[t0] !== Terrain.Grass || w.terrain[t0 + 1] !== Terrain.Grass) continue;
+    for (const t of [t0, t0 + 1]) { w.terrain[t] = Terrain.Citizen; w.district[t] = Districts.Industrial; w.lot[t] = Lot.Powerhouse; w.pop[t] = 2; }
+    carveRoadLane(w, dir === 1 ? t0 + 2 : t0 - 1); // from just outside the powerhouse
+    break;
   }
 
   // TRIBUTARIES (#5): creeks rise in the open country on the RIVER'S side of
@@ -2573,6 +3191,7 @@ function organicBlob(
   by: number,
   r: number,
   kind: Terrain,
+  canPaint: (t: number) => boolean = (t) => w.terrain[t] === Terrain.Grass || w.terrain[t] === Terrain.Field,
 ): void {
   const { width, height } = w;
   // three harmonics give a lumpy-but-coherent outline
@@ -2606,7 +3225,7 @@ function organicBlob(
       const margin = rim - dist;
       if (margin < 0) continue;
       const t = y * width + x;
-      if (w.terrain[t] !== Terrain.Grass && w.terrain[t] !== Terrain.Field) continue;
+      if (!canPaint(t)) continue;
       if (kind === Terrain.Woods && w.biome[t] === Biome.Desert) continue;
       if (kind === Terrain.Woods) {
         // thinning canopy near the rim: chance scales with depth
@@ -2617,6 +3236,8 @@ function organicBlob(
       }
       w.terrain[t] = kind;
       w.district[t] = Districts.None;
+      w.lot[t] = 0;
+      w.pop[t] = 0;
     }
   }
 }
@@ -2728,8 +3349,7 @@ function placeNature(w: World, rng: RngState, town: TownShape, riverPath: number
 }
 
 /** Residents per lot + susceptibility (§2). Street-front lots run denser. */
-function rollLots(w: World, rng: RngState): void {
-  const { width, height } = w;
+function rollLots(w: World, rng: RngState, sparse = false): void {
   for (let t = 0; t < w.terrain.length; t++) {
     if (w.terrain[t] !== Terrain.Citizen) {
       w.pop[t] = 0;
@@ -2750,27 +3370,21 @@ function rollLots(w: World, rng: RngState): void {
       continue;
     }
 
-    const x = t % width;
-    const y = (t / width) | 0;
-    // Detached-lot spacing: in the low-density residential districts a real
-    // house needs a yard, so a full house can't sit directly beside another
-    // (raster order means west/north neighbors are already finalized). This
-    // gives every home a minimum lot footprint instead of wall-to-wall infill.
-    const lowDensity = d === Districts.Suburbs || d === Districts.OldTown || d === Districts.Trailer;
-    const crowded =
-      lowDensity &&
-      ((x > 0 && w.district[t - 1] === d && w.pop[t - 1]! >= 3) ||
-        (y > 0 && w.district[t - width] === d && w.pop[t - width]! >= 3));
-
-    if (crowded || nextRange(rng, 100) < (YARD_CHANCE[d] ?? 40)) {
-      w.pop[t] = nextRange(rng, 2); // 0–1: a yard, a garden
+    // PLACEMENT GRAMMAR v3 (Stage 2): residential blocks are perimeter
+    // blocks — every street-facing lot is a house fronting its street (the
+    // renderer draws its driveway + curb cut), every interior lot a backyard.
+    // Desert towns stay sparse: a third of the frontage is vacant lots.
+    const facing = fronts(w, t);
+    if (RESIDENTIAL_DISTRICTS.has(d)) {
+      if (facing && !(sparse && nextRange(rng, 100) < 35)) {
+        w.pop[t] = Math.min(15, Math.max(3, lo + nextRange(rng, Math.max(1, hi - lo + 1))));
+      } else {
+        w.pop[t] = 1 + nextRange(rng, 2); // backyard / vacant lot
+      }
+    } else if (nextRange(rng, 100) < (YARD_CHANCE[d] ?? 40)) {
+      w.pop[t] = nextRange(rng, 2); // a yard, a garden
     } else {
       let pop = lo + nextRange(rng, Math.max(1, hi - lo + 1));
-      const facing =
-        (x > 0 && w.terrain[t - 1] === Terrain.Road) ||
-        (x < width - 1 && w.terrain[t + 1] === Terrain.Road) ||
-        (y > 0 && w.terrain[t - width] === Terrain.Road) ||
-        (y < height - 1 && w.terrain[t + width] === Terrain.Road);
       if (facing) pop += 1;
       w.pop[t] = Math.min(15, Math.max(1, pop));
     }
@@ -2798,11 +3412,36 @@ function placeLandmarks(w: World, town: TownShape): void {
     w.landmark[t] = kind;
     if (!wantCitizen) carveDirtLane(w, t); // country landmarks get an access lane
   };
-  place(Landmark.TownHall, town.cx, town.cy, true);
-  place(Landmark.Megachurch, town.cx + town.r - 2, town.cy + 3, true);
-  place(Landmark.Fairground, town.cx - town.r + 2, town.cy - 3, true);
-  place(Landmark.RadioTower, Math.floor(w.width * 0.15), Math.floor(w.height * 0.15), false);
-  place(Landmark.WaterTower, Math.floor(w.width * 0.85), Math.floor(w.height * 0.85), false);
+  const court = courthouseCentre(w);
+  if (court >= 0) w.landmark[court] = Landmark.TownHall;
+  else place(Landmark.TownHall, town.cx, town.cy, true);
+  // Stage 2: landmarks are real compounds at real scale (footprints.ts);
+  // the landmark id sits on the compound's anchor tile
+  const compound = (kind: number, lot: number, x: number, y: number, inTown: boolean, pop: number): void => {
+    // micro test grids (< 48²) keep 1-tile landmarks: a compound would fill the town
+    const a = w.width >= 48 && w.height >= 48 ? placeLandmarkCompound(w, kind, lot, x, y, inTown, pop) : -1;
+    if (a < 0) { place(kind, x, y, inTown); return; }
+    if (lot === Lot.Megachurch) parkBeside(w, Lot.Megachurch, 6, 3); // its huge lot
+    if (inTown) return;
+    // country compounds: the access lane leaves from the gate side nearest a
+    // road, so it never cuts across the compound itself
+    let gate = -1, gateD = Infinity;
+    for (let t = 0; t < w.lot.length; t++) {
+      if (w.lot[t] !== lot) continue;
+      for (const n of [t - 1, t + 1, t - w.width, t + w.width]) {
+        if (n < 0 || n >= w.lot.length || w.lot[n] === lot || w.terrain[n] === Terrain.Lake) continue;
+        const r = nearestRoad(w, n, 30);
+        if (r < 0) continue;
+        const d = Math.abs((r % w.width) - (n % w.width)) + Math.abs(((r / w.width) | 0) - ((n / w.width) | 0));
+        if (d < gateD) { gateD = d; gate = n; }
+      }
+    }
+    if (gate >= 0) carveDirtLane(w, gate);
+  };
+  compound(Landmark.Megachurch, Lot.Megachurch, town.cx + town.r - 2, town.cy + 3, true, 5);
+  compound(Landmark.Fairground, Lot.Fairground, town.cx - town.r + 2, town.cy - 3, true, 2);
+  compound(Landmark.RadioTower, Lot.RadioTower, Math.floor(w.width * 0.15), Math.floor(w.height * 0.15), false, 2);
+  compound(Landmark.WaterTower, Lot.WaterTower, Math.floor(w.width * 0.85), Math.floor(w.height * 0.85), false, 1);
 }
 
 function nearestOf(w: World, from: number, terrain: number): number {
@@ -2850,6 +3489,8 @@ function pruneAllDeadEnds(w: World): void {
           for (let dx = -1; dx <= 1 && !serves; dx++) {
             const n = (y + dy) * width + (x + dx);
             if (w.terrain[n] === Terrain.Citizen || w.landmark[n] !== 0) serves = true;
+            // a farm lane ending at its field is field access, not a dead end
+            if (w.terrain[t] === Terrain.Dirt && (w.terrain[n] === Terrain.Field || w.terrain[n] === Terrain.Orchard || w.terrain[n] === Terrain.Pasture)) serves = true;
           }
         }
         if (serves) continue;

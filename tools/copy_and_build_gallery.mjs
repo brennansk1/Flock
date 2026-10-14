@@ -1,8 +1,8 @@
 import fs from "fs";
 import path from "path";
 
-const SRC_DIR = "/Users/brennankelley/.gemini/antigravity-cli/brain/ef6c4a5d-14da-4699-bed4-7d7da720300e/qa_shots";
-const BASE_DEST_DIR = "/Users/brennankelley/Desktop/Projects/Flock/QA gallery";
+const SRC_DIR = process.env.QA_SRC_DIR || "./qa_shots";
+const BASE_DEST_DIR = process.env.QA_DEST_DIR || "./QA gallery";
 
 // Generate timestamp string (e.g. 2026-07-02_21-13-24)
 const now = new Date();

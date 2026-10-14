@@ -86,7 +86,7 @@
 
 ### 3.1 Technical Task Breakdown
 - [x] **Task 2.1: Mathematical Tuning Update (`balance.json`, `balance.ts`, `sim.ts`)** *(COMPLETED)*
-  - Verified and tuned archetype coefficients ($R_0$, Retention, Income, Heat, Growth) per Section 2 of [STRATEGY.md](file:///C:/Users/Brennan%20Kelley/Desktop/Coding%20Projects/Flock%20Tree/STRATEGY.md).
+  - Verified and tuned archetype coefficients ($R_0$, Retention, Income, Heat, Growth) per Section 2 of [STRATEGY.md](./STRATEGY.md).
   - Applied logistic follower growth archetype scaling directly in `stepEconomy()`.
 - [x] **Task 2.2: Faction Institutional Corruptions (`conversion.ts`, `entities.ts`, `sim.ts`)** *(COMPLETED)*
   - Implemented archetype-specific perks when holding institutions:
@@ -516,7 +516,7 @@ To guarantee that world generation holds its standards across all environments, 
 
 ## 5. Sprint 4: Frontend UI/UX Master Polish & Tactile Readability
 
-**Objective:** Overhaul the DOM HUD and client renderer ([hud.ts](file:///C:/Users/Brennan%20Kelley/Desktop/Coding%20Projects/Flock%20Tree/packages/client/src/hud.ts)) to give players clear, beautiful, and tactile feedback for building control, decrees, monopolies, and incoming threats.
+**Objective:** Overhaul the DOM HUD and client renderer ([hud.ts](./packages/client/src/hud.ts)) to give players clear, beautiful, and tactile feedback for building control, decrees, monopolies, and incoming threats.
 
 ### 5.1 Technical Task Breakdown
 - [x] **Task 4.1: The Compact Active Status Ribbon & Institutional Tray (`hud.ts`)**

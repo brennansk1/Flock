@@ -229,7 +229,7 @@ for (let f = 0; f < NUM_FRAMES; f++) {
 console.log("Quantizing palette across 24 animation frames...");
 const { palette, indexFrames } = quantizePalette(rgbaFrames, renderW, renderH);
 
-const artifactDir = "C:\\Users\\Brennan Kelley\\.gemini\\antigravity-cli\\brain\\5896231d-966e-47bf-8a08-6f888bf1f049";
+const artifactDir = process.env.ARTIFACT_DIR || "./qa_shots";
 const gifPath = join(artifactDir, "animated_water_and_town.gif");
 
 writeGIF(gifPath, renderW, renderH, palette, indexFrames, 12);

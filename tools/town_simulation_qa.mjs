@@ -14,7 +14,7 @@ function writePNG(filePath, width, height, rgba) {
   fs.writeFileSync(filePath, Buffer.concat([Buffer.from([0x89,0x50,0x4e,0x47,0x0d,0x0a,0x1a,0x0a]), chunk("IHDR", ihdr), chunk("IDAT", deflateSync(raw, { level: 9 })), chunk("IEND", Buffer.alloc(0))]));
 }
 
-const artifactsDir = "C:/Users/Brennan Kelley/.gemini/antigravity-cli/brain/5896231d-966e-47bf-8a08-6f888bf1f049";
+const artifactsDir = process.env.ARTIFACT_DIR || "./qa_shots";
 const galleryDir = "QA gallery";
 
 if (!fs.existsSync(artifactsDir)) fs.mkdirSync(artifactsDir, { recursive: true });
